@@ -128,6 +128,11 @@ pre .c { color: var(--dim); }
     Pre-built binaries &mdash; no Rust or build tools required.
   </p>
 
+  <div class="note" style="margin:0 auto 24px;max-width:700px;text-align:left;padding:12px 16px;">
+    <strong>Important:</strong> This is a <strong>command-line program</strong>, not a desktop app. After downloading, open <strong>Terminal</strong> (macOS/Linux) or <strong>PowerShell</strong> (Windows) and follow the setup instructions below.
+    Do <strong>not</strong> double-click the file &mdash; it will not open in Finder/Explorer.
+  </div>
+
   <!-- ===== Download Cards ===== -->
   <div class="download-grid">
 
@@ -208,18 +213,26 @@ pre .c { color: var(--dim); }
     <!-- Linux instructions -->
     <div class="os-content active" id="os-linux">
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Download the binary</h4></div>
-        <p>Download from the button above, or use the terminal:</p>
-        <pre>curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64
+        <div class="step-header"><span class="step-num">1</span><h4>Open Terminal &amp; go to Downloads</h4></div>
+        <p>Open your terminal and navigate to the folder where the file was downloaded:</p>
+        <pre>cd ~/Downloads</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Download &amp; make executable</h4></div>
+        <p>If you already clicked the Download button above, just make it executable. Otherwise download via terminal:</p>
+        <pre><span class="c"># Download (skip if you used the button above)</span>
+curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64
+
+<span class="c"># Make it executable</span>
 chmod +x pichain-miner-linux-x86_64</pre>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Generate a wallet</h4></div>
+        <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
         <pre>./pichain-miner-linux-x86_64 --keypair wallet.json --generate-keypair</pre>
         <p style="margin-top:8px;">This creates <code style="color:var(--cyan);">wallet.json</code> with your keypair. Keep this file safe!</p>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">3</span><h4>Start mining</h4></div>
+        <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
         <pre>./pichain-miner-linux-x86_64 \
   --keypair wallet.json \
   --rpc-url https://pichain.net \
@@ -231,26 +244,34 @@ chmod +x pichain-miner-linux-x86_64</pre>
     <!-- macOS instructions -->
     <div class="os-content" id="os-macos">
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Download the binary</h4></div>
-        <p>Download from the button above, or use the terminal:</p>
-        <pre><span class="c"># Apple Silicon (M1/M2/M3/M4)</span>
+        <div class="step-header"><span class="step-num">1</span><h4>Open Terminal &amp; go to Downloads</h4></div>
+        <p>Open <strong>Terminal</strong> (press <code style="color:var(--cyan);">Cmd + Space</code>, type "Terminal", press Enter) and run:</p>
+        <pre>cd ~/Downloads</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Make it executable &amp; allow it</h4></div>
+        <p>If you already clicked the Download button above, the file is in ~/Downloads. Run:</p>
+        <pre><span class="c"># Make it executable</span>
+chmod +x pichain-miner-macos-arm64
+
+<span class="c"># Remove macOS quarantine</span>
+xattr -d com.apple.quarantine pichain-miner-macos-arm64
+
+<span class="c"># Sign it (required on Apple Silicon — without this macOS kills the process)</span>
+codesign --sign - --force pichain-miner-macos-arm64</pre>
+        <div class="note">
+          <strong>Don't have it yet?</strong> Download via terminal instead:<br>
+          <pre style="margin-top:6px;margin-bottom:0;"><span class="c"># Apple Silicon (M1/M2/M3/M4)</span>
 curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64
 
 <span class="c"># Intel Mac</span>
 curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-x86_64</pre>
-      </div>
-      <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Make it executable &amp; allow it</h4></div>
-        <pre>chmod +x pichain-miner-macos-arm64</pre>
-        <div class="note">
-          <strong>macOS Gatekeeper:</strong> The first time you run the binary, macOS may block it.
-          Right-click the file &rarr; Open, or run:
-          <pre style="margin-top:6px;margin-bottom:0;">xattr -d com.apple.quarantine pichain-miner-macos-arm64</pre>
         </div>
       </div>
       <div class="step-card">
         <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
         <pre>./pichain-miner-macos-arm64 --keypair wallet.json --generate-keypair</pre>
+        <p style="margin-top:8px;">This creates <code style="color:var(--cyan);">wallet.json</code> with your keypair. Keep this file safe!</p>
       </div>
       <div class="step-card">
         <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
@@ -258,6 +279,7 @@ curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pic
   --keypair wallet.json \
   --rpc-url https://pichain.net \
   --profile desktop</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores)</p>
       </div>
     </div>
 

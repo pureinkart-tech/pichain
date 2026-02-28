@@ -51,6 +51,10 @@ jobs:
         if: runner.os != 'Windows'
         run: cp target/${{ matrix.target }}/release/pichain-miner ${{ matrix.artifact }}
 
+      - name: Ad-hoc sign macOS binary
+        if: runner.os == 'macOS'
+        run: codesign --sign - --force ${{ matrix.artifact }}
+
       - name: Rename binary (Windows)
         if: runner.os == 'Windows'
         run: cp target/${{ matrix.target }}/release/pichain-miner.exe ${{ matrix.artifact }}
