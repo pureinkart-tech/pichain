@@ -12,6 +12,7 @@ members = [
     "crates/pichain-node",
     "tools/pichain-cli",
     "tools/pichain-miner",
+    "tools/pichain-miner-gui",
 ]
 
 [workspace.package]

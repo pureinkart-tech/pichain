@@ -1,0 +1,32 @@
+{
+  "productName": "PIChain Miner",
+  "version": "0.1.0",
+  "identifier": "net.pichain.miner",
+  "build": {
+    "frontendDist": "./ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "PIChain Miner",
+        "width": 860,
+        "height": 720,
+        "resizable": true,
+        "minWidth": 640,
+        "minHeight": 520
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}
