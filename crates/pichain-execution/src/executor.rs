@@ -2701,15 +2701,15 @@ mod tests {
             AccountState::with_balance(10 * 1_000_000_000),
         );
 
-        // Submit too few digits (below min_digits_per_proof = 100)
-        let digits = pichain_mining::BbpComputer::compute_hex_digits(0, 10);
+        // Submit too few digits (below min_digits_per_proof = 10)
+        let digits = pichain_mining::BbpComputer::compute_hex_digits(0, 5);
 
         let tx_data = pichain_types::transaction::TransactionData {
             sender: miner_kp.address(),
             nonce: 0,
             kind: TransactionKind::MiningProof {
                 start_position: 0,
-                digit_count: 10,
+                digit_count: 5,
                 digits,
                 proof: vec![],
                 pow_nonce: 0,

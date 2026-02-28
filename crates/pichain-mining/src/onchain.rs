@@ -87,7 +87,7 @@ impl MiningProcessor {
             reward_calc: RewardCalculator::new(),
             difficulty: DifficultyAdjuster::new(),
             max_digits_per_proof: 1_000_000, // 1M hex digits max
-            min_digits_per_proof: 100,        // 100 hex digits min
+            min_digits_per_proof: 10,         // 10 hex digits min (browser-friendly)
             max_digit_position: 10_000_000_000, // 10B max position (prevents BBP DoS)
             current_height: 0,
             block_timestamp_ms: 0,
@@ -714,7 +714,7 @@ mod tests {
     fn reject_too_few_digits() {
         let mut processor = configured_processor();
 
-        let digits = BbpComputer::compute_hex_digits(0, 10);
+        let digits = BbpComputer::compute_hex_digits(0, 5);
         let proof = MiningProof::new(0, digits, Address([1; 20]), 0);
 
         let result = processor.process_proof(&proof, &[0u8; 32]);
