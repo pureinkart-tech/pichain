@@ -108,6 +108,28 @@ a:hover { text-decoration: underline; }
 /* Note */
 .note { background: rgba(251,191,36,0.05); border-left: 3px solid var(--gold); padding: 14px 18px; border-radius: 0 12px 12px 0; font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 16px; }
 
+/* Network status banner */
+.net-banner { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.net-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+.net-stat .val { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.net-stat .lbl { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.net-stat .val.accent { color: var(--accent-light); }
+.net-stat .val.cyan { color: var(--cyan); }
+.net-stat .val.green { color: var(--green); }
+.net-stat .val.gold { color: var(--gold); }
+
+/* Round progress */
+.round-progress { margin-top: 12px; }
+.round-bar-track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.round-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); border-radius: 3px; transition: width 0.3s; }
+.round-info { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-top: 4px; }
+
+/* Tip banner */
+.tip-banner { background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.2); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.tip-banner .tip-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+.tip-banner a { color: var(--accent-light); text-decoration: underline; cursor: pointer; }
+.tip-banner strong { color: var(--text); }
+
 /* CLI Guide */
 .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 16px; }
 .step-header { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
@@ -167,10 +189,11 @@ pre .c { color: var(--dim); }
     <div class="nav-links">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
+      <a href="/dashboard">Dashboard</a>
       <a href="/mining">Mining</a>
       <a href="/faucet">Faucet</a>
-      <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
       <a href="/launch">Launch</a>
+      <a href="/download">Download</a>
       <a href="/mine" class="active">Start Mining</a>
     </div>
   </div>
@@ -185,9 +208,18 @@ pre .c { color: var(--dim); }
   <!-- ==================== BROWSER MINER TAB ==================== -->
   <div class="tab-content active" id="tab-browser">
 
+    <!-- Live Network Stats Banner -->
+    <div class="net-banner" id="net-banner">
+      <div class="net-stat"><div class="val cyan" id="n-frontier">--</div><div class="lbl">Frontier</div></div>
+      <div class="net-stat"><div class="val green" id="n-miners">--</div><div class="lbl">Miners</div></div>
+      <div class="net-stat"><div class="val gold" id="n-reward">--</div><div class="lbl">Reward/Digit</div></div>
+      <div class="net-stat"><div class="val accent" id="n-height">--</div><div class="lbl">Block Height</div></div>
+      <div class="net-stat"><div class="val" id="n-difficulty">--</div><div class="lbl">Difficulty</div></div>
+    </div>
+
     <div id="wallet-setup" class="card" style="text-align:center;">
       <h3>Create Your Mining Wallet</h3>
-      <p style="color:var(--muted);margin-bottom:20px;">Generate a wallet to start mining. Your private key stays in your browser.</p>
+      <p style="color:var(--muted);margin-bottom:20px;">Generate a wallet to start mining. Your private key stays in your browser &mdash; never sent anywhere.</p>
       <button class="btn btn-success" onclick="createWallet()">Create Wallet</button>
       <div style="margin-top:12px;">
         <button class="btn btn-secondary" onclick="showImportModal()">Import Existing Wallet</button>
@@ -195,6 +227,16 @@ pre .c { color: var(--dim); }
     </div>
 
     <div id="wallet-info" style="display:none;">
+      <!-- Tip Banner -->
+      <div class="tip-banner" id="tip-banner">
+        <span class="tip-icon">&#x1f4a1;</span>
+        <div>
+          <strong>Browser mining is great for trying out PIChain.</strong> For 10-50x more speed,
+          download the <a onclick="switchTab('cli');return false;">CLI miner</a> (native Rust binary).
+          Monitor all mining activity on the <a href="/dashboard">live dashboard</a>.
+        </div>
+      </div>
+
       <div class="card-row">
         <div class="card">
           <h3>Your Wallet</h3>
@@ -230,8 +272,17 @@ pre .c { color: var(--dim); }
               </select>
             </div>
           </div>
-          <div style="margin-top:16px;">
+          <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
             <button class="btn btn-success" id="mine-btn" onclick="toggleMining()" disabled>Start Mining</button>
+          </div>
+          <!-- Round progress -->
+          <div class="round-progress" id="round-progress" style="display:none;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Round <span id="rp-round">0</span></div>
+            <div class="round-bar-track"><div class="round-bar-fill" id="rp-bar" style="width:0%"></div></div>
+            <div class="round-info">
+              <span id="rp-detail">Computing...</span>
+              <span id="rp-time">0s</span>
+            </div>
           </div>
         </div>
       </div>
@@ -244,13 +295,11 @@ pre .c { color: var(--dim); }
       </div>
 
       <div class="card">
-        <h3>Mining Log</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3 style="margin:0;">Mining Log</h3>
+          <a href="/dashboard" style="font-size:12px;color:var(--accent-light);">Open Dashboard &rarr;</a>
+        </div>
         <div class="log-container" id="log"></div>
-      </div>
-
-      <div class="note">
-        Browser mining uses JavaScript Web Workers and is slower than the native CLI miner.
-        For maximum performance, use the <span style="cursor:pointer;color:var(--accent-light);text-decoration:underline;" onclick="switchTab('cli')">CLI miner</span>.
       </div>
     </div>
   </div>
@@ -804,12 +853,12 @@ let totalDigits=0, totalProofs=0, totalEarned=0, miningStartTime=0, pendingWorke
 let currentStatus=null;
 let proofsAccepted=0, proofsConfirmed=0, proofsFailed=0;
 let miningStartBalance=0;
-// Browser miners compute AHEAD of the frontier to avoid racing with CLI miners.
-// Each browser miner gets a unique lane based on address hash.
 let browserMiningPosition=0;
+let roundStartTime=0, roundDigitsTotal=0, roundDigitsDone=0;
 
 function addLog(msg,type=''){
   const el=document.getElementById('log');
+  if(!el)return;
   const ts=new Date().toLocaleTimeString();
   const div=document.createElement('div');
   div.className='log-entry '+type;
@@ -820,7 +869,6 @@ function addLog(msg,type=''){
 
 function updateStats(){
   document.getElementById('s-digits').textContent=totalDigits.toLocaleString();
-  // Show confirmed/pending/failed breakdown
   const pending=proofsAccepted-proofsConfirmed-proofsFailed;
   let proofText=proofsConfirmed.toString();
   if(pending>0)proofText+=' (+'+pending+' pending)';
@@ -831,6 +879,44 @@ function updateStats(){
   document.getElementById('s-speed').textContent=elapsed>0?(totalDigits/elapsed).toFixed(1):'0';
 }
 
+// Network stats polling (runs always, not just while mining)
+async function refreshNetStats(){
+  try{
+    const [sr,ir]=await Promise.all([
+      fetch(API+'/api/v1/mining/status'),
+      fetch(API+'/api/v1/info')
+    ]);
+    const m=await sr.json();
+    const info=await ir.json();
+    currentStatus=m;
+    document.getElementById('n-frontier').textContent=Number(m.frontier_position).toLocaleString();
+    document.getElementById('n-miners').textContent=m.unique_miners;
+    document.getElementById('n-reward').textContent=(m.reward_per_digit/1e9).toFixed(6);
+    document.getElementById('n-height').textContent=Number(info.block_height).toLocaleString();
+    document.getElementById('n-difficulty').textContent=m.difficulty_bits+'-bit';
+  }catch(e){}
+}
+refreshNetStats();
+setInterval(refreshNetStats,8000);
+
+function updateRoundProgress(done,total){
+  const rp=document.getElementById('round-progress');
+  if(!rp)return;
+  rp.style.display='block';
+  roundDigitsDone=done;
+  const pct=total>0?Math.round(done/total*100):0;
+  document.getElementById('rp-round').textContent=miningRound;
+  document.getElementById('rp-bar').style.width=pct+'%';
+  document.getElementById('rp-detail').textContent='Computing '+done+'/'+total+' digits';
+  const elapsed=((Date.now()-roundStartTime)/1000).toFixed(0);
+  document.getElementById('rp-time').textContent=elapsed+'s';
+}
+
+function hideRoundProgress(){
+  const rp=document.getElementById('round-progress');
+  if(rp)rp.style.display='none';
+}
+
 function toggleMining(){if(isMining)stopMining();else startMining();}
 
 function stopMining(){
@@ -839,6 +925,7 @@ function stopMining(){
   document.getElementById('mine-btn').className='btn btn-success';
   document.getElementById('status-dot').className='status-dot idle';
   document.getElementById('status-text').textContent='Idle';
+  hideRoundProgress();
   addLog('Mining stopped','info');
 }
 
@@ -851,7 +938,7 @@ async function startMining(){
   document.getElementById('mine-btn').textContent='Stop Mining';
   document.getElementById('mine-btn').className='btn btn-danger';
   document.getElementById('status-dot').className='status-dot mining';
-  document.getElementById('status-text').textContent='Mining';
+  document.getElementById('status-text').textContent='Starting...';
   addLog('Mining started','success');
   miningLoop();
 }
@@ -883,11 +970,14 @@ async function miningLoop(){
     }
 
     const position=browserMiningPosition;
-    addLog('Round '+miningRound+': '+batchSize*threadCount+' digits at position '+position.toLocaleString());
+    roundStartTime=Date.now();
+    roundDigitsTotal=batchSize*threadCount;
+    roundDigitsDone=0;
+    updateRoundProgress(0,roundDigitsTotal);
+    addLog('Round '+miningRound+': '+roundDigitsTotal+' digits at position '+position.toLocaleString());
 
     workers.forEach(w=>w.terminate());workers=[];
     pendingWorkers=threadCount;
-    // Advance position for next round (each thread gets batchSize digits)
     browserMiningPosition=position+threadCount*batchSize;
 
     for(let t=0;t<threadCount;t++){
@@ -895,13 +985,18 @@ async function miningLoop(){
       const startPos=position+t*batchSize;
 
       w.onmessage=async function(e){
-        // Handle progress updates from worker
         if(e.data.type==='progress'){
-          document.getElementById('status-text').textContent='Computing... '+e.data.done+'/'+e.data.total+' digits';
+          roundDigitsDone=e.data.done;
+          updateRoundProgress(e.data.done,e.data.total);
+          document.getElementById('status-text').textContent='Computing '+e.data.done+'/'+e.data.total;
           return;
         }
         const{digits,startPosition,count}=e.data;
-        document.getElementById('status-text').textContent='Mining';
+        roundDigitsDone=count;
+        updateRoundProgress(roundDigitsTotal,roundDigitsTotal);
+        const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
+        document.getElementById('status-text').textContent='Submitting proof...';
+        document.getElementById('rp-detail').textContent='Computed in '+roundSec+'s — submitting proof...';
         totalDigits+=count;updateStats();
 
         const anchorHash=hexDecode(currentStatus.anchor_block_hash||'0'.repeat(64));
@@ -934,7 +1029,15 @@ async function miningLoop(){
   }
 }
 
-function checkRoundDone(){if(pendingWorkers<=0&&isMining){updateBalance();setTimeout(miningLoop,1000);}}
+function checkRoundDone(){
+  if(pendingWorkers<=0&&isMining){
+    const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
+    document.getElementById('status-text').textContent='Mining';
+    document.getElementById('rp-detail').textContent='Round completed in '+roundSec+'s';
+    updateBalance();
+    setTimeout(miningLoop,1000);
+  }
+}
 
 // =====================================================================
 // PoW NONCE SEARCH
