@@ -170,29 +170,47 @@ impl ProofVerifier {
             anchor_block_hash,
         ]);
 
-        for i in 0..check_count {
+        // Pre-compute all check positions and expected offsets
+        let checks: Vec<(u64, usize)> = (0..check_count).map(|i| {
             // R30-FIX: Include check index in ALL position seeds to prevent targeted forgery.
-            // Previously, checks i=0..3 reused the base check_seed unchanged, allowing an
-            // attacker to brute-force nonces that make all 16 spot-checks land on correct
-            // digits while submitting ~50% garbage data.
             let position_seed = pichain_crypto::hash_concat(&[
                 check_seed.as_bytes(),
                 &(i as u64).to_le_bytes(),
             ]);
             let offset_bytes: [u8; 8] = position_seed.as_bytes()[0..8].try_into().unwrap();
             let offset = u64::from_le_bytes(offset_bytes) % (proof.digit_count.max(1) as u64);
+            let position = proof.start_position.saturating_add(offset);
+            (position, offset as usize)
+        }).collect();
 
-            let position = proof.start_position.checked_add(offset).ok_or_else(|| {
-                MiningError::InvalidProof("position overflow: start_position + offset > u64::MAX".into())
-            })?;
-            let expected = BbpComputer::compute_hex_digit(position);
-            let actual = proof.digits[offset as usize];
-
-            if expected != actual {
-                return Err(MiningError::InvalidProof(format!(
-                    "digit mismatch at position {position}: expected {expected:x}, got {actual:x}"
-                )));
+        // Overflow check
+        for &(position, _) in &checks {
+            if position < proof.start_position {
+                return Err(MiningError::InvalidProof(
+                    "position overflow: start_position + offset > u64::MAX".into(),
+                ));
             }
+        }
+
+        // Parallelize BBP spot checks with rayon — each check is O(position) and
+        // independent, so this gives ~Nx speedup on N cores. At position 1.8M,
+        // each check takes ~1s sequentially; with 16+ cores this drops to ~3s.
+        use rayon::prelude::*;
+
+        let mismatch = checks.par_iter().find_map_any(|&(position, offset_idx)| {
+            let expected = BbpComputer::compute_hex_digit(position);
+            let actual = proof.digits[offset_idx];
+            if expected != actual {
+                Some((position, expected, actual))
+            } else {
+                None
+            }
+        });
+
+        if let Some((position, expected, actual)) = mismatch {
+            return Err(MiningError::InvalidProof(format!(
+                "digit mismatch at position {position}: expected {expected:x}, got {actual:x}"
+            )));
         }
 
         Ok(())

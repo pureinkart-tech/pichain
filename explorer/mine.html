@@ -773,6 +773,18 @@ function resetWallet(){
   document.getElementById('wallet-info').style.display='none';
 }
 
+// Refresh only balance (safe to call during mining — doesn't touch nonce)
+async function refreshBalance(){
+  if(!walletAddressHex)return;
+  try{
+    const r=await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const d=await r.json();
+    accountBalance=d.balance||0;
+    document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
+  }catch(e){}
+}
+// Full sync: balance + nonce from on-chain state. Only call when NOT mining
+// or when starting a new mining session (before first proof submission).
 async function updateBalance(){
   if(!walletAddressHex)return;
   try{
@@ -931,6 +943,8 @@ function stopMining(){
 
 async function startMining(){
   if(!walletKeypair)return;
+  // Sync nonce from on-chain ONCE before mining starts
+  await updateBalance();
   isMining=true;miningRound=0;miningStartTime=Date.now();
   totalDigits=0;totalProofs=0;totalEarned=0;
   proofsAccepted=0;proofsConfirmed=0;proofsFailed=0;
@@ -939,7 +953,7 @@ async function startMining(){
   document.getElementById('mine-btn').className='btn btn-danger';
   document.getElementById('status-dot').className='status-dot mining';
   document.getElementById('status-text').textContent='Starting...';
-  addLog('Mining started','success');
+  addLog('Mining started (nonce: '+accountNonce+')','success');
   miningLoop();
 }
 
@@ -949,7 +963,7 @@ async function miningLoop(){
   try{
     const sr=await fetch(API+'/api/v1/mining/status');
     currentStatus=await sr.json();
-    await updateBalance();
+    await refreshBalance(); // balance only — nonce managed locally during mining
 
     const batchSize=parseInt(document.getElementById('batch-size').value);
     const threadCount=parseInt(document.getElementById('thread-count').value);
@@ -1069,8 +1083,8 @@ function buildCanonicalBytes(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,cha
 
 async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchorHash){
   const baseFee=currentStatus.base_fee||1000;
-  // Gas limit must be >= estimated_gas (100_000 + digits*100). Add 10% headroom.
-  const gasLimit=Math.ceil((100000+digitCount*100)*1.1);
+  // Gas limit must be >= estimated_gas (10_000 + digits*100). Add 10% headroom.
+  const gasLimit=Math.ceil((10000+digitCount*100)*1.1);
   const chainId=31415;
 
   const canonical=buildCanonicalBytes(
@@ -1109,9 +1123,11 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
 
 // Check a mining proof receipt to see if it actually succeeded on-chain
 async function checkReceipt(txHash,digitCount){
-  const maxRetries=20;
+  // Block production takes ~100s (BBP spot-check verification), poll for up to 4 minutes
+  const maxRetries=80;
+  const interval=3000;
   for(let i=0;i<maxRetries;i++){
-    await new Promise(r=>setTimeout(r,2000));
+    await new Promise(r=>setTimeout(r,interval));
     try{
       const r=await fetch(API+'/api/v1/receipt/'+txHash);
       if(!r.ok)continue;
@@ -1122,19 +1138,21 @@ async function checkReceipt(txHash,digitCount){
           const reward=(currentStatus.reward_per_digit||0)*digitCount;
           totalEarned+=reward;
           totalProofs=proofsConfirmed;
-          updateStats();updateBalance();
+          updateStats();refreshBalance();
           addLog('Proof CONFIRMED! +'+( reward/1e9).toFixed(4)+' PI (tx: '+txHash.slice(0,16)+'...)','success');
         }else{
           proofsFailed++;
           totalProofs=proofsConfirmed;
-          updateStats();updateBalance();
+          updateStats();refreshBalance();
           addLog('Proof FAILED: '+d.status+' (tx: '+txHash.slice(0,16)+'...)','error');
         }
         return;
       }
     }catch(e){}
+    // Show waiting message periodically
+    if(i===10)addLog('Waiting for block inclusion (tx: '+txHash.slice(0,16)+'...) — blocks take ~2 min','info');
   }
-  addLog('Could not confirm proof '+txHash.slice(0,16)+'...','error');
+  addLog('Could not confirm proof after 4 min (tx: '+txHash.slice(0,16)+'...) — may still be pending','error');
 }
 
 // =====================================================================

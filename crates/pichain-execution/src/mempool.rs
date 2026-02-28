@@ -290,28 +290,33 @@ impl TransactionPool {
             self.remove(hash);
         }
 
-        // Update next expected nonces for senders
+        // Update next expected nonces for senders.
+        // Use or_default() to CREATE the SenderQueue if it was deleted by
+        // claim_ready_transactions. Without this, the nonce update is silently
+        // lost, causing the next transaction for this sender to appear "not ready"
+        // (because set_sender_nonce reads a stale value from storage).
         for (sender, &new_nonce) in sender_nonces {
-            if let Some(mut queue) = self.sender_queues.get_mut(sender) {
-                queue.next_nonce = new_nonce;
-                // Remove any transactions with nonce < new_nonce (stale)
-                let stale: Vec<u64> = queue
-                    .txs
-                    .keys()
-                    .take_while(|&&n| n < new_nonce)
-                    .copied()
-                    .collect();
-                for nonce in stale {
-                    if let Some(hash) = queue.txs.remove(&nonce) {
-                        // Get the priority fee before removing to enable O(log n) index removal
-                        let priority_fee = self.transactions.get(&hash)
-                            .map(|p| p.priority_fee);
-                        self.transactions.remove(&hash);
-                        self.known_hashes.remove(&hash);
-                        if let Some(fee) = priority_fee {
-                            let mut idx = self.priority_index.write();
-                            idx.remove(&(fee, hash));
-                        }
+            let mut entry = self.sender_queues.entry(*sender).or_default();
+            // Only advance, never go backwards — prevents stale updates
+            if new_nonce > entry.next_nonce {
+                entry.next_nonce = new_nonce;
+            }
+            // Remove any transactions with nonce < new_nonce (stale)
+            let stale: Vec<u64> = entry
+                .txs
+                .keys()
+                .take_while(|&&n| n < new_nonce)
+                .copied()
+                .collect();
+            for nonce in stale {
+                if let Some(hash) = entry.txs.remove(&nonce) {
+                    let priority_fee = self.transactions.get(&hash)
+                        .map(|p| p.priority_fee);
+                    self.transactions.remove(&hash);
+                    self.known_hashes.remove(&hash);
+                    if let Some(fee) = priority_fee {
+                        let mut idx = self.priority_index.write();
+                        idx.remove(&(fee, hash));
                     }
                 }
             }
@@ -364,11 +369,11 @@ impl TransactionPool {
     }
 
     /// Update the expected nonce for a sender (from on-chain state).
+    /// Uses max() to avoid overwriting a fresher nonce set by remove_committed
+    /// with a stale value from storage that hasn't been persisted yet.
     pub fn set_sender_nonce(&self, sender: Address, nonce: u64) {
-        self.sender_queues
-            .entry(sender)
-            .or_default()
-            .next_nonce = nonce;
+        let mut entry = self.sender_queues.entry(sender).or_default();
+        entry.next_nonce = entry.next_nonce.max(nonce);
     }
 
     /// Get the number of transactions in the pool.

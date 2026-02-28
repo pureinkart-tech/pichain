@@ -569,7 +569,11 @@ impl SignedTransaction {
             TransactionKind::Stake { .. } => 25_000,
             TransactionKind::Unstake { .. } => 25_000,
             TransactionKind::MiningProof { digits, proof, .. } => {
-                100_000u64
+                // Low base gas: mining proofs contribute value to the network by
+                // computing PI digits. Must be profitable even at small batch sizes
+                // (10 digits) for browser miners. At base_fee=1000 and reward_per_digit
+                // ~1,669,750: 10 digits earns ~0.017 PI, gas must be < that.
+                10_000u64
                     .saturating_add((digits.len() as Gas).saturating_mul(100))
                     .saturating_add((proof.len() as Gas).saturating_mul(50))
             }
