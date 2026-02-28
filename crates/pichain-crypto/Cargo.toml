@@ -1,0 +1,15 @@
+[package]
+name = "pichain-crypto"
+version.workspace = true
+edition.workspace = true
+description = "Cryptographic primitives for PIChain: Ed25519, BLS12-381, Blake3, Poseidon"
+
+[dependencies]
+ed25519-dalek.workspace = true
+blst.workspace = true
+blake3.workspace = true
+rand.workspace = true
+serde.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true

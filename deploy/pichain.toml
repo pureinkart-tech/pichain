@@ -1,0 +1,29 @@
+# PIChain Node Configuration
+# Copy this file and customize for your validator.
+
+# Data directory for blockchain storage (RocksDB).
+data_dir = "/var/lib/pichain"
+
+# RPC server listen address (HTTP API + metrics).
+rpc_addr = "0.0.0.0:8314"
+
+# P2P listen address (libp2p multiaddr format).
+p2p_addr = "/ip4/0.0.0.0/tcp/9314"
+
+# Chain ID: 314159 = mainnet, 31415 = devnet.
+chain_id = 31415
+
+# Maximum mempool size (pending transactions).
+max_mempool_size = 100000
+
+# Log level: trace, debug, info, warn, error.
+log_level = "info"
+
+# Bootstrap peers — connect to existing validators.
+# Format: multiaddr strings.
+# Example:
+# bootstrap_peers = [
+#   "/ip4/1.2.3.4/tcp/9314/p2p/12D3KooW...",
+#   "/ip4/5.6.7.8/tcp/9314/p2p/12D3KooW...",
+# ]
+bootstrap_peers = []

@@ -1,0 +1,24 @@
+[package]
+name = "pichain-rpc"
+version.workspace = true
+edition.workspace = true
+description = "REST API server for PIChain"
+
+[dependencies]
+pichain-crypto.workspace = true
+pichain-types.workspace = true
+pichain-storage.workspace = true
+pichain-execution.workspace = true
+pichain-mining.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+dashmap.workspace = true
+futures.workspace = true

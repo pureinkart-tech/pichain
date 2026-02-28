@@ -1,0 +1,9 @@
+target/
+.git/
+*.md
+scripts/
+deploy/prometheus.yml
+docker-compose.yml
+.dockerignore
+.gitignore
+explorer/node_modules/

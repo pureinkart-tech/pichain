@@ -1,0 +1,23 @@
+[Unit]
+Description=PIChain Miner
+After=pichain.service
+Wants=pichain.service
+
+[Service]
+Type=simple
+User=pichain
+Group=pichain
+ExecStart=/usr/local/bin/pichain-miner \
+    --rpc-url http://127.0.0.1:8314 \
+    --keypair /var/lib/pichain/miner-wallet.json \
+    --digits-per-batch 1000 \
+    --chain-id 31415 \
+    --interval-secs 1
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=10
+
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

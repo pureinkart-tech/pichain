@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIChain Mining Dashboard</title>
+<meta name="description" content="Real-time PIChain mining statistics. Track PI digit frontier, mining rewards, and network health.">
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0c1018;
+  --surface: #111827; --surface-2: #1a2236;
+  --border: #1e293b; --border-light: #2d3a52;
+  --text: #e8ecf4; --muted: #8896b0; --dim: #5e6b82;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --cyan: #22d3ee; --green: #34d399; --gold: #fbbf24; --rose: #fb7185;
+  --radius: 16px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; line-height: 1.6; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navbar */
+.navbar {
+  background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  position: sticky; top: 0; z-index: 100;
+}
+.navbar-inner {
+  max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-logo {
+  font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--text); letter-spacing: -0.5px;
+}
+.pi-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  font-size: 20px; font-weight: 900; color: white;
+}
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-links a {
+  color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s;
+}
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-links a.active { color: var(--text); background: rgba(99,102,241,0.12); }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.page-title {
+  font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px;
+}
+.page-desc { color: var(--muted); font-size: 15px; margin-bottom: 32px; }
+.page-desc .live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); animation: pulse 2s infinite; margin-right: 6px;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.grid-wide { grid-template-columns: 1fr; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border-light); }
+.card h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--dim); margin-bottom: 12px; font-weight: 600;
+}
+.card .value { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; }
+.card .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.value.cyan { color: var(--cyan); }
+.value.green { color: var(--green); }
+.value.gold { color: var(--gold); }
+.value.purple { color: var(--accent-light); }
+
+/* Progress bar */
+.bar-outer {
+  width: 100%; height: 28px; background: var(--bg); border-radius: 8px;
+  overflow: hidden; margin-top: 12px;
+}
+.bar-inner {
+  height: 100%; background: linear-gradient(90deg, var(--accent), var(--green));
+  border-radius: 8px; transition: width 1s ease;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 12px; font-size: 12px; font-weight: 700; color: white;
+  min-width: 48px;
+}
+
+/* Info panel */
+.info-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; margin-bottom: 24px;
+}
+.info-panel h3 {
+  font-size: 16px; font-weight: 700; margin-bottom: 16px;
+}
+.info-panel p {
+  color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 12px;
+}
+.info-panel strong { color: var(--text); }
+
+/* Network row */
+.net-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.net-item { text-align: center; padding: 16px; }
+.net-item .label { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.net-item .val { font-size: 22px; font-weight: 800; margin-top: 4px; }
+
+/* CTA */
+.cta-bar {
+  background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(34,211,238,0.05));
+  border: 1px solid rgba(99,102,241,0.15); border-radius: var(--radius);
+  padding: 32px; text-align: center; margin-top: 32px;
+}
+.cta-bar h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+.cta-bar p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white; border: none; padding: 14px 32px; border-radius: 12px;
+  font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer;
+  transition: all 0.25s;
+}
+.btn:hover { transform: translateY(-2px); text-decoration: none; }
+
+@media (max-width: 768px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .net-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/mining" class="active">Mining</a>
+      <a href="/mine">Start Mining</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+  <h1 class="page-title">Mining Dashboard</h1>
+  <p class="page-desc"><span class="live-dot" id="status-dot"></span><span id="status-text">Connecting...</span> &mdash; auto-refreshes every 3s</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>PI Digits Frontier</h3>
+      <div class="value cyan" id="frontier">--</div>
+      <div class="sub">Consecutive hex digits verified on-chain</div>
+    </div>
+    <div class="card">
+      <h3>Total Verified</h3>
+      <div class="value green" id="total-digits">--</div>
+      <div class="sub">Hex digits across all ranges</div>
+    </div>
+    <div class="card">
+      <h3>Mining Reward</h3>
+      <div class="value gold" id="reward-per-digit">--</div>
+      <div class="sub">PI per hex digit computed</div>
+    </div>
+    <div class="card">
+      <h3>Active Miners</h3>
+      <div class="value purple" id="unique-miners">--</div>
+      <div class="sub">Unique addresses that have mined</div>
+    </div>
+    <div class="card">
+      <h3>Proof Ranges</h3>
+      <div class="value" id="total-ranges">--</div>
+      <div class="sub">Mining proofs accepted on-chain</div>
+    </div>
+    <div class="card">
+      <h3>Difficulty</h3>
+      <div class="value green" id="difficulty">--</div>
+      <div class="sub">Fixed minimum PoW &mdash; any machine can mine</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px">
+    <h3>Mining Pool Progress</h3>
+    <div style="font-size:13px;color:var(--muted)">Year 1 Emission: 314,159,265 PI (25% of pool)</div>
+    <div class="bar-outer">
+      <div class="bar-inner" id="pool-bar" style="width:0%">0%</div>
+    </div>
+    <div class="sub" style="margin-top:10px">
+      <span id="pool-mined">0</span> PI mined of 1,256,637,061 PI total mining pool (40% of supply)
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px">
+    <h3 style="margin-bottom:16px">Network Status</h3>
+    <div class="net-grid">
+      <div class="net-item">
+        <div class="label">Block Height</div>
+        <div class="val" id="block-height">--</div>
+      </div>
+      <div class="net-item">
+        <div class="label">Total Burned</div>
+        <div class="val" id="total-burned" style="color:var(--gold)">--</div>
+      </div>
+      <div class="net-item">
+        <div class="label">Mempool</div>
+        <div class="val" id="mempool">--</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="info-panel">
+      <h3>How Mining Works</h3>
+      <p>
+        PIChain miners compute hexadecimal digits of &pi; using the
+        <strong>Bailey-Borwein-Plouffe (BBP)</strong> algorithm.
+        This is useful work &mdash; every proof permanently extends humanity's
+        verified computation of PI.
+      </p>
+      <p>
+        Rewards are proportional to digits computed. A laptop earns less
+        than a server, but <strong style="color:var(--green)">everyone can mine</strong>.
+        No special hardware required.
+      </p>
+    </div>
+    <div class="info-panel">
+      <h3>Emission Schedule</h3>
+      <p>
+        The mining pool contains <strong>1,256,637,061 PI</strong> (40% of total supply).
+        Emissions follow a halving schedule:
+      </p>
+      <p>
+        <strong>Year 1:</strong> 314,159,265 PI (25%)<br>
+        <strong>Year 2:</strong> 251,327,412 PI (20%)<br>
+        <strong>Year 3:</strong> 188,495,559 PI (15%)<br>
+        Remaining distributed over subsequent years.
+      </p>
+    </div>
+  </div>
+
+  <div class="cta-bar">
+    <h3>Start Mining PI</h3>
+    <p>No GPUs. No ASICs. Just math. Join the network in minutes.</p>
+    <a href="/mine" class="btn">Full Mining Guide &rarr;</a>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+async function refresh() {
+  try {
+    const [miningRes, infoRes] = await Promise.all([
+      fetch(API + '/api/v1/mining/status'),
+      fetch(API + '/api/v1/info')
+    ]);
+    const mining = await miningRes.json();
+    const info = await infoRes.json();
+
+    document.getElementById('frontier').textContent = Number(mining.frontier_position).toLocaleString();
+    document.getElementById('total-digits').textContent = Number(mining.total_digits_verified).toLocaleString();
+    document.getElementById('unique-miners').textContent = mining.unique_miners;
+    document.getElementById('total-ranges').textContent = Number(mining.total_ranges).toLocaleString();
+    document.getElementById('difficulty').textContent = mining.difficulty_bits + ' bits (easy)';
+
+    const rpd = mining.reward_per_digit / 1e9;
+    document.getElementById('reward-per-digit').textContent = rpd.toFixed(9) + ' PI';
+
+    const totalPool = 1256637061;
+    const remaining = mining.remaining_pool / 1e9;
+    const mined = totalPool - remaining;
+    const pct = (mined / totalPool * 100);
+    document.getElementById('pool-bar').style.width = Math.max(pct, 0.5) + '%';
+    document.getElementById('pool-bar').textContent = pct.toFixed(4) + '%';
+    document.getElementById('pool-mined').textContent = mined.toLocaleString(undefined, {maximumFractionDigits: 2});
+
+    document.getElementById('block-height').textContent = Number(info.block_height).toLocaleString();
+    document.getElementById('total-burned').textContent = (info.total_burned / 1e9).toFixed(4) + ' PI';
+    document.getElementById('mempool').textContent = info.mempool_size + ' pending';
+
+    document.getElementById('status-dot').style.background = '#34d399';
+    document.getElementById('status-text').textContent = 'Live';
+  } catch (e) {
+    document.getElementById('status-dot').style.background = '#fb7185';
+    document.getElementById('status-text').textContent = 'Offline';
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

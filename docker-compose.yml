@@ -1,0 +1,128 @@
+# PIChain Multi-Validator Docker Compose
+# Usage:
+#   ./scripts/generate-devnet-keys.sh  # Generate configs first
+#   docker compose up -d               # Start 3-validator devnet
+#   docker compose logs -f             # Watch all nodes
+#   docker compose down -v             # Stop and clean up
+#
+# Access:
+#   Node 1 RPC: http://localhost:8314
+#   Node 2 RPC: http://localhost:8315
+#   Node 3 RPC: http://localhost:8316
+#   Explorer:   http://localhost:8314/explorer
+
+services:
+  # --- Validator Nodes ---
+
+  node1:
+    build: .
+    container_name: pichain-node1
+    command:
+      - run
+      - --data-dir=/data
+      - --config=/config/node1.toml
+    ports:
+      - "8314:8314"
+      - "9314:9314"
+    volumes:
+      - node1-data:/data
+      - ./devnet-config/node1.toml:/config/node1.toml:ro
+      - ./devnet-config/keys/node1:/data/keys:ro
+    networks:
+      - pichain-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8314/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  node2:
+    build: .
+    container_name: pichain-node2
+    command:
+      - run
+      - --data-dir=/data
+      - --config=/config/node2.toml
+    ports:
+      - "8315:8314"
+      - "9315:9314"
+    volumes:
+      - node2-data:/data
+      - ./devnet-config/node2.toml:/config/node2.toml:ro
+      - ./devnet-config/keys/node2:/data/keys:ro
+    networks:
+      - pichain-net
+    depends_on:
+      node1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  node3:
+    build: .
+    container_name: pichain-node3
+    command:
+      - run
+      - --data-dir=/data
+      - --config=/config/node3.toml
+    ports:
+      - "8316:8314"
+      - "9316:9314"
+    volumes:
+      - node3-data:/data
+      - ./devnet-config/node3.toml:/config/node3.toml:ro
+      - ./devnet-config/keys/node3:/data/keys:ro
+    networks:
+      - pichain-net
+    depends_on:
+      node1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Miner ---
+
+  miner:
+    build: .
+    container_name: pichain-miner
+    entrypoint: ["pichain-miner"]
+    command:
+      - --rpc-url=http://node1:8314
+      - --keypair=/data/miner-wallet.json
+      - --digits-per-batch=1000
+      - --chain-id=31415
+      - --interval-secs=1
+      - --generate-keypair
+    volumes:
+      - miner-data:/data
+    networks:
+      - pichain-net
+    depends_on:
+      node1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Block Explorer is built into each node at http://node:8314/explorer
+
+  # --- Prometheus Metrics ---
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pichain-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - pichain-net
+    restart: unless-stopped
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+  miner-data:
+
+networks:
+  pichain-net:
+    driver: bridge

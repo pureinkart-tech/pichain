@@ -1,0 +1,38 @@
+# Build artifacts
+/target/
+
+# Production data - keys, state, logs
+/live-data/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+*.log.*
+
+# Private keys and wallets
+*-wallet.json
+*.key
+!*.rs
+
+# Generated files
+PIChain_Investor_Deck.pdf
+
+# Claude Code context (auto-generated)
+.claude/
+CLAUDE.md
+**/CLAUDE.md
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo

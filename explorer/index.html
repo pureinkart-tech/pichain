@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIChain Explorer</title>
+<meta name="description" content="PIChain block explorer. View blocks, transactions, accounts, and mining stats in real-time.">
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0c1018;
+  --surface: #111827; --surface-2: #1a2236;
+  --border: #1e293b; --border-light: #2d3a52;
+  --text: #e8ecf4; --muted: #8896b0; --dim: #5e6b82;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --cyan: #22d3ee; --green: #34d399; --gold: #fbbf24; --rose: #fb7185;
+  --radius: 16px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; line-height: 1.6; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navbar */
+.navbar {
+  background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  position: sticky; top: 0; z-index: 100;
+}
+.navbar-inner {
+  max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-logo {
+  font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--text); letter-spacing: -0.5px;
+}
+.pi-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  font-size: 20px; font-weight: 900; color: white;
+}
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-links a {
+  color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s;
+}
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-links a.active { color: var(--text); background: rgba(99,102,241,0.12); }
+
+/* Tabs */
+.tabs {
+  display: flex; gap: 4px; margin-bottom: 24px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 4px; width: fit-content;
+}
+.tab {
+  background: transparent; border: none; color: var(--muted); padding: 10px 20px;
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 500;
+  transition: all 0.2s;
+}
+.tab:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.tab.active { background: var(--accent); color: white; }
+
+/* Layout */
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+/* Cards */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border-light); }
+.card h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--dim); margin-bottom: 10px; font-weight: 600;
+}
+.card .value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+.card .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+/* Search */
+.search-bar { display: flex; gap: 8px; margin-bottom: 24px; }
+.search-bar input {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 14px 18px; border-radius: 12px;
+  font-size: 14px; font-family: monospace; transition: border-color 0.2s;
+}
+.search-bar input:focus { outline: none; border-color: var(--accent); }
+.search-bar input::placeholder { color: var(--dim); }
+.search-btn {
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white; border: none; padding: 14px 28px; border-radius: 12px;
+  cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;
+}
+.search-btn:hover { transform: translateY(-1px); }
+
+/* Table */
+.table-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 24px;
+}
+.table-header {
+  padding: 18px 24px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.table-header h2 { font-size: 16px; font-weight: 700; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 14px 24px; text-align: left; border-bottom: 1px solid rgba(30,41,59,0.5); font-size: 14px; }
+th { color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+td { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(99,102,241,0.03); }
+tr[onclick] { cursor: pointer; }
+
+/* Detail panel */
+.detail-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; margin-bottom: 24px;
+}
+.detail-panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+.detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 10px 20px; }
+.detail-grid dt { color: var(--dim); font-size: 13px; font-weight: 500; }
+.detail-grid dd { font-family: monospace; font-size: 13px; word-break: break-all; }
+
+/* Form */
+.form-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; margin-bottom: 24px;
+}
+.form-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+.form-row { display: flex; gap: 12px; margin-bottom: 14px; align-items: center; }
+.form-row label { min-width: 100px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.form-row input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 12px 16px; border-radius: var(--radius-sm); font-family: monospace; font-size: 13px;
+}
+.form-row input:focus { outline: none; border-color: var(--accent); }
+.btn {
+  background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; border: none;
+  padding: 12px 24px; border-radius: var(--radius-sm); cursor: pointer;
+  font-weight: 600; font-size: 14px; transition: all 0.2s; white-space: nowrap;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-green { background: linear-gradient(135deg, #059669, var(--green)); }
+.btn-outline { background: transparent; border: 1px solid var(--border-light); color: var(--text); }
+.btn-outline:hover { border-color: var(--accent); background: rgba(99,102,241,0.05); }
+
+.result-box {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 18px; margin-top: 16px; font-family: monospace; font-size: 13px;
+  white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* Mining bar */
+.mining-bar { background: var(--bg); border-radius: 6px; height: 28px; overflow: hidden; margin-top: 8px; }
+.mining-fill {
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  height: 100%; border-radius: 6px; transition: width 0.5s;
+  display: flex; align-items: center; padding-left: 12px;
+  font-size: 12px; font-weight: 600; color: white;
+}
+
+/* Status */
+.status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+}
+.status-dot.online { background: var(--green); animation: pulse 2s infinite; }
+.status-dot.offline { background: var(--rose); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+}
+.badge-success { background: rgba(52,211,153,0.12); color: var(--green); }
+.badge-pending { background: rgba(251,191,36,0.12); color: var(--gold); }
+
+/* Pages */
+.page { display: none; }
+.page.active { display: block; }
+
+.mono { font-family: monospace; font-size: 13px; }
+.truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+
+.page-nav { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+
+@media (max-width: 768px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .form-row { flex-direction: column; }
+  .form-row label { min-width: auto; }
+  .tabs { width: 100%; overflow-x: auto; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer" class="active">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine">Start Mining</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="showPage('dashboard', this)">Dashboard</button>
+  <button class="tab" onclick="showPage('blocks', this)">Blocks</button>
+  <button class="tab" onclick="showPage('wallet', this)">Wallet</button>
+  <button class="tab" onclick="showPage('txs', this)">Transactions</button>
+  <button class="tab" onclick="showPage('mining', this)">Mining</button>
+  <button class="tab" onclick="showPage('faucet', this)">Faucet</button>
+</div>
+
+<!-- SEARCH BAR -->
+<div class="search-bar">
+  <input id="searchInput" placeholder="Search by block height, tx hash, or address..." onkeydown="if(event.key==='Enter')doSearch()">
+  <button class="search-btn" onclick="doSearch()">Search</button>
+</div>
+
+<!-- ===== DASHBOARD ===== -->
+<div id="page-dashboard" class="page active">
+  <div class="grid">
+    <div class="card">
+      <h3>Block Height</h3>
+      <div class="value" id="stat-height">--</div>
+      <div class="sub"><span class="status-dot online" id="status-dot"></span><span id="stat-status">Connecting...</span></div>
+    </div>
+    <div class="card">
+      <h3>Chain ID</h3>
+      <div class="value" id="stat-chain">--</div>
+      <div class="sub" id="stat-network">--</div>
+    </div>
+    <div class="card">
+      <h3>Base Fee</h3>
+      <div class="value" id="stat-fee">--</div>
+      <div class="sub">base units</div>
+    </div>
+    <div class="card">
+      <h3>Total Burned</h3>
+      <div class="value" id="stat-burned" style="color:var(--gold)">--</div>
+      <div class="sub">PI (deflationary)</div>
+    </div>
+    <div class="card">
+      <h3>Mempool</h3>
+      <div class="value" id="stat-mempool">--</div>
+      <div class="sub">pending transactions</div>
+    </div>
+    <div class="card">
+      <h3>Mining Frontier</h3>
+      <div class="value" id="stat-frontier" style="color:var(--cyan)">--</div>
+      <div class="sub"><span id="stat-miners">0</span> unique miners</div>
+    </div>
+    <div class="card">
+      <h3>PI Digits Verified</h3>
+      <div class="value" id="stat-digits" style="color:var(--green)">--</div>
+      <div class="sub" id="stat-reward">--</div>
+    </div>
+    <div class="card">
+      <h3>Node Version</h3>
+      <div class="value" id="stat-version" style="font-size:20px">--</div>
+      <div class="sub" id="stat-uptime">--</div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="table-header"><h2>Recent Blocks</h2></div>
+    <table>
+      <thead><tr><th>Height</th><th>Txs</th><th>Gas Used</th><th>Base Fee</th><th>Time</th></tr></thead>
+      <tbody id="recent-blocks"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== BLOCKS ===== -->
+<div id="page-blocks" class="page">
+  <div class="table-card">
+    <div class="table-header"><h2>Block Explorer</h2></div>
+    <table>
+      <thead><tr><th>Height</th><th>Epoch</th><th>Txs</th><th>Gas Used</th><th>Base Fee</th><th>Burned</th><th>Timestamp</th></tr></thead>
+      <tbody id="block-list"></tbody>
+    </table>
+  </div>
+  <div class="page-nav">
+    <button class="btn btn-outline" onclick="loadBlocks('prev')">Previous</button>
+    <button class="btn btn-outline" onclick="loadBlocks('next')">Next</button>
+  </div>
+  <div id="block-detail" class="detail-panel" style="display:none;margin-top:24px">
+    <h2>Block Details</h2>
+    <dl class="detail-grid" id="block-detail-content"></dl>
+    <div id="block-txs" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- ===== WALLET ===== -->
+<div id="page-wallet" class="page">
+  <div class="form-section">
+    <h2>Account Lookup</h2>
+    <div class="form-row">
+      <label>Address</label>
+      <input id="wallet-addr" placeholder="40-char hex address (no 0x prefix)">
+      <button class="btn" onclick="lookupAccount()">Lookup</button>
+    </div>
+    <div id="wallet-result" class="result-box" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ===== TRANSACTIONS ===== -->
+<div id="page-txs" class="page">
+  <div class="form-section">
+    <h2>Transaction Lookup</h2>
+    <div class="form-row">
+      <label>Tx Hash</label>
+      <input id="tx-hash-input" placeholder="64-char hex transaction hash">
+      <button class="btn" onclick="lookupTx()">Lookup</button>
+    </div>
+    <div id="tx-result" class="result-box" style="display:none"></div>
+  </div>
+  <div class="form-section">
+    <h2>Submit Transaction</h2>
+    <div class="form-row">
+      <label>Signed Tx</label>
+      <input id="submit-tx-hex" placeholder="Hex-encoded signed transaction">
+      <button class="btn btn-green" onclick="submitTx()">Submit</button>
+    </div>
+    <div id="submit-result" class="result-box" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ===== MINING ===== -->
+<div id="page-mining" class="page">
+  <div class="grid">
+    <div class="card">
+      <h3>Frontier Position</h3>
+      <div class="value" id="mine-frontier" style="color:var(--cyan)">--</div>
+    </div>
+    <div class="card">
+      <h3>Total Digits Verified</h3>
+      <div class="value" id="mine-digits" style="color:var(--green)">--</div>
+    </div>
+    <div class="card">
+      <h3>Unique Miners</h3>
+      <div class="value" id="mine-miners">--</div>
+    </div>
+    <div class="card">
+      <h3>Reward Per Digit</h3>
+      <div class="value" id="mine-reward" style="color:var(--gold)">--</div>
+      <div class="sub">base units per hex digit</div>
+    </div>
+  </div>
+  <div class="form-section">
+    <h2>Mining Pool Remaining</h2>
+    <div id="mine-pool-text" style="margin-bottom:8px; color:var(--muted)">--</div>
+    <div class="mining-bar"><div class="mining-fill" id="mine-bar" style="width:100%"></div></div>
+  </div>
+  <div class="form-section">
+    <h2>Start Mining</h2>
+    <p style="color:var(--muted);margin-bottom:16px">
+      Visit the <a href="/mine">full mining guide</a> or run the command below:
+    </p>
+    <div class="result-box">pichain-miner \
+  --rpc-url http://localhost:8314 \
+  --keypair wallet.json \
+  --profile server</div>
+  </div>
+</div>
+
+<!-- ===== FAUCET ===== -->
+<div id="page-faucet" class="page">
+  <div class="form-section">
+    <h2>Devnet Faucet</h2>
+    <p style="color:var(--muted);margin-bottom:20px">
+      Claim 10 PI for testing on devnet (chain_id 31415). One claim per address.
+    </p>
+    <div class="form-row">
+      <label>Address</label>
+      <input id="faucet-addr" placeholder="40-char hex address (no 0x prefix)">
+      <button class="btn btn-green" onclick="claimFaucet()">Claim 10 PI</button>
+    </div>
+    <div id="faucet-result" class="result-box" style="display:none"></div>
+  </div>
+</div>
+
+<!-- SEARCH RESULT -->
+<div id="page-search" class="page">
+  <div class="form-section">
+    <h2>Search Result</h2>
+    <div id="search-result" class="result-box"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+let currentHeight = 0;
+let blockPageStart = 0;
+
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'blocks') loadBlocks('latest');
+  if (name === 'mining') refreshMining();
+}
+
+async function api(path) {
+  const r = await fetch(API + path);
+  return r.json();
+}
+
+function fmtNum(n) { return n != null ? Number(n).toLocaleString() : '--'; }
+function fmtPI(baseUnits) { return (Number(baseUnits) / 1e9).toFixed(4) + ' PI'; }
+function fmtTime(ms) { return ms ? new Date(ms).toLocaleString() : '--'; }
+function truncHash(h, len) { len = len || 12; return (!h || h.length < len*2) ? (h || '--') : h.slice(0, len) + '...' + h.slice(-8); }
+
+async function refreshDashboard() {
+  try {
+    const info = await api('/api/v1/info');
+    currentHeight = info.block_height;
+    document.getElementById('stat-height').textContent = fmtNum(info.block_height);
+    document.getElementById('stat-chain').textContent = info.chain_id;
+    document.getElementById('stat-network').textContent = info.chain_id === 314159 ? 'Mainnet' : 'Devnet';
+    document.getElementById('stat-fee').textContent = fmtNum(info.base_fee);
+    document.getElementById('stat-burned').textContent = fmtPI(info.total_burned);
+    document.getElementById('stat-mempool').textContent = fmtNum(info.mempool_size);
+    document.getElementById('stat-version').textContent = 'v' + info.version;
+    document.getElementById('stat-status').textContent = 'Online';
+    document.getElementById('status-dot').className = 'status-dot online';
+    try {
+      const health = await api('/health');
+      document.getElementById('stat-uptime').textContent = 'Uptime: ' + formatUptime(health.uptime_secs);
+    } catch(e) {}
+    const mining = await api('/api/v1/mining/status');
+    document.getElementById('stat-frontier').textContent = fmtNum(mining.frontier_position);
+    document.getElementById('stat-miners').textContent = fmtNum(mining.unique_miners);
+    document.getElementById('stat-digits').textContent = fmtNum(mining.total_digits_verified);
+    document.getElementById('stat-reward').textContent = fmtNum(mining.reward_per_digit) + ' per digit';
+    await loadRecentBlocks(info.block_height);
+  } catch(e) {
+    document.getElementById('stat-status').textContent = 'Offline';
+    document.getElementById('status-dot').className = 'status-dot offline';
+  }
+}
+
+function formatUptime(secs) {
+  if (secs < 60) return secs + 's';
+  if (secs < 3600) return Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+  return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
+}
+
+async function loadRecentBlocks(height) {
+  const tbody = document.getElementById('recent-blocks');
+  tbody.innerHTML = '';
+  const start = Math.max(0, height - 9);
+  for (let h = height; h >= start; h--) {
+    try {
+      const b = await api('/api/v1/block/' + h);
+      if (!b.found) continue;
+      tbody.innerHTML += `<tr onclick="showBlockDetail(${b.height})">
+        <td>${b.height}</td><td>${b.tx_count}</td><td>${fmtNum(b.gas_used)}</td>
+        <td>${fmtNum(b.base_fee)}</td><td>${fmtTime(b.timestamp_ms)}</td></tr>`;
+    } catch(e) {}
+  }
+}
+
+async function loadBlocks(dir) {
+  if (dir === 'latest') blockPageStart = currentHeight;
+  else if (dir === 'prev') blockPageStart = Math.max(0, blockPageStart - 20);
+  else if (dir === 'next') blockPageStart = Math.min(currentHeight, blockPageStart + 20);
+  const tbody = document.getElementById('block-list');
+  tbody.innerHTML = '';
+  for (let h = blockPageStart; h >= Math.max(0, blockPageStart - 19); h--) {
+    try {
+      const b = await api('/api/v1/block/' + h);
+      if (!b.found) continue;
+      tbody.innerHTML += `<tr onclick="showBlockDetail(${b.height})">
+        <td>${b.height}</td><td>${b.epoch||0}</td><td>${b.tx_count}</td>
+        <td>${fmtNum(b.gas_used)}</td><td>${fmtNum(b.base_fee)}</td>
+        <td>${fmtPI(b.pi_burned||0)}</td><td>${fmtTime(b.timestamp_ms)}</td></tr>`;
+    } catch(e) {}
+  }
+}
+
+async function showBlockDetail(height) {
+  const b = await api('/api/v1/block/' + height);
+  if (!b.found) return;
+  document.getElementById('block-detail').style.display = 'block';
+  document.getElementById('block-detail-content').innerHTML = `
+    <dt>Height</dt><dd>${b.height}</dd>
+    <dt>Epoch</dt><dd>${b.epoch||0}</dd>
+    <dt>Round</dt><dd>${b.round||0}</dd>
+    <dt>Parent Hash</dt><dd class="mono">${b.parent_hash||'--'}</dd>
+    <dt>Tx Root</dt><dd class="mono">${b.tx_root||'--'}</dd>
+    <dt>State Root</dt><dd class="mono">${b.state_root||'--'}</dd>
+    <dt>Proposer</dt><dd class="mono">${b.proposer||'--'}</dd>
+    <dt>Gas Used</dt><dd>${fmtNum(b.gas_used)}</dd>
+    <dt>Base Fee</dt><dd>${fmtNum(b.base_fee)}</dd>
+    <dt>PI Burned</dt><dd>${fmtPI(b.pi_burned||0)}</dd>
+    <dt>Timestamp</dt><dd>${fmtTime(b.timestamp_ms)}</dd>
+    <dt>Transactions</dt><dd>${b.tx_count}</dd>`;
+  const txDiv = document.getElementById('block-txs');
+  if (b.tx_hashes && b.tx_hashes.length > 0) {
+    txDiv.innerHTML = '<h3 style="margin-bottom:8px;font-size:14px;font-weight:600">Transactions</h3>' +
+      b.tx_hashes.map(h => `<div class="mono" style="padding:4px 0"><a href="#" onclick="lookupTxByHash('${h}');return false">${h}</a></div>`).join('');
+  } else {
+    txDiv.innerHTML = '<p style="color:var(--muted);font-size:14px">No transactions in this block</p>';
+  }
+}
+
+async function lookupAccount() {
+  const addr = document.getElementById('wallet-addr').value.replace('0x','').trim();
+  const div = document.getElementById('wallet-result');
+  div.style.display = 'block';
+  try { div.textContent = JSON.stringify(await api('/api/v1/account/' + addr), null, 2); }
+  catch(e) { div.textContent = 'Error: ' + e.message; }
+}
+
+async function lookupTx() {
+  const hash = document.getElementById('tx-hash-input').value.trim();
+  const div = document.getElementById('tx-result');
+  div.style.display = 'block';
+  try { div.textContent = JSON.stringify(await api('/api/v1/tx/' + hash), null, 2); }
+  catch(e) { div.textContent = 'Error: ' + e.message; }
+}
+
+async function lookupTxByHash(hash) {
+  showPage('txs', document.querySelectorAll('.tab')[3]);
+  document.getElementById('tx-hash-input').value = hash;
+  await lookupTx();
+}
+
+async function submitTx() {
+  const hex = document.getElementById('submit-tx-hex').value.trim();
+  const div = document.getElementById('submit-result');
+  div.style.display = 'block';
+  try {
+    const r = await fetch(API + '/api/v1/tx/submit', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({signed_tx_hex: hex})
+    });
+    div.textContent = JSON.stringify(await r.json(), null, 2);
+  } catch(e) { div.textContent = 'Error: ' + e.message; }
+}
+
+async function refreshMining() {
+  try {
+    const m = await api('/api/v1/mining/status');
+    document.getElementById('mine-frontier').textContent = fmtNum(m.frontier_position);
+    document.getElementById('mine-digits').textContent = fmtNum(m.total_digits_verified);
+    document.getElementById('mine-miners').textContent = fmtNum(m.unique_miners);
+    document.getElementById('mine-reward').textContent = fmtNum(m.reward_per_digit);
+    const totalPool = 1256637061 * 1e9;
+    const remaining = m.remaining_pool || 0;
+    const pct = totalPool > 0 ? (remaining / totalPool * 100) : 100;
+    document.getElementById('mine-pool-text').textContent = fmtPI(remaining) + ' remaining (' + pct.toFixed(2) + '%)';
+    document.getElementById('mine-bar').style.width = pct + '%';
+  } catch(e) {}
+}
+
+async function claimFaucet() {
+  const addr = document.getElementById('faucet-addr').value.replace('0x','').trim();
+  const div = document.getElementById('faucet-result');
+  div.style.display = 'block';
+  try {
+    const r = await fetch(API + '/api/v1/faucet', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({address: addr})
+    });
+    const result = await r.json();
+    div.textContent = result.success
+      ? 'Success! Received ' + fmtPI(result.amount) + '\nAddress: ' + result.address
+      : 'Failed: ' + (result.error || 'Unknown error');
+  } catch(e) { div.textContent = 'Error: ' + e.message; }
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim().replace('0x','');
+  if (!q) return;
+  if (/^\d+$/.test(q)) { showPage('blocks', document.querySelectorAll('.tab')[1]); await showBlockDetail(parseInt(q)); return; }
+  if (q.length === 64 && /^[0-9a-fA-F]+$/.test(q)) {
+    const tx = await api('/api/v1/tx/' + q);
+    if (tx.found) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('page-search').classList.add('active');
+      document.getElementById('search-result').textContent = 'Transaction:\n' + JSON.stringify(tx, null, 2);
+      return;
+    }
+  }
+  if (q.length === 40 && /^[0-9a-fA-F]+$/.test(q)) {
+    const acct = await api('/api/v1/account/' + q);
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('page-search').classList.add('active');
+    document.getElementById('search-result').textContent = 'Account:\n' + JSON.stringify(acct, null, 2);
+    return;
+  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-search').classList.add('active');
+  document.getElementById('search-result').textContent = 'No results for: ' + q + '\n\nTry a block height, tx hash (64 hex), or address (40 hex).';
+}
+
+refreshDashboard();
+setInterval(refreshDashboard, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[package]
+name = "pichain-execution"
+version.workspace = true
+edition.workspace = true
+description = "Block-STM parallel execution engine for PIChain"
+
+[dependencies]
+pichain-crypto.workspace = true
+pichain-types.workspace = true
+pichain-storage.workspace = true
+pichain-mining = { path = "../pichain-mining" }
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+crossbeam.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+wasmtime.workspace = true
+revm.workspace = true
+
+[dev-dependencies]
+wat = "1"

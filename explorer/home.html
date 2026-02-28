@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIChain — Computing the Infinite</title>
+<meta name="description" content="PIChain is a next-generation Layer 1 blockchain where mining computes digits of PI. No GPUs. No ASICs. Just math.">
+<meta property="og:title" content="PIChain — Computing the Infinite">
+<meta property="og:description" content="A next-generation L1 blockchain with useful proof-of-work. Mine PI by computing PI.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pichain.net">
+<link rel="canonical" href="https://pichain.net">
+<style>
+:root {
+  --bg: #06080d;
+  --bg-2: #0c1018;
+  --surface: #111827;
+  --surface-2: #1a2236;
+  --border: #1e293b;
+  --border-light: #2d3a52;
+  --text: #e8ecf4;
+  --text-muted: #8896b0;
+  --text-dim: #5e6b82;
+  --accent: #6366f1;
+  --accent-light: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --cyan: #22d3ee;
+  --cyan-glow: rgba(34, 211, 238, 0.2);
+  --green: #34d399;
+  --green-glow: rgba(52, 211, 153, 0.2);
+  --gold: #fbbf24;
+  --gold-glow: rgba(251, 191, 36, 0.2);
+  --rose: #fb7185;
+  --radius: 16px;
+  --radius-sm: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ===== NAVBAR ===== */
+.navbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(6, 8, 13, 0.8);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  transition: background 0.3s;
+}
+.navbar-inner {
+  max-width: 1200px; margin: 0 auto;
+  padding: 0 24px; height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-logo {
+  font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+  display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text);
+}
+.nav-logo .pi-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  font-size: 20px; font-weight: 900; color: white;
+}
+.nav-links { display: flex; align-items: center; gap: 8px; }
+.nav-links a {
+  color: var(--text-muted); text-decoration: none; font-size: 14px;
+  font-weight: 500; padding: 8px 16px; border-radius: var(--radius-sm);
+  transition: color 0.2s, background 0.2s;
+}
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.nav-cta {
+  background: var(--accent) !important; color: white !important;
+  font-weight: 600 !important; padding: 8px 20px !important;
+}
+.nav-cta:hover { background: var(--accent-light) !important; }
+.mobile-menu { display: none; background: none; border: none; color: var(--text); cursor: pointer; padding: 8px; }
+
+/* ===== HERO ===== */
+.hero {
+  position: relative; min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 120px 24px 80px; overflow: hidden;
+}
+.hero-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99, 102, 241, 0.15), transparent),
+    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(34, 211, 238, 0.08), transparent),
+    radial-gradient(ellipse 50% 50% at 20% 80%, rgba(139, 92, 246, 0.06), transparent);
+}
+.hero-grid {
+  position: absolute; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black, transparent);
+}
+.hero-content { position: relative; z-index: 1; text-align: center; max-width: 800px; }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25);
+  padding: 6px 16px; border-radius: 100px; font-size: 13px; color: var(--accent-light);
+  font-weight: 500; margin-bottom: 24px;
+}
+.hero-badge .pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.hero h1 {
+  font-size: clamp(40px, 6vw, 72px); font-weight: 800;
+  letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 24px;
+}
+.hero h1 .gradient {
+  background: linear-gradient(135deg, var(--accent-light), var(--cyan), var(--green));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  font-size: 18px; color: var(--text-muted); max-width: 600px;
+  margin: 0 auto 40px; line-height: 1.7;
+}
+.hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; border-radius: 12px; font-size: 15px; font-weight: 600;
+  text-decoration: none; transition: all 0.25s; cursor: pointer; border: none;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white; box-shadow: 0 4px 24px var(--accent-glow);
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px var(--accent-glow); }
+.btn-secondary {
+  background: rgba(255,255,255,0.05); color: var(--text);
+  border: 1px solid var(--border-light);
+}
+.btn-secondary:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
+.hero-stats {
+  display: flex; justify-content: center; gap: 48px; margin-top: 64px;
+  padding-top: 40px; border-top: 1px solid rgba(255,255,255,0.06);
+}
+.hero-stat { text-align: center; }
+.hero-stat .num { font-size: 28px; font-weight: 800; color: var(--text); }
+.hero-stat .lbl { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+
+/* ===== SECTION COMMON ===== */
+section { padding: 100px 24px; position: relative; }
+.section-inner { max-width: 1200px; margin: 0 auto; }
+.section-label {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 2px;
+  color: var(--accent-light); margin-bottom: 12px;
+}
+.section-title {
+  font-size: clamp(28px, 4vw, 42px); font-weight: 800;
+  letter-spacing: -0.5px; margin-bottom: 16px;
+}
+.section-desc { font-size: 16px; color: var(--text-muted); max-width: 600px; margin-bottom: 56px; }
+.section-desc.center { margin-left: auto; margin-right: auto; text-align: center; }
+.center { text-align: center; }
+
+/* ===== FEATURES ===== */
+.features-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+}
+.feature-card {
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 32px; transition: all 0.3s;
+  position: relative; overflow: hidden;
+}
+.feature-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0; transition: opacity 0.3s;
+}
+.feature-card:hover { border-color: var(--border-light); transform: translateY(-4px); }
+.feature-card:hover::before { opacity: 1; }
+.feature-icon {
+  width: 48px; height: 48px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; margin-bottom: 20px;
+}
+.feature-icon.purple { background: rgba(99, 102, 241, 0.12); color: var(--accent-light); }
+.feature-icon.cyan { background: rgba(34, 211, 238, 0.12); color: var(--cyan); }
+.feature-icon.green { background: rgba(52, 211, 153, 0.12); color: var(--green); }
+.feature-icon.gold { background: rgba(251, 191, 36, 0.12); color: var(--gold); }
+.feature-icon.rose { background: rgba(251, 113, 133, 0.12); color: var(--rose); }
+.feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.feature-card p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+/* ===== HOW IT WORKS ===== */
+.how-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.how-step {
+  text-align: center; padding: 32px 20px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); position: relative;
+}
+.how-num {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; margin-bottom: 16px;
+}
+.how-step h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.how-step p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+/* ===== TOKENOMICS ===== */
+.tokenomics-layout {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;
+}
+.token-chart {
+  position: relative; width: 320px; height: 320px; margin: 0 auto;
+}
+.token-ring {
+  width: 320px; height: 320px; border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) 0deg 144deg,
+    var(--cyan) 144deg 216deg,
+    var(--green) 216deg 270deg,
+    var(--gold) 270deg 306deg,
+    var(--rose) 306deg 334.8deg,
+    #a78bfa 334.8deg 352.8deg,
+    #64748b 352.8deg 360deg
+  );
+  mask: radial-gradient(farthest-side, transparent 60%, black 61%);
+  -webkit-mask: radial-gradient(farthest-side, transparent 60%, black 61%);
+}
+.token-center {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center;
+}
+.token-center .amount { font-size: 24px; font-weight: 800; }
+.token-center .label { font-size: 12px; color: var(--text-muted); }
+.token-legend { list-style: none; }
+.token-legend li {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.token-legend li:last-child { border: none; }
+.token-dot {
+  width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+}
+.token-legend .pct { margin-left: auto; font-weight: 700; color: var(--text-muted); min-width: 36px; text-align: right; }
+.token-legend .val { font-size: 12px; color: var(--text-dim); }
+
+/* ===== TECH SPECS ===== */
+.specs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.spec-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px; text-align: center;
+}
+.spec-val { font-size: 36px; font-weight: 800; margin-bottom: 4px; }
+.spec-val.purple { color: var(--accent-light); }
+.spec-val.cyan { color: var(--cyan); }
+.spec-val.green { color: var(--green); }
+.spec-val.gold { color: var(--gold); }
+.spec-label { font-size: 13px; color: var(--text-muted); }
+
+/* ===== CTA ===== */
+.cta-section {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(34, 211, 238, 0.05));
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 24px; padding: 64px; text-align: center;
+  max-width: 800px; margin: 0 auto;
+}
+.cta-section h2 { font-size: 32px; font-weight: 800; margin-bottom: 16px; }
+.cta-section p { font-size: 16px; color: var(--text-muted); margin-bottom: 32px; }
+.cta-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+/* ===== FOOTER ===== */
+.footer {
+  border-top: 1px solid var(--border); padding: 48px 24px;
+  margin-top: 80px;
+}
+.footer-inner {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.footer-logo { font-size: 18px; font-weight: 800; }
+.footer-logo .pi-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  font-size: 14px; font-weight: 900; color: white; margin-right: 8px;
+  vertical-align: middle;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-links a { color: var(--text-muted); text-decoration: none; font-size: 14px; }
+.footer-links a:hover { color: var(--text); }
+.footer-copy { color: var(--text-dim); font-size: 13px; margin-top: 24px; text-align: center; }
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1024px) {
+  .features-grid { grid-template-columns: repeat(2, 1fr); }
+  .how-grid { grid-template-columns: repeat(2, 1fr); }
+  .specs-grid { grid-template-columns: repeat(2, 1fr); }
+  .tokenomics-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .features-grid { grid-template-columns: 1fr; }
+  .how-grid { grid-template-columns: 1fr; }
+  .specs-grid { grid-template-columns: 1fr 1fr; }
+  .hero-stats { flex-wrap: wrap; gap: 24px; }
+  .hero-stats .hero-stat { flex: 1 1 120px; }
+  .nav-links { display: none; }
+  .nav-links.open {
+    display: flex; flex-direction: column;
+    position: absolute; top: 64px; left: 0; right: 0;
+    background: rgba(6, 8, 13, 0.98); border-bottom: 1px solid var(--border);
+    padding: 16px 24px; gap: 4px;
+  }
+  .mobile-menu { display: block; }
+  .cta-section { padding: 40px 24px; }
+  .footer-inner { flex-direction: column; gap: 16px; text-align: center; }
+}
+@media (max-width: 480px) {
+  .specs-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar" id="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo">
+      <span class="pi-sym">&pi;</span> PIChain
+    </a>
+    <div class="nav-links" id="navLinks">
+      <a href="#features">Features</a>
+      <a href="#how">How It Works</a>
+      <a href="#tokenomics">Tokenomics</a>
+      <a href="#specs">Tech</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine" class="nav-cta">Start Mining</a>
+    </div>
+    <button class="mobile-menu" onclick="document.getElementById('navLinks').classList.toggle('open')">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-content">
+    <div class="hero-badge"><span class="pulse"></span> Live on Devnet</div>
+    <h1>Mine PI by<br><span class="gradient">Computing PI</span></h1>
+    <p>
+      PIChain is a next-generation Layer 1 blockchain where mining performs
+      useful work &mdash; computing the digits of &pi;. No GPUs. No ASICs.
+      Just math, advancing human knowledge with every block.
+    </p>
+    <div class="hero-actions">
+      <a href="/mine" class="btn btn-primary">Start Mining</a>
+      <a href="/explorer" class="btn btn-secondary">Block Explorer</a>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="num" id="h-height">--</div>
+        <div class="lbl">Block Height</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num" id="h-digits">--</div>
+        <div class="lbl">PI Digits Verified</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num" id="h-miners">--</div>
+        <div class="lbl">Active Miners</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num" id="h-tps">314ms</div>
+        <div class="lbl">Block Time</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-inner center">
+    <div class="section-label">Why PIChain</div>
+    <h2 class="section-title">Built Different From the Ground Up</h2>
+    <p class="section-desc center">
+      Every design decision serves a purpose. From useful proof-of-work to parallel
+      execution, PIChain is engineered for the next era of blockchain.
+    </p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon purple">&pi;</div>
+        <h3>Useful Proof of Work</h3>
+        <p>
+          Mining computes hexadecimal digits of &pi; using the BBP algorithm.
+          Every proof permanently extends humanity's verified computation of PI &mdash;
+          no wasted energy on meaningless hashes.
+        </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon cyan">&#9889;</div>
+        <h3>Parallel Execution</h3>
+        <p>
+          Block-STM optimistic concurrency processes transactions in parallel.
+          Independent state accesses execute simultaneously, scaling throughput
+          with available cores.
+        </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon green">&#9741;</div>
+        <h3>DAG Consensus</h3>
+        <p>
+          Bullshark DAG-based BFT consensus with Avalanche fast-path achieves
+          sub-second finality. Validators produce blocks concurrently &mdash;
+          no sequential leader bottleneck.
+        </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">&#128274;</div>
+        <h3>ZK-Ready State</h3>
+        <p>
+          Poseidon-hashed Jellyfish Merkle Tree state commitments are 80x cheaper
+          in ZK circuits than SHA-256. Future-proofed for ZK-rollup verification
+          from day one.
+        </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon rose">&#127793;</div>
+        <h3>Fair Mining</h3>
+        <p>
+          No special hardware needed. Laptops, desktops, and servers all mine
+          proportionally. Per-address caps prevent any single entity from dominating
+          rewards.
+        </p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon purple">&#128200;</div>
+        <h3>Native DeFi</h3>
+        <p>
+          Built-in SPL-style token system, constant-product AMM DEX, NFT marketplace,
+          and bonding-curve token launchpad. DeFi primitives at the protocol level.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" style="background: var(--bg-2);">
+  <div class="section-inner center">
+    <div class="section-label">How It Works</div>
+    <h2 class="section-title">Mine PI in Four Steps</h2>
+    <p class="section-desc center">
+      Start mining in minutes. No expensive hardware, no complex setup.
+    </p>
+    <div class="how-grid">
+      <div class="how-step">
+        <div class="how-num">1</div>
+        <h3>Build the Miner</h3>
+        <p>Clone the repo and compile with Rust. One command, works on any OS.</p>
+      </div>
+      <div class="how-step">
+        <div class="how-num">2</div>
+        <h3>Create a Wallet</h3>
+        <p>Generate an Ed25519 keypair. Your mining rewards go directly to this address.</p>
+      </div>
+      <div class="how-step">
+        <div class="how-num">3</div>
+        <h3>Choose a Profile</h3>
+        <p>Laptop, Desktop, Server, or Max. Pick what matches your hardware.</p>
+      </div>
+      <div class="how-step">
+        <div class="how-num">4</div>
+        <h3>Start Earning</h3>
+        <p>Connect to the network and mine. Rewards credited on every accepted proof.</p>
+      </div>
+    </div>
+    <div style="margin-top: 48px;">
+      <a href="/mine" class="btn btn-primary">Full Mining Guide</a>
+    </div>
+  </div>
+</section>
+
+<!-- TOKENOMICS -->
+<section id="tokenomics">
+  <div class="section-inner">
+    <div class="center">
+      <div class="section-label">Tokenomics</div>
+      <h2 class="section-title">3,141,592,653 PI</h2>
+      <p class="section-desc center">
+        Total supply mirrors the first 10 digits of &pi;. Fixed supply, deflationary burn
+        mechanism, and halving emission schedule.
+      </p>
+    </div>
+    <div class="tokenomics-layout">
+      <div class="token-chart">
+        <div class="token-ring"></div>
+        <div class="token-center">
+          <div class="amount">3.14B</div>
+          <div class="label">Total Supply</div>
+        </div>
+      </div>
+      <div>
+        <ul class="token-legend">
+          <li>
+            <span class="token-dot" style="background: var(--accent)"></span>
+            <span>Community & Mining Pool</span>
+            <span class="pct">40%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: var(--cyan)"></span>
+            <span>Validator Rewards Reserve</span>
+            <span class="pct">20%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: var(--green)"></span>
+            <span>Foundation & Development</span>
+            <span class="pct">15%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: var(--gold)"></span>
+            <span>Ecosystem Grants Fund</span>
+            <span class="pct">10%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: var(--rose)"></span>
+            <span>Team & Early Contributors</span>
+            <span class="pct">8%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: #a78bfa"></span>
+            <span>Public Sale / IDO</span>
+            <span class="pct">5%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: #64748b"></span>
+            <span>Strategic Partners</span>
+            <span class="pct">2%</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH SPECS -->
+<section id="specs" style="background: var(--bg-2);">
+  <div class="section-inner center">
+    <div class="section-label">Technical Specifications</div>
+    <h2 class="section-title">Production-Grade Architecture</h2>
+    <p class="section-desc center">
+      Built in Rust with 570+ tests. Every component designed for security, performance, and correctness.
+    </p>
+    <div class="specs-grid">
+      <div class="spec-card">
+        <div class="spec-val purple">314ms</div>
+        <div class="spec-label">Target Block Time</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val cyan">100M</div>
+        <div class="spec-label">Gas Limit per Block</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val green">BFT</div>
+        <div class="spec-label">Byzantine Fault Tolerant</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val gold">EIP-1559</div>
+        <div class="spec-label">Adaptive Fee Market</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val purple">Ed25519</div>
+        <div class="spec-label">Signature Scheme</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val cyan">Blake3</div>
+        <div class="spec-label">Cryptographic Hash</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section>
+  <div class="section-inner">
+    <div class="cta-section">
+      <h2>Ready to Mine?</h2>
+      <p>
+        Join the network and start computing digits of &pi;.
+        Every proof you submit earns PI and advances mathematical knowledge.
+      </p>
+      <div class="cta-actions">
+        <a href="/mine" class="btn btn-primary">Start Mining</a>
+        <a href="/explorer" class="btn btn-secondary">View Explorer</a>
+        <a href="/mining" class="btn btn-secondary">Mining Dashboard</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-logo"><span class="pi-sym">&pi;</span> PIChain</div>
+    <div class="footer-links">
+      <a href="/explorer">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine">Start Mining</a>
+    </div>
+  </div>
+  <div class="footer-copy">PIChain &mdash; Computing the Infinite</div>
+</footer>
+
+<script>
+const API = window.location.origin;
+
+async function loadStats() {
+  try {
+    const [infoRes, miningRes] = await Promise.all([
+      fetch(API + '/api/v1/info'),
+      fetch(API + '/api/v1/mining/status')
+    ]);
+    const info = await infoRes.json();
+    const mining = await miningRes.json();
+
+    document.getElementById('h-height').textContent = Number(info.block_height).toLocaleString();
+    document.getElementById('h-digits').textContent = Number(mining.total_digits_verified).toLocaleString();
+    document.getElementById('h-miners').textContent = mining.unique_miners;
+  } catch(e) {
+    // Stats unavailable — leave defaults
+  }
+}
+
+// Navbar background on scroll
+window.addEventListener('scroll', () => {
+  const nb = document.getElementById('navbar');
+  nb.style.background = window.scrollY > 50
+    ? 'rgba(6, 8, 13, 0.95)'
+    : 'rgba(6, 8, 13, 0.8)';
+});
+
+loadStats();
+setInterval(loadStats, 10000);
+</script>
+</body>
+</html>

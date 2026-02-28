@@ -1,0 +1,23 @@
+[package]
+name = "pichain-consensus"
+version.workspace = true
+edition.workspace = true
+description = "PI-DAG consensus: Narwhal DAG + Bullshark ordering + Avalanche fast-path"
+
+[dependencies]
+pichain-crypto.workspace = true
+pichain-types.workspace = true
+pichain-storage.workspace = true
+pichain-network.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+crossbeam.workspace = true
+anyhow.workspace = true
+chrono.workspace = true

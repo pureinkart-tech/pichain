@@ -1,0 +1,22 @@
+[package]
+name = "pichain-cli"
+version.workspace = true
+edition.workspace = true
+description = "CLI tools for PIChain developers"
+
+[[bin]]
+name = "pichain-cli"
+path = "src/main.rs"
+
+[dependencies]
+pichain-crypto.workspace = true
+pichain-types.workspace = true
+pichain-mining = { path = "../../crates/pichain-mining" }
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+hex.workspace = true

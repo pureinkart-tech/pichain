@@ -1,0 +1,15 @@
+# PIChain Prometheus Configuration
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: "pichain-nodes"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "node1:8314"
+          - "node2:8314"
+          - "node3:8314"
+        labels:
+          network: "devnet"

@@ -1,0 +1,19 @@
+[package]
+name = "pichain-mining"
+version.workspace = true
+edition.workspace = true
+description = "PI digit computation mining (Proof of Useful Work) for PIChain"
+
+[dependencies]
+pichain-crypto.workspace = true
+pichain-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+num-integer.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
