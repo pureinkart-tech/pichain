@@ -112,6 +112,20 @@ impl DigitRegistry {
         Ok(true)
     }
 
+    /// AUDIT-FIX: Remove a previously registered range by its start position.
+    /// Used for rollback when reward recording fails after registration.
+    pub fn unregister(&mut self, start: u64) {
+        if let Some(range) = self.ranges.remove(&start) {
+            let count = range.count as u64;
+            let miner = range.miner;
+            self.total_verified = self.total_verified.saturating_sub(count);
+            if let Some(contrib) = self.miner_contributions.get_mut(&miner) {
+                *contrib = contrib.saturating_sub(count);
+            }
+            self.update_frontier();
+        }
+    }
+
     /// Check if a range [start, end) overlaps with any existing verified range.
     /// R37-FIX: O(log n) using BTreeMap::range instead of O(n) scan.
     /// Only need to check the range whose start is immediately <= start (could extend past it)

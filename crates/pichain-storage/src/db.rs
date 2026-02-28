@@ -111,9 +111,16 @@ impl PiChainDB {
 
     // --- Block operations ---
 
+    /// AUDIT-FIX H-6: Check for existing block before writing to prevent
+    /// silent overwrites that could corrupt canonical chain state.
     pub fn put_block(&self, height: u64, data: &[u8]) -> Result<(), StorageError> {
-        self.db
-            .put_cf(&self.cf(CF_BLOCKS), height.to_be_bytes(), data)?;
+        let key = height.to_be_bytes();
+        if self.db.get_cf(&self.cf(CF_BLOCKS), key)?.is_some() {
+            return Err(StorageError::IntegrityViolation(format!(
+                "block already exists at height {height} — refusing to overwrite"
+            )));
+        }
+        self.db.put_cf(&self.cf(CF_BLOCKS), key, data)?;
         Ok(())
     }
 
@@ -253,8 +260,16 @@ impl PiChainDB {
     }
 
     /// Add a block write to a batch (for atomic commits).
-    pub fn batch_put_block(&self, batch: &mut WriteBatch, height: u64, data: &[u8]) {
-        batch.put_cf(&self.cf(CF_BLOCKS), height.to_be_bytes(), data);
+    /// AUDIT-FIX H-6: Check for existing block to prevent overwrites.
+    pub fn batch_put_block(&self, batch: &mut WriteBatch, height: u64, data: &[u8]) -> Result<(), StorageError> {
+        let key = height.to_be_bytes();
+        if self.db.get_cf(&self.cf(CF_BLOCKS), key)?.is_some() {
+            return Err(StorageError::IntegrityViolation(format!(
+                "block already exists at height {height} — refusing to overwrite"
+            )));
+        }
+        batch.put_cf(&self.cf(CF_BLOCKS), key, data);
+        Ok(())
     }
 
     /// Add a transaction write to a batch (for atomic commits).

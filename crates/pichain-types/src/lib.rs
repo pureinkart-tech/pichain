@@ -62,11 +62,11 @@ pub const MAX_VALIDATORS: u32 = 3_141;
 /// Epoch length in blocks.
 pub const EPOCH_LENGTH: u64 = 31_415;
 
-/// Fee burn rate (25% of base fee).
+/// Fee burn rate (25% of base fee — permanently burned).
 pub const FEE_BURN_RATE_BPS: u16 = 2500;
 
-/// Fee to stakers rate (65% of base fee).
-pub const FEE_STAKER_RATE_BPS: u16 = 6500;
+/// Fee to miners rate (25% of base fee — flows back into mining pool).
+pub const FEE_MINER_RATE_BPS: u16 = 2500;
 
-/// Fee to treasury rate (10% of base fee).
-pub const FEE_TREASURY_RATE_BPS: u16 = 1000;
+/// Fee to stakers/proposer rate (50% of base fee — credited to block proposer).
+pub const FEE_STAKER_RATE_BPS: u16 = 5000;

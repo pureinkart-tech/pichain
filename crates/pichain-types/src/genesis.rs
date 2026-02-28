@@ -31,6 +31,12 @@ pub struct GenesisAllocation {
     pub amount: PiAmount,
     /// Label for this allocation.
     pub label: String,
+    /// AUDIT-FIX H-9: If true, this allocation is virtual — no real balance is created.
+    /// Used for the mining pool: the 85% is tracked in RewardCalculator and minted
+    /// over time via mining rewards. Without this flag, the mining pool would be
+    /// double-counted (real balance + minted rewards = 170% of intended allocation).
+    #[serde(default)]
+    pub virtual_pool: bool,
 }
 
 /// A genesis validator.
@@ -47,56 +53,37 @@ pub struct GenesisValidator {
 impl GenesisConfig {
     /// Create the official PIChain genesis configuration.
     /// Total supply: 3,141,592,653 PI = 3.14B tokens.
+    ///
+    /// Satoshi model: no team, no foundation, no treasury.
+    /// 85% Mining Pool — earned by computing Pi digits (2π% geometric decay)
+    /// 10% Validator Staking — secures BFT consensus
+    ///  5% Initial Liquidity — DEX bootstrapping
     pub fn pichain_mainnet() -> Self {
-        // Token distribution per the blueprint:
-        // 40% Community & Ecosystem (mining rewards) = 1,256,637,061 PI
-        // 20% Validator Rewards Reserve               = 628,318,530 PI
-        // 15% Foundation & Development                 = 471,238,897 PI
-        // 10% Ecosystem Grants Fund                    = 314,159,265 PI
-        //  8% Team & Early Contributors                = 251,327,412 PI
-        //  5% Public Sale / IDO                        = 157,079,632 PI
-        //  2% Strategic Partners                       =  62,831,853 PI
-        //                                         Total: 3,141,592,650 PI
-        // (3 PI remainder goes to foundation to round)
+        let mining = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
+        let validators = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
+        let liquidity = (TOTAL_SUPPLY as PiAmount) - mining - validators; // remainder = exact 5%
 
         Self {
             chain_id: 314159, // digits of PI
             timestamp_ms: 0,  // set at actual genesis ceremony
             allocations: vec![
                 GenesisAllocation {
-                    address: Address::ZERO, // placeholder — mining pool contract
-                    amount: 1_256_637_061 * BASE_UNITS_PER_PI,
-                    label: "Community & Mining Pool (40%)".to_string(),
+                    address: Address::ZERO, // virtual — no real balance created
+                    amount: mining,
+                    label: "Mining Pool (85%)".to_string(),
+                    virtual_pool: true, // AUDIT-FIX: tracked in RewardCalculator, minted over time
                 },
                 GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 628_318_530 * BASE_UNITS_PER_PI,
-                    label: "Validator Rewards Reserve (20%)".to_string(),
+                    address: Address::ZERO, // placeholder — validator staking reserve
+                    amount: validators,
+                    label: "Validator Staking Reserve (10%)".to_string(),
+                    virtual_pool: false,
                 },
                 GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 471_238_900 * BASE_UNITS_PER_PI, // +3 for rounding
-                    label: "Foundation & Development (15%)".to_string(),
-                },
-                GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 314_159_265 * BASE_UNITS_PER_PI,
-                    label: "Ecosystem Grants Fund (10%)".to_string(),
-                },
-                GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 251_327_412 * BASE_UNITS_PER_PI,
-                    label: "Team & Early Contributors (8%)".to_string(),
-                },
-                GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 157_079_632 * BASE_UNITS_PER_PI,
-                    label: "Public Sale / IDO (5%)".to_string(),
-                },
-                GenesisAllocation {
-                    address: Address::ZERO,
-                    amount: 62_831_853 * BASE_UNITS_PER_PI,
-                    label: "Strategic Partners (2%)".to_string(),
+                    address: Address::ZERO, // placeholder — initial DEX liquidity
+                    amount: liquidity,
+                    label: "Initial Liquidity (5%)".to_string(),
+                    virtual_pool: false,
                 },
             ],
             validators: vec![],
@@ -105,19 +92,13 @@ impl GenesisConfig {
 
     /// Create a devnet genesis with faucet and test allocations.
     /// Allocates the full TOTAL_SUPPLY to ensure supply validation passes.
+    /// Matches mainnet 85/10/5 proportions: mining pool, validators, liquidity.
     pub fn devnet() -> Self {
         // Devnet faucet address: derived from a known seed for testing.
-        // Address bytes: Blake3("pichain-devnet-faucet")[..20]
         let faucet_hash = pichain_crypto::hash(b"pichain-devnet-faucet");
         let mut faucet_bytes = [0u8; 20];
         faucet_bytes.copy_from_slice(&faucet_hash.as_bytes()[..20]);
         let faucet_address = Address(faucet_bytes);
-
-        // Treasury address for devnet
-        let treasury_hash = pichain_crypto::hash(b"pichain-devnet-treasury");
-        let mut treasury_bytes = [0u8; 20];
-        treasury_bytes.copy_from_slice(&treasury_hash.as_bytes()[..20]);
-        let treasury_address = Address(treasury_bytes);
 
         // Mining pool address for devnet
         let mining_hash = pichain_crypto::hash(b"pichain-devnet-mining-pool");
@@ -125,41 +106,42 @@ impl GenesisConfig {
         mining_bytes.copy_from_slice(&mining_hash.as_bytes()[..20]);
         let mining_address = Address(mining_bytes);
 
-        // Ecosystem grants address for devnet
-        let ecosystem_hash = pichain_crypto::hash(b"pichain-devnet-ecosystem");
-        let mut ecosystem_bytes = [0u8; 20];
-        ecosystem_bytes.copy_from_slice(&ecosystem_hash.as_bytes()[..20]);
-        let ecosystem_address = Address(ecosystem_bytes);
+        // Validator staking address for devnet
+        let validator_hash = pichain_crypto::hash(b"pichain-devnet-validators");
+        let mut validator_bytes = [0u8; 20];
+        validator_bytes.copy_from_slice(&validator_hash.as_bytes()[..20]);
+        let validator_address = Address(validator_bytes);
 
         // Must sum to exactly TOTAL_SUPPLY (3,141,592,653 PI):
-        //   Faucet:        1,000,000,000 PI
-        //   Treasury:        500,000,000 PI
-        //   Mining Pool:   1,256,637,061 PI (40%, same as mainnet)
-        //   Ecosystem:       384,955,592 PI (remainder)
+        //   Faucet:        ~10% (testing)
+        //   Mining Pool:   85% of supply   (same as mainnet)
+        //   Validators:    remainder (~5%)
         //   Total:         3,141,592,653 PI ✓
+        let mining_amount = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
+        let faucet_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
+        let validator_amount = (TOTAL_SUPPLY as PiAmount) - mining_amount - faucet_amount;
+
         Self {
             chain_id: 31415,
             timestamp_ms: 0,
             allocations: vec![
                 GenesisAllocation {
                     address: faucet_address,
-                    amount: 1_000_000_000 * BASE_UNITS_PER_PI,
+                    amount: faucet_amount,
                     label: "Devnet Faucet".to_string(),
-                },
-                GenesisAllocation {
-                    address: treasury_address,
-                    amount: 500_000_000 * BASE_UNITS_PER_PI,
-                    label: "Devnet Treasury".to_string(),
+                    virtual_pool: false,
                 },
                 GenesisAllocation {
                     address: mining_address,
-                    amount: 1_256_637_061 * BASE_UNITS_PER_PI,
-                    label: "Devnet Mining Pool (40%)".to_string(),
+                    amount: mining_amount,
+                    label: "Devnet Mining Pool (85%)".to_string(),
+                    virtual_pool: true, // AUDIT-FIX: virtual — minted over time
                 },
                 GenesisAllocation {
-                    address: ecosystem_address,
-                    amount: 384_955_592 * BASE_UNITS_PER_PI,
-                    label: "Devnet Ecosystem Grants".to_string(),
+                    address: validator_address,
+                    amount: validator_amount,
+                    label: "Devnet Validators & Liquidity".to_string(),
+                    virtual_pool: false,
                 },
             ],
             validators: vec![],
@@ -202,8 +184,10 @@ impl GenesisConfig {
             return Err("genesis has no allocations".to_string());
         }
         // Warn about Address::ZERO allocations — funds will be irrecoverable
+        // AUDIT-FIX H-9: Virtual pool allocations are allowed to use Address::ZERO
+        // since they don't create real balances (they're tracked in RewardCalculator).
         for alloc in &self.allocations {
-            if alloc.address == Address::ZERO && alloc.amount > 0 {
+            if alloc.address == Address::ZERO && alloc.amount > 0 && !alloc.virtual_pool {
                 return Err(format!(
                     "genesis allocation '{}' sends {} PI to Address::ZERO — \
                      funds will be permanently lost. Replace with real addresses before launch.",
@@ -220,10 +204,10 @@ impl GenesisConfig {
                 ));
             }
         }
-        // Validate no duplicate addresses
+        // Validate no duplicate addresses (skip virtual pools — they share Address::ZERO)
         let mut seen = HashSet::new();
         for alloc in &self.allocations {
-            if !seen.insert(alloc.address) {
+            if !alloc.virtual_pool && !seen.insert(alloc.address) {
                 return Err(format!(
                     "duplicate genesis allocation for address {}",
                     alloc.address

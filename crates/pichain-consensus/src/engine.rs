@@ -12,7 +12,7 @@
 use pichain_crypto::bls::{BlsPublicKey, BlsSecretKey};
 use pichain_crypto::ed25519::Address;
 use pichain_crypto::Hash;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use tracing::{debug, info, warn};
 
 use crate::dag::{Certificate, DagMempool, Header};
@@ -82,6 +82,17 @@ const PENDING_BLOCK_TTL_ROUNDS: u64 = 100;
 /// consensus stalls where blocks are proposed but never committed.
 const MAX_PENDING_BLOCKS: usize = 10_000;
 
+/// AUDIT-FIX C-1: View change timeout in milliseconds.
+/// If the leader for the current round does not produce a certificate within
+/// this duration, validators autonomously advance to the next round.
+/// This prevents a single Byzantine leader from stalling the chain forever.
+const ROUND_TIMEOUT_MS: u64 = 5_000; // 5 seconds
+
+/// Exponential backoff cap: maximum timeout multiplier for consecutive timeouts.
+/// After MAX_TIMEOUT_MULTIPLIER consecutive timeouts, the timeout stays constant
+/// to prevent indefinite stalls while still allowing slow leaders to catch up.
+const MAX_TIMEOUT_MULTIPLIER: u64 = 8;
+
 /// The unified consensus engine.
 ///
 /// Wraps Narwhal DAG, Bullshark ordering, Avalanche fast-path, and staking
@@ -115,6 +126,12 @@ pub struct ConsensusEngine {
     /// Buffered equivocation evidence for broadcasting to peers.
     /// Drained by the node after each `try_advance()` call.
     pending_evidence_broadcast: Vec<crate::dag::EquivocationEvidence>,
+    /// AUDIT-FIX C-1: Timestamp (ms) when the current round started.
+    /// Used for view change timeout detection.
+    round_started_ms: u64,
+    /// AUDIT-FIX C-1: Number of consecutive round timeouts without a successful
+    /// leader certificate. Used for exponential backoff.
+    consecutive_timeouts: u64,
     /// Metrics.
     metrics: ConsensusMetrics,
 }
@@ -193,6 +210,8 @@ impl ConsensusEngine {
             commit_queue: VecDeque::new(),
             slashed_evidence: BTreeSet::new(),
             pending_evidence_broadcast: Vec::new(),
+            round_started_ms: chrono::Utc::now().timestamp_millis().max(0) as u64,
+            consecutive_timeouts: 0,
             metrics: ConsensusMetrics::default(),
         }
     }
@@ -285,8 +304,10 @@ impl ConsensusEngine {
             "block proposed to DAG"
         );
 
-        // Advance round
+        // Advance round and reset timeout timer
         self.current_round = self.current_round.saturating_add(1);
+        self.round_started_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        self.consecutive_timeouts = 0; // successful proposal resets backoff
 
         cert_digest
     }
@@ -302,6 +323,14 @@ impl ConsensusEngine {
         let keys = self.bls_key_map();
         self.dag.insert_certificate(cert, Some(&keys))?;
         self.metrics.certificates_received += 1;
+
+        // AUDIT-FIX C-1: If the received cert advances our view of the DAG,
+        // reset the round timer. This prevents false timeouts when a valid
+        // leader certificate arrives within the expected window.
+        if round >= self.current_round {
+            self.round_started_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+            self.consecutive_timeouts = 0;
+        }
 
         debug!(
             round,
@@ -423,6 +452,63 @@ impl ConsensusEngine {
         }
 
         newly_finalized
+    }
+
+    /// AUDIT-FIX C-1: Check if the current round has timed out.
+    ///
+    /// If the leader for the current round has not produced a certificate within
+    /// the timeout period, this method autonomously advances to the next round.
+    /// This is the view change mechanism that prevents a single Byzantine leader
+    /// from permanently stalling the chain.
+    ///
+    /// Uses exponential backoff: timeout doubles on consecutive timeouts up to
+    /// MAX_TIMEOUT_MULTIPLIER, giving slow-but-honest leaders time to catch up.
+    ///
+    /// Returns `true` if a timeout occurred and the round was advanced.
+    /// The caller should then call `try_advance()` to attempt Bullshark commits
+    /// and potentially propose a new block in the new round.
+    pub fn check_round_timeout(&mut self) -> bool {
+        // Single-validator mode: no timeout needed (we are the only proposer)
+        if self.validator_set.validator_count() <= 1 {
+            return false;
+        }
+
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let multiplier = (1u64 << self.consecutive_timeouts.min(3)).min(MAX_TIMEOUT_MULTIPLIER);
+        let effective_timeout = ROUND_TIMEOUT_MS.saturating_mul(multiplier);
+
+        if now_ms.saturating_sub(self.round_started_ms) < effective_timeout {
+            return false; // Not yet timed out
+        }
+
+        // Timeout! Advance to the next round without the leader's certificate.
+        let old_round = self.current_round;
+        self.current_round = self.current_round.saturating_add(1);
+        self.round_started_ms = now_ms;
+        self.consecutive_timeouts = self.consecutive_timeouts.saturating_add(1);
+
+        // Determine who was the expected leader for the timed-out round
+        let leader_addr = self.validator_set
+            .select_leader(old_round, &self.config.pi_seed)
+            .map(|v| v.address);
+
+        warn!(
+            timed_out_round = old_round,
+            new_round = self.current_round,
+            leader = ?leader_addr,
+            consecutive_timeouts = self.consecutive_timeouts,
+            timeout_ms = effective_timeout,
+            "VIEW CHANGE: round timed out — advancing without leader certificate"
+        );
+
+        self.metrics.current_round = self.current_round;
+        true
+    }
+
+    /// Get the current round timeout duration in milliseconds (accounting for backoff).
+    pub fn current_timeout_ms(&self) -> u64 {
+        let multiplier = (1u64 << self.consecutive_timeouts.min(3)).min(MAX_TIMEOUT_MULTIPLIER);
+        ROUND_TIMEOUT_MS.saturating_mul(multiplier)
     }
 
     /// Maximum number of slashed evidence hashes to retain.
@@ -596,12 +682,27 @@ impl ConsensusEngine {
                 message.extend_from_slice(b"CERT_HDR");
                 message.extend_from_slice(&self.config.chain_id.to_le_bytes());
                 message.extend_from_slice(cert.digest.as_bytes());
+                // AUDIT-FIX C-2: Reject duplicate signers to prevent inflating apparent quorum
+                let unique_signers: std::collections::HashSet<_> = cert.signers.iter().collect();
+                if unique_signers.len() != cert.signers.len() {
+                    warn!("rejecting evidence: {label} has duplicate signers");
+                    return false;
+                }
                 // Resolve signer public keys
                 let signer_pks: Vec<&pichain_crypto::bls::BlsPublicKey> = cert.signers.iter()
                     .filter_map(|addr| keys.get(addr))
                     .collect();
                 if signer_pks.len() != cert.signers.len() {
                     warn!("rejecting evidence: {label} has unknown signers");
+                    return false;
+                }
+                // AUDIT-FIX C-1: Require quorum-level signers on evidence certificates.
+                // Without this, an attacker with 1 key could forge sub-quorum certs and
+                // slash any honest validator by creating conflicting evidence.
+                let signer_refs: Vec<&Address> = cert.signers.iter().collect();
+                if !self.dag.has_stake_quorum(&signer_refs) {
+                    warn!("rejecting evidence: {label} lacks quorum signers ({} of {} required)",
+                        cert.signers.len(), self.validator_set.validator_count() * 2 / 3 + 1);
                     return false;
                 }
                 // Verify aggregate BLS signature
@@ -723,14 +824,42 @@ impl ConsensusEngine {
         self.config.pi_seed = seed;
     }
 
+    /// Returns true if the engine is operating in single-validator mode.
+    pub fn is_single_validator(&self) -> bool {
+        self.validator_set.validator_count() <= 1
+    }
+
     /// Update the validator set (typically at epoch boundaries).
     ///
     /// Returns the hashes of any pending blocks that were dropped during the
     /// epoch transition. The caller should re-queue the transactions from these
     /// blocks back into the mempool so they are not silently lost.
+    ///
+    /// AUDIT-FIX C-2: Detects single→multi validator transition and logs a
+    /// checkpoint so the transition point is clearly identified in the chain history.
     pub fn update_validator_set(&mut self, new_set: ValidatorSet) -> Vec<Hash> {
         let old_count = self.validator_set.validator_count();
         let new_count = new_set.validator_count();
+
+        // C-2: Detect and log the critical single→multi validator transition
+        if old_count <= 1 && new_count > 1 {
+            info!(
+                new_validators = new_count,
+                current_round = self.metrics.current_round,
+                committed_round = ?self.metrics.committed_round,
+                total_stake = new_set.total_stake(),
+                "=== CONSENSUS TRANSITION: single-validator → BFT multi-validator mode ==="
+            );
+            info!(
+                "BFT consensus now active: requires {}/{} validators for quorum",
+                (new_count * 2 / 3) + 1,
+                new_count
+            );
+        } else if old_count > 1 && new_count <= 1 {
+            warn!(
+                "=== CONSENSUS TRANSITION: multi-validator → single-validator mode ==="
+            );
+        }
 
         info!(
             old_validators = old_count,

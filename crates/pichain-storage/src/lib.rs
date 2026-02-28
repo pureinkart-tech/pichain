@@ -35,4 +35,6 @@ pub enum StorageError {
     StateRootMismatch,
     #[error("database not initialized")]
     NotInitialized,
+    #[error("integrity violation: {0}")]
+    IntegrityViolation(String),
 }

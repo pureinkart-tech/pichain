@@ -63,7 +63,13 @@ pub struct ValidatorSet {
 }
 
 impl ValidatorSet {
-    pub fn new(validators: Vec<Validator>) -> Self {
+    pub fn new(mut validators: Vec<Validator>) -> Self {
+        // AUDIT-FIX M-1: Sort validators by address to ensure deterministic
+        // ordering across all nodes. Without this, different nodes could construct
+        // the ValidatorSet with validators in different orders, leading to
+        // different leader selections for the same round (consensus fork risk).
+        validators.sort_by(|a, b| a.address.0.cmp(&b.address.0));
+
         let total_stake: u64 = validators.iter().map(|v| v.stake).fold(0u64, |acc, s| acc.saturating_add(s));
         let quorum_stake = (total_stake as u128 * 2 / 3 + 1) as u64;
         Self {

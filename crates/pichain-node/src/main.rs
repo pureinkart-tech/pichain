@@ -1246,6 +1246,35 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
 
+            // AUDIT-FIX C-1: View change timeout task.
+            // Periodically checks if the consensus round has timed out (leader
+            // didn't produce a certificate). If so, advances to the next round.
+            // This prevents a single Byzantine leader from stalling the chain.
+            let timeout_consensus = consensus_engine.clone();
+            let timeout_shutdown = shutdown_rx.clone();
+            let mut timeout_handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+                loop {
+                    interval.tick().await;
+                    if *timeout_shutdown.borrow() {
+                        break;
+                    }
+                    let mut engine = timeout_consensus.lock();
+                    if engine.check_round_timeout() {
+                        // Timeout occurred — try to advance consensus with whatever
+                        // certificates we do have (may commit skipped rounds).
+                        let finalized = engine.try_advance();
+                        if !finalized.is_empty() {
+                            info!(
+                                finalized_count = finalized.len(),
+                                round = engine.current_round(),
+                                "Bullshark commit after view change timeout"
+                            );
+                        }
+                    }
+                }
+            });
+
             // Wait for SIGINT (Ctrl+C), SIGTERM, or a critical task panic
             let shutdown_signal = async {
                 #[cfg(unix)]
@@ -1295,6 +1324,12 @@ async fn main() -> anyhow::Result<()> {
                         Err(e) => error!("P2P inbound task panicked: {e}"),
                     }
                 }
+                result = &mut timeout_handle => {
+                    match result {
+                        Ok(()) => error!("timeout checker task exited unexpectedly"),
+                        Err(e) => error!("timeout checker task panicked: {e}"),
+                    }
+                }
             }
 
             // Signal all tasks to stop
@@ -1311,6 +1346,7 @@ async fn main() -> anyhow::Result<()> {
                     let _ = persist_handle.await;
                     let _ = rpc_handle.await;
                     let _ = inbound_handle.await;
+                    let _ = timeout_handle.await;
                 } => {
                     info!(
                         elapsed_ms = drain_start.elapsed().as_millis() as u64,

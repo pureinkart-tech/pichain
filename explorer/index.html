@@ -206,6 +206,7 @@ tr[onclick] { cursor: pointer; }
       <a href="/explorer" class="active">Explorer</a>
       <a href="/mining">Mining</a>
       <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
+      <a href="/launch">Launch</a>
       <a href="/mine">Start Mining</a>
     </div>
   </div>
@@ -562,7 +563,7 @@ async function refreshMining() {
     document.getElementById('mine-digits').textContent = fmtNum(m.total_digits_verified);
     document.getElementById('mine-miners').textContent = fmtNum(m.unique_miners);
     document.getElementById('mine-reward').textContent = fmtNum(m.reward_per_digit);
-    const totalPool = 1256637061 * 1e9;
+    const totalPool = 2670353755 * 1e9;
     const remaining = m.remaining_pool || 0;
     const pct = totalPool > 0 ? (remaining / totalPool * 100) : 100;
     document.getElementById('mine-pool-text').textContent = fmtPI(remaining) + ' remaining (' + pct.toFixed(2) + '%)';

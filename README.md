@@ -6,15 +6,54 @@ A high-performance Layer 1 blockchain with Proof of Useful Work mining based on 
 
 PIChain is a novel L1 blockchain protocol built around a fixed, non-mintable supply of **3,141,592,653 PI tokens**. Instead of wasting energy on arbitrary hash puzzles, miners compute hexadecimal digits of Pi using the **Bailey-Borwein-Plouffe (BBP)** algorithm — real mathematical work that extends humanity's verified computation of Pi.
 
+Designed as a **Satoshi model** chain: 85% of the total supply goes to miners, transaction fees flow back to the mining pool forever, and no team/foundation/treasury allocations exist. The protocol is self-sustaining without governance.
+
 ### Key Features
 
 - **Fixed Supply** — 3,141,592,653 PI tokens. No inflation, no minting. 25% of base fees are burned permanently.
+- **Self-Sustaining Mining** — 85% of supply goes to miners via 2π% geometric decay. 25% of transaction fees replenish the mining pool forever.
 - **Proof of Useful Work** — Mining computes Pi digits using the BBP spigot algorithm. Anyone can mine — from a laptop to a data center.
 - **DAG + Bullshark Consensus** — Narwhal-inspired DAG for data availability with Bullshark zero-overhead ordering. Sub-second finality.
 - **Avalanche Fast Path** — Sub-500ms finality for simple transactions via sub-sampled repeated voting.
 - **Block-STM Parallel Execution** — Optimistic parallel transaction scheduling for 8-16x throughput on commodity hardware.
 - **Dual VM** — Primary WASM (Wasmtime JIT) alongside full EVM compatibility (revm).
 - **Turbine Block Propagation** — Reed-Solomon erasure-coded block propagation for efficient bandwidth utilization.
+
+## Public Testnet
+
+PIChain testnet is live. Start mining in minutes — no special hardware required.
+
+| Resource | URL |
+|----------|-----|
+| Homepage | https://pichain.net |
+| Block Explorer | https://pichain.net/explorer |
+| Mining Dashboard | https://pichain.net/mining |
+| Faucet | https://pichain.net/faucet |
+| RPC Endpoint | https://pichain.net |
+| Chain ID | 31415 |
+
+### Quick Start — Mine on Testnet
+
+```bash
+# 1. Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 2. Build the miner
+git clone https://github.com/pureinkart-tech/pichain.git
+cd pichain
+cargo build --release -p pichain-miner
+
+# 3. Generate a wallet
+./target/release/pichain-miner --keypair wallet.json --generate-keypair
+
+# 4. Start mining (the faucet auto-funds your wallet)
+./target/release/pichain-miner \
+  --keypair wallet.json \
+  --rpc-url https://pichain.net \
+  --profile desktop
+```
+
+Mining profiles: `laptop` (2 threads), `desktop` (half cores), `server` (all cores), `max` (all cores + large batches). Fine-tune with `--threads`, `--max-cpu`, `--digits-per-batch`.
 
 ## Architecture
 
@@ -138,34 +177,42 @@ The BBP algorithm computes the n-th hex digit of Pi **directly** without computi
 
 **Proof of Work** is minimal — an 8-bit PoW (~256 nonce attempts) serves as anti-spam only. Any machine can solve it instantly. Rewards are proportional to **digits computed**, not PoW difficulty.
 
-### Emission Schedule
+### Emission Schedule — 2π% Geometric Decay
 
-The mining pool contains **1,256,637,061 PI** (40% of total supply), distributed over 7 years:
+The mining pool contains **~2,670,353,755 PI** (85% of total supply), distributed via **2π% (6.28%) geometric decay** — each year, 6.28% of the remaining pool is emitted. The pool never fully drains, and transaction fee income replenishes it.
 
-| Year | Emission | % of Pool |
-|------|----------|-----------|
-| 1 | 314,159,265 PI | 25% |
-| 2 | 251,327,412 PI | 20% |
-| 3 | 188,495,559 PI | 15% |
-| 4 | 150,796,447 PI | 12% |
-| 5 | 125,663,706 PI | 10% |
-| 6 | 113,097,336 PI | 9% |
-| 7 | 113,097,336 PI | 9% |
+| Year | Emission | Remaining Pool |
+|------|----------|---------------|
+| 1 | ~167,656,256 PI | ~2,502,697,499 PI |
+| 5 | ~126,481,028 PI | ~1,888,405,816 PI |
+| 10 | ~91,465,524 PI | ~1,364,804,082 PI |
+| 20 | ~47,816,710 PI | ~713,295,987 PI |
+| 31 (π decades) | ~27,008,936 PI | ~402,929,654 PI |
 
-## Tokenomics
+Additionally, **25% of all transaction base fees** flow back into the mining pool, extending its lifetime indefinitely.
+
+## Tokenomics — Satoshi Model
 
 **Total Supply: 3,141,592,653 PI** (immutable, set at genesis)
 
+No team, no foundation, no treasury. The protocol is self-sustaining.
+
 | Allocation | Amount | % |
 |------------|--------|---|
-| Mining Pool | 1,256,637,061 | 40% |
-| Community & Ecosystem | 628,318,531 | 20% |
-| Team & Development | 471,238,898 | 15% |
-| Validators & Staking | 314,159,265 | 10% |
-| Treasury | 314,159,265 | 10% |
-| Liquidity | 157,079,633 | 5% |
+| Mining Pool | ~2,670,353,755 | 85% |
+| Validator Staking | ~314,159,265 | 10% |
+| Initial Liquidity | ~157,079,633 | 5% |
 
-**Deflationary**: 25% of all base fees are permanently burned, ensuring circulating supply monotonically decreases over time.
+### Fee Distribution
+
+| Destination | % of Base Fee | Purpose |
+|------------|--------------|---------|
+| Burned | 25% | Deflationary pressure |
+| Mining Pool | 25% | Perpetual mining incentive |
+| Block Proposer | 50% | Validator/staker reward |
+| *Priority Fee* | *100% to proposer* | *Transaction inclusion incentive* |
+
+**Deflationary**: 25% of all base fees are permanently burned. 25% flows to the mining pool, making mining sustainable forever.
 
 ## Configuration
 
@@ -250,7 +297,7 @@ bash scripts/multi-node-test.sh
 | Signature Scheme | Ed25519 + BLS |
 | Hash Function | BLAKE3 (primary), Poseidon (ZK circuits) |
 | Mining Algorithm | BBP Pi digit computation |
-| Fee Model | EIP-1559 with 25% burn |
+| Fee Model | EIP-1559: 25% burn, 25% miners, 50% stakers |
 
 ## License
 

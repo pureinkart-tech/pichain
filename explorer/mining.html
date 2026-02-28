@@ -144,6 +144,7 @@ a:hover { text-decoration: underline; }
       <a href="/explorer">Explorer</a>
       <a href="/mining" class="active">Mining</a>
       <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
+      <a href="/launch">Launch</a>
       <a href="/mine">Start Mining</a>
     </div>
   </div>
@@ -188,12 +189,12 @@ a:hover { text-decoration: underline; }
 
   <div class="card" style="margin-bottom:24px">
     <h3>Mining Pool Progress</h3>
-    <div style="font-size:13px;color:var(--muted)">Year 1 Emission: 314,159,265 PI (25% of pool)</div>
+    <div style="font-size:13px;color:var(--muted)">Year 1 Emission: ~167,656,256 PI (2&pi;% of remaining pool)</div>
     <div class="bar-outer">
       <div class="bar-inner" id="pool-bar" style="width:0%">0%</div>
     </div>
     <div class="sub" style="margin-top:10px">
-      <span id="pool-mined">0</span> PI mined of 1,256,637,061 PI total mining pool (40% of supply)
+      <span id="pool-mined">0</span> PI mined of ~2,670,353,755 PI total mining pool (85% of supply)
     </div>
   </div>
 
@@ -231,16 +232,16 @@ a:hover { text-decoration: underline; }
       </p>
     </div>
     <div class="info-panel">
-      <h3>Emission Schedule</h3>
+      <h3>Emission Schedule &mdash; 2&pi;% Geometric Decay</h3>
       <p>
-        The mining pool contains <strong>1,256,637,061 PI</strong> (40% of total supply).
-        Emissions follow a halving schedule:
+        The mining pool contains <strong>~2,670,353,755 PI</strong> (85% of total supply).
+        Each year, 2&pi;% (6.28%) of the remaining pool is emitted:
       </p>
       <p>
-        <strong>Year 1:</strong> 314,159,265 PI (25%)<br>
-        <strong>Year 2:</strong> 251,327,412 PI (20%)<br>
-        <strong>Year 3:</strong> 188,495,559 PI (15%)<br>
-        Remaining distributed over subsequent years.
+        <strong>Year 1:</strong> ~167,656,256 PI<br>
+        <strong>Year 5:</strong> ~126,481,028 PI<br>
+        <strong>Year 10:</strong> ~91,465,524 PI<br>
+        25% of transaction fees replenish the pool forever.
       </p>
     </div>
   </div>
@@ -273,7 +274,7 @@ async function refresh() {
     const rpd = mining.reward_per_digit / 1e9;
     document.getElementById('reward-per-digit').textContent = rpd.toFixed(9) + ' PI';
 
-    const totalPool = 1256637061;
+    const totalPool = 2670353755;
     const remaining = mining.remaining_pool / 1e9;
     const mined = totalPool - remaining;
     const pct = (mined / totalPool * 100);

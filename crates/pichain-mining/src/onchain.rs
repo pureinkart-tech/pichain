@@ -53,7 +53,8 @@ pub struct VerificationResult {
 ///
 /// Mining uses a fixed minimum PoW (8 bits) for anti-spam. Rewards are purely
 /// proportional to PI digits computed, making mining accessible to all hardware.
-/// Supply tracking ensures total rewards never exceed the 1.256B PI mining pool.
+/// Supply tracking ensures total rewards never exceed the mining pool
+/// (85% of total supply + accumulated fee income).
 #[derive(Clone)]
 pub struct MiningProcessor {
     verifier: ProofVerifier,
@@ -96,10 +97,12 @@ impl MiningProcessor {
     }
 
     /// Set the current block height.
-    /// R37-FIX: Debug-assert monotonicity to catch accidental height regression
-    /// (which would corrupt epoch tracking). Skipped in release for performance.
+    /// AUDIT-FIX L-1: Upgraded from debug_assert to hard assert. Height regression
+    /// would corrupt epoch tracking (resetting epoch_miner_rewards to a stale epoch),
+    /// potentially allowing miners to exceed per-epoch caps. This is a consensus
+    /// invariant that must hold in release builds.
     pub fn set_height(&mut self, height: u64) {
-        debug_assert!(
+        assert!(
             height >= self.current_height || self.current_height == 0,
             "MiningProcessor::set_height regression: {} -> {}",
             self.current_height, height
@@ -391,8 +394,12 @@ impl MiningProcessor {
         }
 
         // 7. Record the reward distribution (updates total_mined)
+        // AUDIT-FIX M-2: If record_reward fails, unregister the digit range to
+        // prevent permanently consuming digits without issuing a reward.
         if reward > 0 {
             if let Err(e) = self.reward_calc.record_reward(reward) {
+                // Rollback: unregister the range so another miner can claim it
+                self.registry.unregister(proof.start_position);
                 return VerificationResult {
                     valid: false,
                     spot_checks,
@@ -503,6 +510,21 @@ impl MiningProcessor {
         difficulty::MIN_DIFFICULTY_BITS
     }
 
+    /// Add transaction fee income to the mining pool.
+    pub fn add_fee_income(&mut self, amount: u64) {
+        self.reward_calc.add_fee_income(amount);
+    }
+
+    /// Set fee income (for replay/restore from persisted state).
+    pub fn set_fee_income(&mut self, amount: u64) {
+        self.reward_calc.set_fee_income(amount);
+    }
+
+    /// Get cumulative fee income added to the mining pool.
+    pub fn fee_income(&self) -> u64 {
+        self.reward_calc.fee_income()
+    }
+
     /// Get mining statistics.
     pub fn stats(&self) -> MiningStats {
         let reg_stats = self.registry.stats();
@@ -514,6 +536,7 @@ impl MiningProcessor {
             unique_miners: reg_stats.unique_miners,
             remaining_pool: self.reward_calc.remaining_pool(),
             total_mined: self.reward_calc.total_mined(),
+            fee_income: self.reward_calc.fee_income(),
             next_position: self.next_mining_position(),
             reward_per_digit: self.reward_calc.reward_per_digit(year),
             emission_year: year,
@@ -610,6 +633,8 @@ pub struct MiningStats {
     pub unique_miners: u64,
     pub remaining_pool: u64,
     pub total_mined: u64,
+    /// Cumulative transaction fee income added to mining pool.
+    pub fee_income: u64,
     pub next_position: u64,
     pub reward_per_digit: u64,
     pub emission_year: u32,
@@ -754,8 +779,8 @@ mod tests {
     fn supply_cap_prevents_infinite_mining() {
         let mut processor = configured_processor();
 
-        // Simulate near-exhaustion of mining pool (40% of TOTAL_SUPPLY)
-        let cap = pichain_types::TOTAL_SUPPLY * 40 / 100;
+        // Simulate near-exhaustion of mining pool (85% of TOTAL_SUPPLY)
+        let cap = pichain_types::TOTAL_SUPPLY * 85 / 100;
         processor.set_total_mined((cap - 100) as u64);
 
         let digits = BbpComputer::compute_hex_digits(0, 200);

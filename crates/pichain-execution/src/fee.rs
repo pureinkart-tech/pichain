@@ -2,13 +2,13 @@
 //!
 //! Base fee distribution:
 //!   25% burned permanently (deflationary pressure)
-//!   65% distributed to stakers
-//!   10% to protocol treasury
+//!   25% flows to mining pool (miner sustainability)
+//!   50% to block proposer/stakers
 //!
 //! Priority fee distribution:
 //!   100% to block producer (incentivizes including transactions)
 
-use pichain_types::{Gas, PiAmount, FEE_BURN_RATE_BPS, FEE_STAKER_RATE_BPS, FEE_TREASURY_RATE_BPS};
+use pichain_types::{Gas, PiAmount, FEE_BURN_RATE_BPS, FEE_MINER_RATE_BPS, FEE_STAKER_RATE_BPS};
 
 /// Fee calculator implementing PIChain's deflationary fee model.
 pub struct FeeCalculator;
@@ -30,7 +30,7 @@ impl FeeCalculator {
         base_fee.saturating_add(priority_fee)
     }
 
-    /// Calculate base fee portion only (for burn/staker/treasury split).
+    /// Calculate base fee portion only (for burn/miner/staker split).
     pub fn calculate_base_fee(
         &self,
         gas_used: Gas,
@@ -60,33 +60,33 @@ impl FeeCalculator {
         (base_fee as u128 * FEE_BURN_RATE_BPS as u128 / 10_000) as u64
     }
 
-    /// Calculate the amount distributed to stakers (65% of base fee portion).
-    pub fn staker_reward(&self, base_fee: PiAmount) -> PiAmount {
-        (base_fee as u128 * FEE_STAKER_RATE_BPS as u128 / 10_000) as u64
+    /// Calculate the amount flowing to the mining pool (25% of base fee portion).
+    pub fn miner_share(&self, base_fee: PiAmount) -> PiAmount {
+        (base_fee as u128 * FEE_MINER_RATE_BPS as u128 / 10_000) as u64
     }
 
-    /// Calculate the amount going to treasury (10% of base fee portion).
-    pub fn treasury_share(&self, base_fee: PiAmount) -> PiAmount {
-        (base_fee as u128 * FEE_TREASURY_RATE_BPS as u128 / 10_000) as u64
+    /// Calculate the amount distributed to stakers/proposer (50% of base fee portion).
+    pub fn staker_reward(&self, base_fee: PiAmount) -> PiAmount {
+        (base_fee as u128 * FEE_STAKER_RATE_BPS as u128 / 10_000) as u64
     }
 
     /// Split a fee into its components.
     /// Takes the TOTAL fee and the BASE FEE portion.
     /// Priority fee = total_fee - base_fee_portion goes 100% to block producer.
-    /// Base fee portion is split: 25% burn, 10% treasury, remainder to stakers.
+    /// Base fee portion is split: 25% burn, 25% miners, remainder to stakers.
     pub fn split_fee(&self, total_fee: PiAmount, base_fee_portion: PiAmount) -> FeeSplit {
         let base_fee = base_fee_portion.min(total_fee);
         let priority_fee = total_fee.saturating_sub(base_fee);
 
         let burned = self.calculate_burn(base_fee);
-        let treasury = self.treasury_share(base_fee);
+        let miners = self.miner_share(base_fee);
         // Assign remainder of base fee to stakers to guarantee no dust lost
-        let stakers = base_fee.saturating_sub(burned).saturating_sub(treasury);
+        let stakers = base_fee.saturating_sub(burned).saturating_sub(miners);
 
         FeeSplit {
             burned,
+            miners,
             stakers,
-            treasury,
             proposer: priority_fee,
         }
     }
@@ -109,10 +109,10 @@ impl Default for FeeCalculator {
 pub struct FeeSplit {
     /// Amount permanently burned.
     pub burned: PiAmount,
-    /// Amount distributed to stakers.
+    /// Amount flowing to mining pool (miner sustainability).
+    pub miners: PiAmount,
+    /// Amount distributed to stakers/proposer.
     pub stakers: PiAmount,
-    /// Amount to protocol treasury.
-    pub treasury: PiAmount,
     /// Amount to block proposer (from priority fees).
     pub proposer: PiAmount,
 }
@@ -131,9 +131,7 @@ mod tests {
     #[test]
     fn fee_calculation_overflow_safe() {
         let calc = FeeCalculator::new();
-        // Large values that would overflow u64 if multiplied directly
         let fee = calc.calculate_fee(100_000_000, 100_000_000_000, 50_000_000_000);
-        // Should not panic, result may saturate
         assert!(fee > 0);
     }
 
@@ -146,18 +144,26 @@ mod tests {
     }
 
     #[test]
+    fn miner_rate() {
+        let calc = FeeCalculator::new();
+        let fee = 10_000;
+        let miners = calc.miner_share(fee);
+        assert_eq!(miners, 2_500); // 25%
+    }
+
+    #[test]
     fn fee_split_with_priority() {
         let calc = FeeCalculator::new();
         let total = 11_000;
         let base = 10_000;
         let split = calc.split_fee(total, base);
-        // Base fee split: 25% + 65% + 10% = 100% of 10,000
-        assert_eq!(split.burned + split.stakers + split.treasury, base);
+        // Base fee split: 25% + 25% + 50% = 100% of 10,000
+        assert_eq!(split.burned + split.miners + split.stakers, base);
         // Priority fee: 1,000 goes to proposer
         assert_eq!(split.proposer, 1_000);
         // Total must balance
         assert_eq!(
-            split.burned + split.stakers + split.treasury + split.proposer,
+            split.burned + split.miners + split.stakers + split.proposer,
             total
         );
     }
@@ -167,9 +173,8 @@ mod tests {
         let calc = FeeCalculator::new();
         let total = 10_000;
         let split = calc.split_fee(total, total);
-        // When all is base fee: 25% + 65% + 10% = 100%, proposer = 0
         assert_eq!(
-            split.burned + split.stakers + split.treasury + split.proposer,
+            split.burned + split.miners + split.stakers + split.proposer,
             total
         );
         assert_eq!(split.proposer, 0);
@@ -181,7 +186,7 @@ mod tests {
         for total in [1, 3, 7, 11, 13, 99, 101, 999, 1001, 9999, 10001, 100003] {
             let split = calc.split_fee(total, total);
             assert_eq!(
-                split.burned + split.stakers + split.treasury + split.proposer,
+                split.burned + split.miners + split.stakers + split.proposer,
                 total,
                 "fee split does not sum to total for fee={total}"
             );
@@ -193,20 +198,19 @@ mod tests {
         let calc = FeeCalculator::new();
         let split = calc.split_fee(0, 0);
         assert_eq!(split.burned, 0);
+        assert_eq!(split.miners, 0);
         assert_eq!(split.stakers, 0);
-        assert_eq!(split.treasury, 0);
         assert_eq!(split.proposer, 0);
     }
 
     #[test]
     fn priority_fee_fully_to_proposer() {
         let calc = FeeCalculator::new();
-        // All priority fee, no base fee
         let split = calc.split_fee(5_000, 0);
         assert_eq!(split.proposer, 5_000);
         assert_eq!(split.burned, 0);
+        assert_eq!(split.miners, 0);
         assert_eq!(split.stakers, 0);
-        assert_eq!(split.treasury, 0);
     }
 
     #[test]

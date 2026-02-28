@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIChain — Token Launchpad</title>
+<meta name="description" content="Create and trade meme coins on PIChain. Bonding curve launches with automatic DEX graduation.">
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0c1018;
+  --surface: #111827; --surface-2: #1a2236;
+  --border: #1e293b; --border-light: #2d3a52;
+  --text: #e8ecf4; --muted: #8896b0; --dim: #5e6b82;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --cyan: #22d3ee; --green: #34d399; --gold: #fbbf24; --rose: #fb7185;
+  --radius: 16px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; line-height: 1.6; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navbar */
+.navbar { background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(30, 41, 59, 0.5); position: sticky; top: 0; z-index: 100; }
+.navbar-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); letter-spacing: -0.5px; }
+.pi-sym { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); font-size: 20px; font-weight: 900; color: white; }
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s; }
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-links a.active { color: var(--text); background: rgba(99,102,241,0.12); }
+
+/* Layout */
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+.page-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+.page-title span { color: var(--accent-light); }
+
+/* Wallet bar */
+.wallet-bar { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 16px; }
+.wallet-bar .addr { font-family: 'SF Mono', monospace; font-size: 13px; color: var(--cyan); }
+.wallet-bar .bal { font-size: 13px; font-weight: 700; color: var(--green); }
+.btn { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; border: none; border-radius: 10px; padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.3); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-outline { background: transparent; border: 1px solid var(--border-light); color: var(--text); }
+.btn-outline:hover { border-color: var(--accent); background: rgba(99,102,241,0.08); box-shadow: none; }
+.btn-green { background: linear-gradient(135deg, #059669, #34d399); }
+.btn-rose { background: linear-gradient(135deg, #e11d48, #fb7185); }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.tab { padding: 10px 20px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Filter bar */
+.filter-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.filter-btn { padding: 6px 16px; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+.filter-btn:hover { border-color: var(--accent); color: var(--text); }
+.filter-btn.active { background: rgba(99,102,241,0.15); border-color: var(--accent); color: var(--accent-light); }
+.search-input { flex: 1; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 16px; font-size: 13px; color: var(--text); }
+.search-input::placeholder { color: var(--dim); }
+.search-input:focus { outline: none; border-color: var(--accent); }
+
+/* Token grid */
+.token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.token-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; cursor: pointer; transition: all 0.2s; }
+.token-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(99,102,241,0.12); }
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+.card-symbol { font-size: 18px; font-weight: 800; }
+.card-name { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-Active { background: rgba(34,211,238,0.12); color: var(--cyan); }
+.badge-TargetReached { background: rgba(251,191,36,0.12); color: var(--gold); }
+.badge-Finalized { background: rgba(52,211,153,0.12); color: var(--green); }
+.badge-Cancelled { background: rgba(251,113,133,0.12); color: var(--rose); }
+.progress-bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin: 10px 0; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: 3px; transition: width 0.5s; }
+.card-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+.card-price { font-size: 13px; color: var(--text); font-weight: 600; margin-top: 6px; }
+
+/* Detail view */
+.detail-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; margin-bottom: 24px; }
+.detail-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+.detail-title { font-size: 24px; font-weight: 800; }
+.detail-meta { font-size: 13px; color: var(--muted); }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.stat-val { font-size: 20px; font-weight: 800; }
+.stat-lbl { font-size: 12px; color: var(--dim); margin-top: 2px; }
+
+/* Buy/Swap panel */
+.trade-panel { background: var(--bg-2); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 24px; max-width: 420px; }
+.trade-panel h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.input-group { margin-bottom: 16px; }
+.input-group label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.input-group input, .input-group select { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 16px; font-weight: 600; }
+.input-group input:focus, .input-group select:focus { outline: none; border-color: var(--accent); }
+.input-group input::placeholder { color: var(--dim); }
+.preview-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.preview-val { color: var(--text); font-weight: 600; }
+
+/* Create form */
+.create-form { max-width: 560px; margin: 0 auto; }
+.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; margin-bottom: 20px; }
+.form-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+.form-row { margin-bottom: 16px; }
+.form-row label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.form-row input, .form-row select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 15px; }
+.form-row input:focus { outline: none; border-color: var(--accent); }
+.form-row input::placeholder { color: var(--dim); }
+.form-hint { font-size: 12px; color: var(--dim); margin-top: 4px; }
+.advanced-toggle { font-size: 13px; color: var(--accent-light); cursor: pointer; margin-bottom: 16px; display: inline-block; }
+.advanced-toggle:hover { text-decoration: underline; }
+.advanced-fields { display: none; }
+.advanced-fields.open { display: block; }
+
+/* Portfolio */
+.portfolio-table { width: 100%; border-collapse: collapse; }
+.portfolio-table th, .portfolio-table td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.portfolio-table th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Status / toast */
+.toast { position: fixed; top: 80px; right: 24px; padding: 14px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; z-index: 200; transition: all 0.3s; transform: translateX(400px); opacity: 0; }
+.toast.show { transform: translateX(0); opacity: 1; }
+.toast-success { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+.toast-error { background: rgba(251,113,133,0.15); border: 1px solid rgba(251,113,133,0.3); color: var(--rose); }
+.toast-info { background: rgba(34,211,238,0.15); border: 1px solid rgba(34,211,238,0.3); color: var(--cyan); }
+
+/* Wallet modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 150; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; max-width: 440px; width: 90%; }
+.modal h3 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 24px; color: var(--dim); }
+.empty h3 { font-size: 20px; margin-bottom: 8px; color: var(--muted); }
+
+/* Footer */
+.footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 64px; padding: 24px; border-top: 1px solid var(--border); }
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .token-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .header-row { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine">Mine</a>
+      <a href="/faucet">Faucet</a>
+      <a href="/launch" class="active">Launch</a>
+      <a href="/download">Download</a>
+    </div>
+  </div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<!-- Wallet Modal -->
+<div class="modal-overlay" id="walletModal">
+  <div class="modal">
+    <h3>Connect Wallet</h3>
+    <div class="form-row">
+      <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWallet()">Create New Wallet</button>
+    </div>
+    <div class="form-row">
+      <label>Or import seed (64 hex chars)</label>
+      <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex seed..." maxlength="64" spellcheck="false">
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
+    <div style="margin-top:16px;text-align:center;">
+      <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="header-row">
+    <div>
+      <h1 class="page-title"><span>Token</span> Launchpad</h1>
+      <div style="color:var(--muted);font-size:14px;">Create and trade tokens with bonding curve launches</div>
+    </div>
+    <div class="wallet-bar" id="walletBar">
+      <span id="walletStatus">No wallet</span>
+      <button class="btn btn-sm" id="walletBtn" onclick="showWalletModal()">Connect</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('discover')">Discover</button>
+    <button class="tab" onclick="switchTab('create')">Create Token</button>
+    <button class="tab" onclick="switchTab('portfolio')">Portfolio</button>
+  </div>
+
+  <!-- DISCOVER TAB -->
+  <div class="tab-content active" id="tab-discover">
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="setFilter('all')">All</button>
+      <button class="filter-btn" onclick="setFilter('Active')">Active</button>
+      <button class="filter-btn" onclick="setFilter('TargetReached')">Target Reached</button>
+      <button class="filter-btn" onclick="setFilter('Finalized')">Graduated</button>
+      <input type="text" class="search-input" placeholder="Search by name or symbol..." oninput="renderFeed()" id="searchInput">
+    </div>
+    <div id="tokenGrid" class="token-grid"></div>
+    <div id="tokenDetail" style="display:none;"></div>
+  </div>
+
+  <!-- CREATE TAB -->
+  <div class="tab-content" id="tab-create">
+    <div class="create-form">
+      <div class="form-card">
+        <h3>Launch Your Token</h3>
+        <div class="form-row">
+          <label>Token Name</label>
+          <input type="text" id="createName" placeholder="e.g. Doge PIChain" maxlength="64">
+        </div>
+        <div class="form-row">
+          <label>Token Symbol</label>
+          <input type="text" id="createSymbol" placeholder="e.g. DOPI" maxlength="10" style="text-transform:uppercase;">
+        </div>
+        <div class="form-row">
+          <label>Image / Description URL (optional)</label>
+          <input type="text" id="createUri" placeholder="https://..." maxlength="256">
+          <div class="form-hint">Link to token logo or metadata (IPFS, HTTP, etc.)</div>
+        </div>
+
+        <div class="advanced-toggle" onclick="toggleAdvanced()">Advanced Settings &#9662;</div>
+        <div class="advanced-fields" id="advancedFields">
+          <div class="form-row">
+            <label>Decimals</label>
+            <input type="number" id="createDecimals" value="9" min="0" max="18">
+          </div>
+          <div class="form-row">
+            <label>Max Supply (tokens)</label>
+            <input type="number" id="createMaxSupply" value="1000000000">
+            <div class="form-hint">Total supply cap (default: 1 billion)</div>
+          </div>
+          <div class="form-row">
+            <label>Tokens for Sale (%)</label>
+            <input type="number" id="createSalePct" value="80" min="1" max="100">
+            <div class="form-hint">Percentage of supply available on bonding curve</div>
+          </div>
+          <div class="form-row">
+            <label>Target PI</label>
+            <input type="number" id="createTargetPi" value="100" step="0.1">
+            <div class="form-hint">PI raised to graduate to DEX (default: 100 PI)</div>
+          </div>
+          <div class="form-row">
+            <label>Max per Address (PI)</label>
+            <input type="number" id="createMaxPerAddr" value="10" step="0.1">
+          </div>
+        </div>
+
+        <button class="btn" style="width:100%;padding:14px;" onclick="createTokenAndLaunch()" id="createBtn">
+          Launch Token
+        </button>
+        <div id="createStatus" style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PORTFOLIO TAB -->
+  <div class="tab-content" id="tab-portfolio">
+    <div id="portfolioContent">
+      <div class="empty">
+        <h3>Connect your wallet</h3>
+        <p>Connect a wallet to view your token holdings.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">PIChain &mdash; Computing the Infinite</div>
+
+<!-- TweetNaCl for Ed25519 signing -->
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+
+<script>
+// =====================================================================
+// BLAKE3 (pure JS, matches Rust blake3::hash exactly)
+// =====================================================================
+const BLAKE3 = (() => {
+  const IV = new Uint32Array([0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]);
+  const MSG_PERM = [2,6,3,10,7,0,4,13,1,11,12,5,9,14,15,8];
+  const CHUNK_START=1, CHUNK_END=2, ROOT=8;
+  function rotR(x,n){return(x>>>n)|(x<<(32-n));}
+  function g(s,a,b,c,d,mx,my){
+    s[a]=(s[a]+s[b]+mx)|0; s[d]=rotR(s[d]^s[a],16);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],12);
+    s[a]=(s[a]+s[b]+my)|0; s[d]=rotR(s[d]^s[a],8);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],7);
+  }
+  function round(s,m){
+    g(s,0,4,8,12,m[0],m[1]);g(s,1,5,9,13,m[2],m[3]);
+    g(s,2,6,10,14,m[4],m[5]);g(s,3,7,11,15,m[6],m[7]);
+    g(s,0,5,10,15,m[8],m[9]);g(s,1,6,11,12,m[10],m[11]);
+    g(s,2,7,8,13,m[12],m[13]);g(s,3,4,9,14,m[14],m[15]);
+  }
+  function compress(cv,block,counter,blockLen,flags){
+    const s=new Uint32Array([cv[0],cv[1],cv[2],cv[3],cv[4],cv[5],cv[6],cv[7],
+      IV[0],IV[1],IV[2],IV[3],counter&0xFFFFFFFF,(counter/0x100000000)>>>0,blockLen,flags]);
+    const m=new Uint32Array(16);
+    for(let i=0;i<16;i++) m[i]=block[i*4]|(block[i*4+1]<<8)|(block[i*4+2]<<16)|(block[i*4+3]<<24);
+    for(let i=0;i<7;i++){round(s,m);const t=new Uint32Array(16);for(let j=0;j<16;j++)t[j]=m[MSG_PERM[j]];m.set(t);}
+    for(let i=0;i<8;i++){s[i]^=s[i+8];s[i+8]^=cv[i];}
+    return s;
+  }
+  function hash(input){
+    if(!(input instanceof Uint8Array))input=new Uint8Array(input);
+    let cv=new Uint32Array(IV);
+    const nBlocks=Math.max(1,Math.ceil(input.length/64));
+    for(let i=0;i<nBlocks;i++){
+      const start=i*64, block=new Uint8Array(64);
+      const end=Math.min(start+64,input.length);
+      block.set(input.subarray(start,end));
+      let fl=0;
+      if(i===0)fl|=CHUNK_START;
+      if(i===nBlocks-1)fl|=CHUNK_END|ROOT;
+      const out=compress(cv,block,0,end-start,fl);
+      if(i===nBlocks-1){
+        const r=new Uint8Array(32);
+        for(let j=0;j<8;j++){r[j*4]=out[j]&0xFF;r[j*4+1]=(out[j]>>8)&0xFF;r[j*4+2]=(out[j]>>16)&0xFF;r[j*4+3]=(out[j]>>24)&0xFF;}
+        return r;
+      }
+      cv=new Uint32Array(out.subarray(0,8));
+    }
+  }
+  return {hash};
+})();
+
+// =====================================================================
+// UTILITIES
+// =====================================================================
+function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
+function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<8;i++)buf[i]=Number((big>>BigInt(i*8))&0xFFn);return buf;}
+function u32LE(n){const buf=new Uint8Array(4);buf[0]=n&0xFF;buf[1]=(n>>8)&0xFF;buf[2]=(n>>16)&0xFF;buf[3]=(n>>24)&0xFF;return buf;}
+function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;const r=new Uint8Array(total);let off=0;for(const a of arrays){r.set(a,off);off+=a.length;}return r;}
+function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
+function formatPI(base){return (Number(base)/1e9).toFixed(4);}
+function formatTokens(amount,decimals){return (Number(amount)/Math.pow(10,decimals||9)).toLocaleString(undefined,{maximumFractionDigits:2});}
+function shortAddr(hex){return hex.slice(0,8)+'...'+hex.slice(-6);}
+function timeAgo(ms){const s=Math.floor((Date.now()-ms)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
+
+const API = window.location.origin;
+const CHAIN_ID = 31415;
+const BASE_UNITS = 1000000000; // 1 PI = 10^9
+
+// =====================================================================
+// WALLET
+// =====================================================================
+let walletKeypair = null;
+let walletAddress = null;
+let walletAddressHex = '';
+let walletSeedHex = '';
+let accountNonce = 0;
+let piBalance = 0;
+let currentBaseFee = 1000;
+
+function initWallet(seed) {
+  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  walletAddress = deriveAddress(walletKeypair.publicKey);
+  walletAddressHex = hexEncode(walletAddress);
+  walletSeedHex = hexEncode(seed);
+  localStorage.setItem('pichain_seed', walletSeedHex);
+  updateWalletUI();
+  updateBalance();
+  document.getElementById('walletModal').classList.remove('show');
+}
+
+function createWallet() { initWallet(nacl.randomBytes(32)); showToast('Wallet created!', 'success'); }
+
+function importWallet() {
+  const seed = document.getElementById('importSeedInput').value.trim();
+  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid seed. Must be 64 hex chars.','error');return;}
+  initWallet(hexDecode(seed));
+  showToast('Wallet imported!', 'success');
+}
+
+function loadWallet() {
+  const saved = localStorage.getItem('pichain_seed');
+  if(saved && saved.length===64) initWallet(hexDecode(saved));
+}
+
+function showWalletModal() { document.getElementById('walletModal').classList.add('show'); }
+
+function updateWalletUI() {
+  const bar = document.getElementById('walletBar');
+  if(walletKeypair) {
+    bar.innerHTML = `
+      <span class="addr">${shortAddr(walletAddressHex)}</span>
+      <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
+      <button class="btn btn-sm btn-outline" onclick="exportWallet()">Export</button>
+      <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
+    `;
+  } else {
+    bar.innerHTML = `
+      <span id="walletStatus">No wallet</span>
+      <button class="btn btn-sm" onclick="showWalletModal()">Connect</button>
+    `;
+  }
+}
+
+function exportWallet() {
+  const blob = new Blob([JSON.stringify({seed:walletSeedHex,address:walletAddressHex})],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pichain-wallet.json';
+  a.click();
+}
+
+function disconnectWallet() {
+  localStorage.removeItem('pichain_seed');
+  walletKeypair = null; walletAddress = null; walletAddressHex = '';
+  piBalance = 0; accountNonce = 0;
+  updateWalletUI();
+}
+
+async function updateBalance() {
+  if(!walletAddressHex) return;
+  try {
+    const res = await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const data = await res.json();
+    if(data.found) {
+      piBalance = data.balance;
+      accountNonce = data.nonce;
+    }
+    const el = document.getElementById('walletBal');
+    if(el) el.textContent = formatPI(piBalance)+' PI';
+  } catch(e){}
+  try {
+    const res = await fetch(API+'/api/v1/info');
+    const info = await res.json();
+    currentBaseFee = info.base_fee || 1000;
+  } catch(e){}
+}
+
+// =====================================================================
+// TOAST
+// =====================================================================
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast toast-'+type+' show';
+  setTimeout(()=>{ el.classList.remove('show'); }, 4000);
+}
+
+// =====================================================================
+// TAB SWITCHING
+// =====================================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['discover','create','portfolio'][i]===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='portfolio') loadPortfolio();
+  if(name==='discover') { hideDetail(); renderFeed(); }
+}
+
+// =====================================================================
+// DISCOVER / FEED
+// =====================================================================
+let allLaunches = [];
+let currentFilter = 'all';
+
+async function loadLaunches() {
+  try {
+    const res = await fetch(API+'/api/v1/launches');
+    const data = await res.json();
+    allLaunches = data.launches || [];
+    renderFeed();
+  } catch(e){}
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===(f==='all'?'All':f==='Active'?'Active':f==='TargetReached'?'Target Reached':'Graduated')));
+  renderFeed();
+}
+
+function renderFeed() {
+  const grid = document.getElementById('tokenGrid');
+  const search = (document.getElementById('searchInput').value||'').toLowerCase();
+  let filtered = allLaunches;
+  if(currentFilter!=='all') filtered = filtered.filter(l=>l.state===currentFilter);
+  if(search) filtered = filtered.filter(l=>(l.name+l.symbol).toLowerCase().includes(search));
+
+  if(filtered.length===0) {
+    grid.innerHTML = '<div class="empty"><h3>No tokens found</h3><p>Be the first to launch a token!</p></div>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(l => `
+    <div class="token-card" onclick="viewToken('${l.mint_id}')">
+      <div class="card-top">
+        <div class="card-symbol">$${escHtml(l.symbol||'???')}</div>
+        <span class="badge badge-${l.state}">${l.state==='TargetReached'?'Target Reached':l.state}</span>
+      </div>
+      <div class="card-name">${escHtml(l.name||'Unknown Token')}</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100,l.percent_complete).toFixed(1)}%"></div></div>
+      <div class="card-stats">
+        <span>${formatPI(l.pi_raised)} / ${formatPI(l.target_pi)} PI</span>
+        <span>${l.percent_complete.toFixed(1)}%</span>
+      </div>
+      <div class="card-price">Price: ${formatPI(l.current_price)} PI/token</div>
+      <div class="card-stats" style="margin-top:6px;">
+        <span>by ${shortAddr(l.creator)}</span>
+        <span>${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// =====================================================================
+// TOKEN DETAIL VIEW
+// =====================================================================
+let currentDetailMint = null;
+
+async function viewToken(mintId) {
+  currentDetailMint = mintId;
+  document.getElementById('tokenGrid').style.display = 'none';
+  const detail = document.getElementById('tokenDetail');
+  detail.style.display = 'block';
+  detail.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">Loading...</div>';
+
+  try {
+    const res = await fetch(API+'/api/v1/launch/'+mintId);
+    const l = await res.json();
+    if(!l.found) { detail.innerHTML = '<div class="empty"><h3>Launch not found</h3></div>'; return; }
+
+    const isActive = l.state === 'Active';
+    const isTargetReached = l.state === 'TargetReached';
+    const isFinalized = l.state === 'Finalized';
+
+    let tradeHtml = '';
+    if(isActive) {
+      tradeHtml = `
+        <div class="trade-panel">
+          <h3>Buy $${escHtml(l.symbol)}</h3>
+          <div class="input-group">
+            <label>Amount (PI)</label>
+            <input type="number" id="buyAmount" placeholder="0.0" step="0.001" min="0" oninput="previewBuy('${mintId}')">
+          </div>
+          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="buyEstimate">--</span></div>
+          <div class="preview-row"><span>Current price</span><span class="preview-val">${formatPI(l.current_price)} PI/token</span></div>
+          <button class="btn btn-green" style="width:100%;padding:14px;" onclick="buyOnCurve('${mintId}')" id="buyBtn">Buy $${escHtml(l.symbol)}</button>
+          <div style="margin-top:12px;font-size:12px;color:var(--dim);text-align:center;">Selling available after graduation to DEX</div>
+        </div>`;
+    } else if(isTargetReached) {
+      tradeHtml = `
+        <div class="trade-panel">
+          <h3>Target Reached!</h3>
+          <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">This token has raised its target. Anyone can finalize to create the DEX pool.</p>
+          <button class="btn btn-green" style="width:100%;padding:14px;" onclick="finalizeLaunch('${mintId}')">Finalize &amp; Graduate to DEX</button>
+        </div>`;
+    } else if(isFinalized) {
+      tradeHtml = `
+        <div class="trade-panel">
+          <h3>Swap PI / $${escHtml(l.symbol)}</h3>
+          <div class="input-group">
+            <label>Direction</label>
+            <select id="swapDir" onchange="previewSwap('${mintId}')">
+              <option value="buy">Buy $${escHtml(l.symbol)} with PI</option>
+              <option value="sell">Sell $${escHtml(l.symbol)} for PI</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label>Amount In</label>
+            <input type="number" id="swapAmountIn" placeholder="0.0" step="0.001" min="0" oninput="previewSwap('${mintId}')">
+          </div>
+          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="swapEstimate">--</span></div>
+          <div class="preview-row"><span>Price impact</span><span class="preview-val" id="swapImpact">--</span></div>
+          <div class="input-group">
+            <label>Slippage tolerance (%)</label>
+            <input type="number" id="swapSlippage" value="1" step="0.1" min="0.1" max="50">
+          </div>
+          <button class="btn" style="width:100%;padding:14px;" onclick="executeSwap('${mintId}')">Swap</button>
+        </div>`;
+    }
+
+    detail.innerHTML = `
+      <button class="btn btn-outline btn-sm" onclick="hideDetail()" style="margin-bottom:16px;">&larr; Back to all tokens</button>
+      <div class="detail-panel">
+        <div class="detail-header">
+          <div>
+            <div class="detail-title">$${escHtml(l.symbol)} &mdash; ${escHtml(l.name)}</div>
+            <div class="detail-meta">Created by ${shortAddr(l.creator)} &bull; ${l.created_at_ms?timeAgo(l.created_at_ms):''}</div>
+            ${l.metadata_uri ? '<div class="detail-meta" style="margin-top:4px;"><a href="'+escHtml(l.metadata_uri)+'" target="_blank">'+escHtml(l.metadata_uri)+'</a></div>' : ''}
+          </div>
+          <span class="badge badge-${l.state}" style="font-size:13px;padding:6px 14px;">${l.state==='TargetReached'?'Target Reached':l.state}</span>
+        </div>
+
+        <div class="progress-bar" style="height:10px;margin-bottom:8px;"><div class="progress-fill" style="width:${Math.min(100,l.percent_complete).toFixed(1)}%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:24px;">
+          <span>${formatPI(l.pi_raised)} / ${formatPI(l.target_pi)} PI raised</span>
+          <span>${l.percent_complete.toFixed(1)}%</span>
+        </div>
+
+        <div class="detail-grid">
+          <div class="stat-card"><div class="stat-val">${formatPI(l.current_price)}</div><div class="stat-lbl">Price (PI/token)</div></div>
+          <div class="stat-card"><div class="stat-val">${formatTokens(l.tokens_sold,l.decimals)}</div><div class="stat-lbl">Tokens Sold</div></div>
+          <div class="stat-card"><div class="stat-val">${formatTokens(l.tokens_for_sale,l.decimals)}</div><div class="stat-lbl">Tokens for Sale</div></div>
+          <div class="stat-card"><div class="stat-val">${l.contributors}</div><div class="stat-lbl">Contributors</div></div>
+        </div>
+
+        ${tradeHtml}
+      </div>`;
+  } catch(e) {
+    detail.innerHTML = '<div class="empty"><h3>Error loading token</h3><p>'+e.message+'</p></div>';
+  }
+}
+
+function hideDetail() {
+  currentDetailMint = null;
+  document.getElementById('tokenGrid').style.display = '';
+  document.getElementById('tokenDetail').style.display = 'none';
+}
+
+// =====================================================================
+// CANONICAL BYTES BUILDERS (must match Rust exactly)
+// =====================================================================
+function buildTxHeader(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,chainId) {
+  return concatBytes([sender,u64LE(nonce),u64LE(gasLimit),u64LE(maxBaseFee),u64LE(maxPriorityFee),u64LE(chainId)]);
+}
+
+// Tag 6: CreateToken
+function buildCreateTokenCanonical(sender,nonce,name,symbol,decimals,maxSupply,metadataUri) {
+  const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
+  const nb = new TextEncoder().encode(name);
+  const sb = new TextEncoder().encode(symbol);
+  const ub = new TextEncoder().encode(metadataUri);
+  return concatBytes([h,new Uint8Array([6]),u32LE(nb.length),nb,u32LE(sb.length),sb,new Uint8Array([decimals]),u64LE(maxSupply),u32LE(ub.length),ub]);
+}
+
+// Tag 18: CreateLaunch (BondingCurve)
+function buildCreateLaunchCanonical(sender,nonce,mintId,basePrice,slope,tokensForSale,targetPi,maxPerAddr) {
+  const h = buildTxHeader(sender,nonce,75000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([18]),mintId,new Uint8Array([1]),u64LE(basePrice),u64LE(slope),u64LE(tokensForSale),u64LE(targetPi),u64LE(maxPerAddr)]);
+}
+
+// Tag 19: ParticipateInLaunch
+function buildParticipateCanonical(sender,nonce,mintId,piAmount) {
+  const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([19]),mintId,u64LE(piAmount)]);
+}
+
+// Tag 20: FinalizeLaunch
+function buildFinalizeCanonical(sender,nonce,mintId) {
+  const h = buildTxHeader(sender,nonce,100000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([20]),mintId]);
+}
+
+// Tag 17: Swap
+function buildSwapCanonical(sender,nonce,mintIn,mintOut,amountIn,minAmountOut) {
+  const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([17]),mintIn,mintOut,u64LE(amountIn),u64LE(minAmountOut)]);
+}
+
+// =====================================================================
+// TRANSACTION SUBMISSION
+// =====================================================================
+function buildSignedTxJson(kindName, kindData, nonce, signature, gasLimit) {
+  const signedTx = {
+    data: {
+      sender: Array.from(walletAddress),
+      nonce: nonce,
+      kind: { [kindName]: kindData },
+      gas_limit: gasLimit,
+      max_base_fee: currentBaseFee,
+      max_priority_fee: 100,
+      chain_id: CHAIN_ID
+    },
+    signature: hexEncode(signature),
+    public_key: Array.from(walletKeypair.publicKey)
+  };
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(signedTx));
+  return hexEncode(jsonBytes);
+}
+
+async function submitTx(hexStr) {
+  const res = await fetch(API+'/api/v1/tx/submit', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({signed_tx_hex: hexStr})
+  });
+  return await res.json();
+}
+
+// =====================================================================
+// CREATE TOKEN + LAUNCH
+// =====================================================================
+function deriveMintId(creatorAddress, mintNonce) {
+  const data = concatBytes([creatorAddress, u64LE(mintNonce), new TextEncoder().encode('pichain-mint')]);
+  return BLAKE3.hash(data);
+}
+
+async function createTokenAndLaunch() {
+  if(!walletKeypair) { showWalletModal(); return; }
+
+  const name = document.getElementById('createName').value.trim();
+  const symbol = document.getElementById('createSymbol').value.trim().toUpperCase();
+  const metadataUri = document.getElementById('createUri').value.trim();
+  const decimals = parseInt(document.getElementById('createDecimals').value) || 9;
+  const maxSupplyTokens = parseInt(document.getElementById('createMaxSupply').value) || 1000000000;
+  const salePct = parseInt(document.getElementById('createSalePct').value) || 80;
+  const targetPiFloat = parseFloat(document.getElementById('createTargetPi').value) || 100;
+  const maxPerAddrFloat = parseFloat(document.getElementById('createMaxPerAddr').value) || 10;
+
+  if(!name || name.length > 64) { showToast('Name must be 1-64 characters','error'); return; }
+  if(!symbol || symbol.length > 10) { showToast('Symbol must be 1-10 characters','error'); return; }
+
+  const maxSupply = BigInt(maxSupplyTokens) * BigInt(Math.pow(10, decimals));
+  const tokensForSale = maxSupply * BigInt(salePct) / 100n;
+  const targetPi = BigInt(Math.floor(targetPiFloat * 1e9));
+  const maxPerAddr = BigInt(Math.floor(maxPerAddrFloat * 1e9));
+
+  // Auto-calculate bonding curve params
+  let basePrice, slope;
+  if(tokensForSale > 0n) {
+    basePrice = Number(targetPi / (tokensForSale * 2n)) || 1;
+    slope = Number((targetPi * 2n) / (tokensForSale * tokensForSale / tokensForSale)) || 1;
+    // Better slope: target = base*N + slope*N*(N-1)/2 => slope = 2*(target - base*N) / (N*(N-1))
+    const N = tokensForSale;
+    const baseTotal = BigInt(basePrice) * N;
+    if(targetPi > baseTotal && N > 1n) {
+      slope = Number(((targetPi - baseTotal) * 2n) / (N * (N - 1n))) || 1;
+    }
+    if(basePrice < 1) basePrice = 1;
+    if(slope < 1) slope = 1;
+  } else {
+    basePrice = 1; slope = 1;
+  }
+
+  const btn = document.getElementById('createBtn');
+  const status = document.getElementById('createStatus');
+  btn.disabled = true;
+  status.textContent = 'Preparing transactions...';
+
+  try {
+    await updateBalance();
+
+    // Get mint nonce to precompute MintId
+    const nonceRes = await fetch(API+'/api/v1/mint-nonce/'+walletAddressHex);
+    const { mint_nonce } = await nonceRes.json();
+    const mintId = deriveMintId(walletAddress, mint_nonce);
+
+    // Tx 1: CreateToken
+    status.textContent = 'Signing CreateToken...';
+    const canonical1 = buildCreateTokenCanonical(walletAddress, accountNonce, name, symbol, decimals, Number(maxSupply), metadataUri);
+    const sig1 = nacl.sign.detached(canonical1, walletKeypair.secretKey);
+    const hex1 = buildSignedTxJson('CreateToken', {
+      name: name, symbol: symbol, decimals: decimals,
+      max_supply: Number(maxSupply), metadata_uri: metadataUri
+    }, accountNonce, sig1, 50000);
+
+    // Tx 2: CreateLaunch
+    status.textContent = 'Signing CreateLaunch...';
+    const canonical2 = buildCreateLaunchCanonical(walletAddress, accountNonce+1, mintId, basePrice, slope, Number(tokensForSale), Number(targetPi), Number(maxPerAddr));
+    const sig2 = nacl.sign.detached(canonical2, walletKeypair.secretKey);
+    const hex2 = buildSignedTxJson('CreateLaunch', {
+      mint: Array.from(mintId),
+      launch_type: { BondingCurve: { base_price: basePrice, slope: slope } },
+      tokens_for_sale: Number(tokensForSale),
+      target_pi: Number(targetPi),
+      max_per_address: Number(maxPerAddr)
+    }, accountNonce+1, sig2, 75000);
+
+    // Submit both
+    status.textContent = 'Submitting CreateToken...';
+    const r1 = await submitTx(hex1);
+    if(r1.status !== 'pending') { throw new Error('CreateToken failed: '+(r1.error||'unknown')); }
+
+    status.textContent = 'Submitting CreateLaunch...';
+    const r2 = await submitTx(hex2);
+    if(r2.status !== 'pending') { throw new Error('CreateLaunch failed: '+(r2.error||'unknown')); }
+
+    accountNonce += 2;
+    status.textContent = '';
+    showToast('Token $'+symbol+' launched!', 'success');
+
+    // Refresh and show detail
+    setTimeout(async ()=>{
+      await loadLaunches();
+      switchTab('discover');
+      viewToken(hexEncode(mintId));
+    }, 3000);
+  } catch(e) {
+    status.textContent = '';
+    showToast(e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+function toggleAdvanced() {
+  document.getElementById('advancedFields').classList.toggle('open');
+}
+
+// =====================================================================
+// BUY ON BONDING CURVE
+// =====================================================================
+function previewBuy(mintId) {
+  const piAmount = parseFloat(document.getElementById('buyAmount').value) || 0;
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch || piAmount <= 0) { document.getElementById('buyEstimate').textContent = '--'; return; }
+
+  // Estimate tokens from bonding curve: cost = base_price * amount + slope * amount * (2*sold + amount - 1) / 2
+  // Reverse: given PI, how many tokens?
+  const bp = BigInt(launch.base_price);
+  const sl = BigInt(launch.slope);
+  const sold = BigInt(launch.tokens_sold);
+  const piBase = BigInt(Math.floor(piAmount * 1e9));
+  // Binary search for token amount
+  let lo = 0n, hi = BigInt(launch.tokens_for_sale) - sold;
+  while(lo < hi) {
+    const mid = (lo + hi + 1n) / 2n;
+    const cost = bp * mid + sl * mid * (2n * sold + mid - 1n) / 2n;
+    if(cost <= piBase) lo = mid; else hi = mid - 1n;
+  }
+  document.getElementById('buyEstimate').textContent = formatTokens(Number(lo), launch.decimals) + ' $' + launch.symbol;
+}
+
+async function buyOnCurve(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const piAmount = parseFloat(document.getElementById('buyAmount').value) || 0;
+  if(piAmount <= 0) { showToast('Enter a PI amount','error'); return; }
+
+  const piBase = Math.floor(piAmount * 1e9);
+  const mintIdBytes = hexDecode(mintId);
+
+  try {
+    await updateBalance();
+    const canonical = buildParticipateCanonical(walletAddress, accountNonce, mintIdBytes, piBase);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('ParticipateInLaunch', {
+      mint: Array.from(mintIdBytes), pi_amount: piBase
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showToast('Purchase submitted! Tx: '+result.tx_hash.slice(0,16)+'...', 'success');
+      setTimeout(()=>{ loadLaunches(); viewToken(mintId); updateBalance(); }, 3000);
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// FINALIZE LAUNCH
+// =====================================================================
+async function finalizeLaunch(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const mintIdBytes = hexDecode(mintId);
+
+  try {
+    await updateBalance();
+    const canonical = buildFinalizeCanonical(walletAddress, accountNonce, mintIdBytes);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('FinalizeLaunch', {
+      mint: Array.from(mintIdBytes)
+    }, accountNonce, sig, 100000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showToast('Finalization submitted! DEX pool will be created.', 'success');
+      setTimeout(()=>{ loadLaunches(); viewToken(mintId); updateBalance(); }, 5000);
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// DEX SWAP (post-graduation)
+// =====================================================================
+const NATIVE_PI_MINT = '0'.repeat(64);
+
+async function previewSwap(mintId) {
+  const amountIn = parseFloat(document.getElementById('swapAmountIn').value) || 0;
+  if(amountIn <= 0) { document.getElementById('swapEstimate').textContent = '--'; document.getElementById('swapImpact').textContent = '--'; return; }
+
+  const dir = document.getElementById('swapDir').value;
+  const amountBase = Math.floor(amountIn * 1e9);
+  const mintIn = dir === 'buy' ? NATIVE_PI_MINT : mintId;
+  const mintOut = dir === 'buy' ? mintId : NATIVE_PI_MINT;
+
+  try {
+    const res = await fetch(`${API}/api/v1/swap/quote/${mintIn}/${mintOut}/${amountBase}`);
+    const q = await res.json();
+    if(q.found) {
+      const launch = allLaunches.find(l=>l.mint_id===mintId);
+      const dec = launch ? launch.decimals : 9;
+      const outLabel = dir === 'buy' ? formatTokens(q.amount_out, dec)+' $'+(launch?.symbol||'???') : formatPI(q.amount_out)+' PI';
+      document.getElementById('swapEstimate').textContent = outLabel;
+      document.getElementById('swapImpact').textContent = (q.price_impact_bps / 100).toFixed(2)+'%';
+    } else {
+      document.getElementById('swapEstimate').textContent = 'No pool found';
+    }
+  } catch(e) { document.getElementById('swapEstimate').textContent = 'Error'; }
+}
+
+async function executeSwap(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const amountIn = parseFloat(document.getElementById('swapAmountIn').value) || 0;
+  if(amountIn <= 0) { showToast('Enter an amount','error'); return; }
+
+  const dir = document.getElementById('swapDir').value;
+  const slippage = parseFloat(document.getElementById('swapSlippage').value) || 1;
+  const amountBase = Math.floor(amountIn * 1e9);
+
+  const mintInHex = dir === 'buy' ? NATIVE_PI_MINT : mintId;
+  const mintOutHex = dir === 'buy' ? mintId : NATIVE_PI_MINT;
+  const mintInBytes = hexDecode(mintInHex);
+  const mintOutBytes = hexDecode(mintOutHex);
+
+  try {
+    // Get quote for min_amount_out
+    const qRes = await fetch(`${API}/api/v1/swap/quote/${mintInHex}/${mintOutHex}/${amountBase}`);
+    const q = await qRes.json();
+    if(!q.found) { showToast('No liquidity pool found','error'); return; }
+
+    const minOut = Math.floor(q.amount_out * (1 - slippage/100));
+
+    await updateBalance();
+    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Swap', {
+      mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
+      amount_in: amountBase, min_amount_out: minOut
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showToast('Swap submitted! Tx: '+result.tx_hash.slice(0,16)+'...', 'success');
+      setTimeout(()=>{ updateBalance(); }, 3000);
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// PORTFOLIO
+// =====================================================================
+async function loadPortfolio() {
+  const content = document.getElementById('portfolioContent');
+  if(!walletKeypair) {
+    content.innerHTML = '<div class="empty"><h3>Connect your wallet</h3><p>Connect a wallet to view your token holdings.</p></div>';
+    return;
+  }
+
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">Loading...</div>';
+
+  try {
+    const res = await fetch(API+'/api/v1/portfolio/'+walletAddressHex);
+    const data = await res.json();
+
+    let html = `
+      <div class="stat-card" style="margin-bottom:24px;">
+        <div class="stat-val" style="color:var(--green);">${formatPI(data.pi_balance)} PI</div>
+        <div class="stat-lbl">PI Balance</div>
+      </div>`;
+
+    if(!data.tokens || data.tokens.length === 0) {
+      html += '<div class="empty"><h3>No token holdings</h3><p>Buy tokens on the Discover tab to see them here.</p></div>';
+    } else {
+      html += '<table class="portfolio-table"><thead><tr><th>Token</th><th>Balance</th><th>Action</th></tr></thead><tbody>';
+      for(const t of data.tokens) {
+        const mint = allLaunches.find(l=>l.mint_id===t.mint_id);
+        const symbol = mint ? mint.symbol : t.mint_id.slice(0,8)+'...';
+        const dec = mint ? mint.decimals : 9;
+        html += `<tr>
+          <td><strong>$${escHtml(symbol)}</strong></td>
+          <td>${formatTokens(t.balance, dec)}</td>
+          <td><button class="btn btn-sm" onclick="switchTab('discover');viewToken('${t.mint_id}')">Trade</button></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    content.innerHTML = html;
+  } catch(e) {
+    content.innerHTML = '<div class="empty"><h3>Error loading portfolio</h3><p>'+e.message+'</p></div>';
+  }
+}
+
+// =====================================================================
+// INIT
+// =====================================================================
+loadWallet();
+loadLaunches();
+setInterval(loadLaunches, 10000);
+setInterval(updateBalance, 15000);
+
+// Close modal on overlay click
+document.getElementById('walletModal').addEventListener('click', function(e) {
+  if(e.target === this) this.classList.remove('show');
+});
+</script>
+</body>
+</html>

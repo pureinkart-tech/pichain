@@ -86,6 +86,7 @@ impl NodeState {
             // Genesis block exists but height is 0 — reload allocations into executor cache
             info!("Genesis block exists, reloading allocations into executor cache");
             for alloc in &genesis.allocations {
+                if alloc.virtual_pool { continue; } // skip virtual pools
                 if let Some(account) = store.get_account(&alloc.address)? {
                     self.executor.set_account(alloc.address, account.state);
                 } else {
@@ -103,6 +104,7 @@ impl NodeState {
             // Still load genesis allocation accounts into executor cache so the
             // faucet, community pool, etc. are available for block execution.
             for alloc in &genesis.allocations {
+                if alloc.virtual_pool { continue; } // skip virtual pools
                 if let Some(account) = store.get_account(&alloc.address)? {
                     self.executor.set_account(alloc.address, account.state);
                 }
@@ -116,8 +118,20 @@ impl NodeState {
             "applying genesis configuration"
         );
 
-        // Load each allocation into both the executor cache and persistent storage
+        // Load each allocation into both the executor cache and persistent storage.
+        // AUDIT-FIX H-9: Skip virtual_pool allocations — the mining pool is tracked
+        // in RewardCalculator and minted over time. Creating a real balance would
+        // double-count the supply (real balance + minted rewards).
         for alloc in &genesis.allocations {
+            if alloc.virtual_pool {
+                debug!(
+                    amount = alloc.amount,
+                    label = %alloc.label,
+                    "skipping virtual pool allocation (tracked in RewardCalculator)"
+                );
+                continue;
+            }
+
             let account = Account::with_balance(alloc.address, alloc.amount);
 
             // Load into executor's in-memory cache for Block-STM
@@ -386,6 +400,13 @@ impl NodeState {
         for height in 0..=latest_height {
             if let Some(block) = store.get_block(height)? {
                 processor.set_height(height);
+                // AUDIT-FIX Mining-M2: Apply fee income BEFORE replaying this block's
+                // mining proofs, so remaining_pool() includes fee income during replay
+                // (matching live processing behavior). Without this, proofs that were
+                // valid live could fail replay when near the pool cap.
+                if block.header.pi_miner_fee > 0 {
+                    processor.add_fee_income(block.header.pi_miner_fee);
+                }
                 for tx in &block.transactions {
                     if let pichain_types::TransactionKind::MiningProof {
                         start_position,
@@ -430,6 +451,7 @@ impl NodeState {
                 frontier = stats.frontier_position,
                 total_digits = stats.total_digits_verified,
                 unique_miners = stats.unique_miners,
+                fee_income = stats.fee_income,
                 "mining state rebuilt from block history"
             );
         }
@@ -771,12 +793,20 @@ impl NodeState {
         let proposer_reward: u64 = execution_results.iter()
             .map(|r| r.proposer_reward)
             .fold(0u64, |acc, v| acc.saturating_add(v));
+        let total_miner_fee: u64 = execution_results.iter()
+            .map(|r| r.miner_fee)
+            .fold(0u64, |acc, v| acc.saturating_add(v));
 
-        // R36-FIX: Credit the proposer with priority fee rewards, matching the
-        // block producer path. Without this, follower nodes have a lower balance
-        // for the proposer, causing state root divergence.
+        // R36-FIX: Credit the proposer with priority fee + staker share rewards,
+        // matching the block producer path. Without this, follower nodes have a
+        // lower balance for the proposer, causing state root divergence.
         if proposer_reward > 0 {
             self.executor.credit_account(block.header.proposer, proposer_reward);
+        }
+
+        // Feed miner fees back into the mining pool (matching block producer path)
+        if total_miner_fee > 0 {
+            self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
         }
 
         let produced = ProducedBlock {
@@ -785,6 +815,7 @@ impl NodeState {
             total_burned,
             total_minted,
             proposer_reward,
+            total_miner_fee,
             production_time_ms: 0, // Not locally produced
         };
 
@@ -1003,6 +1034,7 @@ impl StateProvider for NodeState {
             unique_miners: stats.unique_miners,
             remaining_pool: stats.remaining_pool,
             total_mined: stats.total_mined,
+            fee_income: stats.fee_income,
             reward_per_digit: stats.reward_per_digit,
             emission_year: stats.emission_year,
             difficulty_bits: stats.difficulty_bits,
@@ -1080,5 +1112,69 @@ impl StateProvider for NodeState {
         );
 
         Ok(faucet_amount)
+    }
+
+    fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> {
+        let in_mem = self.executor.launchpad_executor().all_launches();
+        if !in_mem.is_empty() {
+            return in_mem.into_values().collect();
+        }
+        let store = self.store.read();
+        pichain_storage::LaunchpadStore::new(store.db())
+            .scan_all_launches()
+            .unwrap_or_default()
+    }
+
+    fn scan_all_mints(&self) -> Vec<pichain_types::TokenMint> {
+        let in_mem = self.executor.token_executor().all_mints();
+        if !in_mem.is_empty() {
+            return in_mem.into_values().collect();
+        }
+        let store = self.store.read();
+        pichain_storage::TokenStore::new(store.db())
+            .scan_all_mints()
+            .unwrap_or_default()
+    }
+
+    fn scan_all_pools(&self) -> Vec<pichain_types::LiquidityPool> {
+        let in_mem = self.executor.dex_executor().all_pools();
+        if !in_mem.is_empty() {
+            return in_mem.into_values().collect();
+        }
+        let store = self.store.read();
+        pichain_storage::DexStore::new(store.db())
+            .scan_all_pools()
+            .unwrap_or_default()
+    }
+
+    fn get_launch_by_mint(&self, mint: &pichain_types::MintId) -> Option<pichain_types::TokenLaunch> {
+        if let Some(launch) = self.executor.launchpad_executor().get_launch_by_mint(mint) {
+            return Some(launch);
+        }
+        let store = self.store.read();
+        let id = pichain_types::LaunchId::from_mint(mint);
+        pichain_storage::LaunchpadStore::new(store.db())
+            .get_launch(&id)
+            .ok()
+            .flatten()
+    }
+
+    fn get_mint_nonce(&self, address: &Address) -> u64 {
+        self.executor.token_executor().get_mint_nonce(address)
+    }
+
+    fn get_token_balances_for_owner(
+        &self,
+        owner: &Address,
+    ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> {
+        let store = self.store.read();
+        let accounts = pichain_storage::TokenStore::new(store.db())
+            .scan_all_token_accounts()
+            .unwrap_or_default();
+        accounts
+            .into_iter()
+            .filter(|a| a.owner == *owner && a.balance > 0)
+            .map(|a| (a.mint, a))
+            .collect()
     }
 }

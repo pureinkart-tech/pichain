@@ -262,6 +262,18 @@ impl DagMempool {
     ) -> Result<(), ConsensusError> {
         let round = cert.round();
 
+        // AUDIT-FIX M-7: Reject certificates too far ahead of the committed round
+        // to prevent DAG inflation DoS where an attacker inserts certs at round 10^6
+        // causing try_advance to iterate millions of empty rounds.
+        const MAX_ROUND_GAP: u64 = 200;
+        let reference_round = self.committed_round.unwrap_or(0);
+        if round > reference_round.saturating_add(MAX_ROUND_GAP) {
+            return Err(ConsensusError::InvalidCertificate(format!(
+                "certificate round {} is too far ahead of committed round {} (max gap: {})",
+                round, reference_round, MAX_ROUND_GAP
+            )));
+        }
+
         // Verify the digest actually matches the header hash — never trust pre-computed values.
         let computed_digest = cert.header.hash();
         if computed_digest != cert.digest {
@@ -389,15 +401,8 @@ impl DagMempool {
                 )));
             }
 
-            // Verify the aggregate BLS signature
-            pichain_crypto::bls::AggregateSignature::verify(&signer_pks, &message, &bls_sig)
-                .map_err(|_| ConsensusError::InvalidCertificate(
-                    "BLS aggregate signature verification failed".to_string()
-                ))?;
-
-            // Verify all signers have proven possession of their BLS keys.
-            // This prevents rogue key attacks where an attacker crafts a key
-            // K_atk = -(K1+K2+...) to forge aggregate signatures.
+            // AUDIT-FIX: Verify PoP BEFORE aggregate signature to prevent
+            // wasting CPU on BLS pairing for unverified keys (defense-in-depth).
             for signer in &cert.signers {
                 if !self.verified_pops.contains(signer) {
                     return Err(ConsensusError::InvalidCertificate(format!(
@@ -406,6 +411,12 @@ impl DagMempool {
                     )));
                 }
             }
+
+            // Verify the aggregate BLS signature
+            pichain_crypto::bls::AggregateSignature::verify(&signer_pks, &message, &bls_sig)
+                .map_err(|_| ConsensusError::InvalidCertificate(
+                    "BLS aggregate signature verification failed".to_string()
+                ))?;
         } else if self.committee_size > 1 {
             // SECURITY: In multi-validator mode, validator_keys=None is never acceptable.
             // This prevents unsigned certificate injection during single-to-multi transitions.
@@ -424,13 +435,23 @@ impl DagMempool {
         // empty sigs are allowed. This path is ONLY used for self-proposed certs
         // in development/test or single-node genesis environments.
 
-        // Timestamp bounds check: reject certificates too far in the future
+        // Timestamp bounds check: reject certificates too far in the future or past
         let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
         const MAX_TIMESTAMP_DRIFT_MS: u64 = 30_000; // 30 seconds
         if cert.header.timestamp_ms > now_ms.saturating_add(MAX_TIMESTAMP_DRIFT_MS) {
             return Err(ConsensusError::InvalidCertificate(format!(
                 "certificate timestamp {}ms is too far in the future (now: {}ms, max drift: {}ms)",
                 cert.header.timestamp_ms, now_ms, MAX_TIMESTAMP_DRIFT_MS
+            )));
+        }
+
+        // AUDIT-FIX H-1: Reject certificates with timestamps too far in the past
+        // (except genesis round 0 which uses timestamp 0).
+        const MAX_PAST_DRIFT_MS: u64 = 120_000; // 2 minutes
+        if round > 0 && cert.header.timestamp_ms < now_ms.saturating_sub(MAX_PAST_DRIFT_MS) {
+            return Err(ConsensusError::InvalidCertificate(format!(
+                "certificate timestamp {}ms is too far in the past (now: {}ms, max past drift: {}ms)",
+                cert.header.timestamp_ms, now_ms, MAX_PAST_DRIFT_MS
             )));
         }
 
@@ -625,7 +646,7 @@ mod tests {
             round,
             parents,
             payload: vec![],
-            timestamp_ms: 0,
+            timestamp_ms: chrono::Utc::now().timestamp_millis().max(0) as u64,
         };
         Certificate::new(header, vec![Address([author; 20])], vec![])
     }
@@ -716,19 +737,21 @@ mod tests {
     fn timestamp_monotonicity_enforced() {
         let mut dag = DagMempool::new(1);
 
-        // Round 0 at timestamp 1000
-        let c0 = make_cert_with_ts(1, 0, vec![], 1000);
+        let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+
+        // Round 0 at current time
+        let c0 = make_cert_with_ts(1, 0, vec![], now);
         dag.insert_certificate(c0.clone(), None).unwrap();
 
         // Round 1 with timestamp BEFORE parent — should be rejected
-        let c1_bad = make_cert_with_ts(1, 1, vec![c0.digest], 500);
+        let c1_bad = make_cert_with_ts(1, 1, vec![c0.digest], now - 1);
         let result = dag.insert_certificate(c1_bad, None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("before parent timestamp"), "unexpected error: {err_msg}");
 
         // Round 1 with valid timestamp >= parent — should succeed
-        let c1_good = make_cert_with_ts(2, 1, vec![c0.digest], 1000);
+        let c1_good = make_cert_with_ts(2, 1, vec![c0.digest], now);
         dag.insert_certificate(c1_good, None).unwrap();
     }
 

@@ -17,6 +17,7 @@ pub use swarm::{PiChainSwarm, SwarmBroadcaster, SwarmConfig, SwarmMessage, peer_
 pub use sync::{StateSyncManager, SyncMode, SyncState, SyncRequest, SyncResponse};
 pub use testnet::{LocalTestnet, TestnetConfig, TestNodeConfig};
 
+use pichain_crypto::ed25519::{Address, PublicKey, Signature};
 use pichain_types::transaction::SignedTransaction;
 
 #[derive(Debug, thiserror::Error)]
@@ -107,4 +108,50 @@ pub enum NetworkMessage {
         /// Ed25519 signature over ("pichain-validator:" || public_key || stake_le_bytes) (64 bytes).
         signature: Vec<u8>,
     },
+}
+
+impl NetworkMessage {
+    /// Domain separator for ValidatorAnnounce signatures.
+    const ANNOUNCE_PREFIX: &'static [u8] = b"pichain-validator:";
+
+    /// Verify a ValidatorAnnounce message: check that the signature is valid,
+    /// the address is correctly derived from the public key, and the signature
+    /// length is correct. Returns Ok(Address) on success.
+    pub fn verify_announce(
+        public_key: &[u8; 32],
+        address: &[u8; 20],
+        stake: u64,
+        signature: &[u8],
+    ) -> Result<Address, NetworkError> {
+        // Validate signature length
+        if signature.len() != 64 {
+            return Err(NetworkError::Gossip(format!(
+                "invalid announce signature length: {} (expected 64)",
+                signature.len()
+            )));
+        }
+
+        // Verify address is correctly derived from public key
+        let pk = PublicKey(*public_key);
+        let derived_address = pk.to_address();
+        if derived_address.0 != *address {
+            return Err(NetworkError::Gossip(
+                "announce address does not match public key".to_string(),
+            ));
+        }
+
+        // Build the signed message: prefix || public_key || stake_le_bytes
+        let mut msg = Vec::with_capacity(Self::ANNOUNCE_PREFIX.len() + 32 + 8);
+        msg.extend_from_slice(Self::ANNOUNCE_PREFIX);
+        msg.extend_from_slice(public_key);
+        msg.extend_from_slice(&stake.to_le_bytes());
+
+        // Verify the Ed25519 signature
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(signature);
+        pk.verify(&msg, &Signature(sig_bytes))
+            .map_err(|_| NetworkError::Gossip("invalid announce signature".to_string()))?;
+
+        Ok(derived_address)
+    }
 }

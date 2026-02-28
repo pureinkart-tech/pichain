@@ -224,13 +224,9 @@ section { padding: 100px 24px; position: relative; }
 .token-ring {
   width: 320px; height: 320px; border-radius: 50%;
   background: conic-gradient(
-    var(--accent) 0deg 144deg,
-    var(--cyan) 144deg 216deg,
-    var(--green) 216deg 270deg,
-    var(--gold) 270deg 306deg,
-    var(--rose) 306deg 334.8deg,
-    #a78bfa 334.8deg 352.8deg,
-    #64748b 352.8deg 360deg
+    var(--accent) 0deg 306deg,
+    var(--cyan) 306deg 342deg,
+    var(--green) 342deg 360deg
   );
   mask: radial-gradient(farthest-side, transparent 60%, black 61%);
   -webkit-mask: radial-gradient(farthest-side, transparent 60%, black 61%);
@@ -345,6 +341,7 @@ section { padding: 100px 24px; position: relative; }
       <a href="/explorer">Explorer</a>
       <a href="/mining">Mining</a>
       <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
+      <a href="/launch">Launch</a>
       <a href="/mine" class="nav-cta">Start Mining</a>
     </div>
     <button class="mobile-menu" onclick="document.getElementById('navLinks').classList.toggle('open')">
@@ -358,7 +355,7 @@ section { padding: 100px 24px; position: relative; }
   <div class="hero-bg"></div>
   <div class="hero-grid"></div>
   <div class="hero-content">
-    <div class="hero-badge"><span class="pulse"></span> Live on Devnet</div>
+    <div class="hero-badge"><span class="pulse"></span> Live on Testnet</div>
     <h1>Mine PI by<br><span class="gradient">Computing PI</span></h1>
     <p>
       PIChain is a next-generation Layer 1 blockchain where mining performs
@@ -438,11 +435,11 @@ section { padding: 100px 24px; position: relative; }
       </div>
       <div class="feature-card">
         <div class="feature-icon rose">&#127793;</div>
-        <h3>Fair Mining</h3>
+        <h3>Satoshi Model</h3>
         <p>
-          No special hardware needed. Laptops, desktops, and servers all mine
-          proportionally. Per-address caps prevent any single entity from dominating
-          rewards.
+          No team allocation. No foundation. No treasury. 85% of supply goes to miners.
+          Anyone can mine from a laptop to a data center &mdash; rewards scale with
+          work, not hardware cost.
         </p>
       </div>
       <div class="feature-card">
@@ -500,8 +497,8 @@ section { padding: 100px 24px; position: relative; }
       <div class="section-label">Tokenomics</div>
       <h2 class="section-title">3,141,592,653 PI</h2>
       <p class="section-desc center">
-        Total supply mirrors the first 10 digits of &pi;. Fixed supply, deflationary burn
-        mechanism, and halving emission schedule.
+        Satoshi model &mdash; no team, no foundation, no treasury.
+        Fixed supply with 2&pi;% geometric decay emission and 25% fee burn.
       </p>
     </div>
     <div class="tokenomics-layout">
@@ -516,38 +513,18 @@ section { padding: 100px 24px; position: relative; }
         <ul class="token-legend">
           <li>
             <span class="token-dot" style="background: var(--accent)"></span>
-            <span>Community & Mining Pool</span>
-            <span class="pct">40%</span>
+            <span>Mining Pool <span class="val">&mdash; 2&pi;% decay, replenished by fees forever</span></span>
+            <span class="pct">85%</span>
           </li>
           <li>
             <span class="token-dot" style="background: var(--cyan)"></span>
-            <span>Validator Rewards Reserve</span>
-            <span class="pct">20%</span>
-          </li>
-          <li>
-            <span class="token-dot" style="background: var(--green)"></span>
-            <span>Foundation & Development</span>
-            <span class="pct">15%</span>
-          </li>
-          <li>
-            <span class="token-dot" style="background: var(--gold)"></span>
-            <span>Ecosystem Grants Fund</span>
+            <span>Validator Staking <span class="val">&mdash; secures BFT consensus</span></span>
             <span class="pct">10%</span>
           </li>
           <li>
-            <span class="token-dot" style="background: var(--rose)"></span>
-            <span>Team & Early Contributors</span>
-            <span class="pct">8%</span>
-          </li>
-          <li>
-            <span class="token-dot" style="background: #a78bfa"></span>
-            <span>Public Sale / IDO</span>
+            <span class="token-dot" style="background: var(--green)"></span>
+            <span>Initial Liquidity <span class="val">&mdash; DEX bootstrapping</span></span>
             <span class="pct">5%</span>
-          </li>
-          <li>
-            <span class="token-dot" style="background: #64748b"></span>
-            <span>Strategic Partners</span>
-            <span class="pct">2%</span>
           </li>
         </ul>
       </div>

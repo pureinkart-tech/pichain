@@ -6,13 +6,13 @@
 
 ## Abstract
 
-PIChain is a novel Layer 1 blockchain protocol designed around a single immutable economic constraint: a fixed, non-mintable supply of exactly 3,141,592,653 PI tokens -- a value derived from the decimal digits of the mathematical constant pi. No mechanism, governance action, or protocol upgrade can ever increase this supply. Combined with a deflationary fee model in which 25% of all base fees are permanently destroyed, PIChain establishes a provably disinflationary monetary policy for a fully programmable smart contract platform.
+PIChain is a novel Layer 1 blockchain protocol designed around two immutable economic constraints: a fixed, non-mintable supply of exactly 3,141,592,653 PI tokens -- a value derived from the decimal digits of the mathematical constant pi -- and a Satoshi-model distribution in which 85% of the total supply is allocated to miners with no team, foundation, or treasury allocations. No mechanism, governance action, or protocol upgrade can ever increase this supply. Combined with a deflationary fee model in which 25% of all base fees are permanently destroyed and 25% flow back into the mining pool, PIChain establishes a provably disinflationary and self-sustaining monetary policy for a fully programmable smart contract platform.
 
 The protocol introduces PI-DAG Consensus, a hybrid consensus architecture that synthesizes three proven paradigms. A Narwhal-inspired structured DAG provides the data availability substrate, enabling all validators to contribute bandwidth simultaneously and eliminating the single-leader bottleneck that has caused repeated outages in existing high-performance chains. Bullshark provides zero-overhead total ordering on the DAG with two-round finality. An Avalanche-inspired fast path enables sub-500ms finality for simple transactions through sub-sampled repeated voting, achieving a safety violation probability below 10^-18.
 
 Execution leverages Block-STM optimistic parallel scheduling, achieving 8-16x throughput improvements on commodity multi-core hardware without requiring developers to declare state dependencies at compile time. A Sui-inspired object model provides a fast path for owned-object transactions, bypassing full consensus through Byzantine consistent broadcast for approximately 200ms finality. A dual virtual machine architecture -- primary WASM (Wasmtime JIT) alongside full EVM compatibility (revm) -- provides multi-language support while maintaining full compatibility with the Ethereum toolchain.
 
-PIChain introduces Proof of Useful Work mining through the Bailey-Borwein-Plouffe (BBP) spigot algorithm for computing hexadecimal digits of pi. Rather than expending computation on arbitrary hash puzzles, miners advance a genuine mathematical endeavor. A spot-check verification scheme using 16 random position checks achieves a fraud acceptance probability below 5.4 x 10^-20. Mining distributes pre-allocated tokens from a community pool over a seven-year decreasing emission schedule, bootstrapping the network while preserving the fixed-supply invariant.
+PIChain introduces Proof of Useful Work mining through the Bailey-Borwein-Plouffe (BBP) spigot algorithm for computing hexadecimal digits of pi. Rather than expending computation on arbitrary hash puzzles, miners advance a genuine mathematical endeavor. A spot-check verification scheme using 16 random position checks achieves a fraud acceptance probability below 5.4 x 10^-20. Mining distributes tokens from an 85% genesis pool via 2pi% (6.28%) geometric decay per year, creating a self-sustaining emission curve that never fully depletes. Transaction fee income continuously replenishes the mining pool, ensuring mining remains economically viable indefinitely.
 
 ---
 
@@ -322,19 +322,25 @@ This exceeds the security threshold of any deployed blockchain system.
 
 ### 7.3 Reward Distribution
 
-Mining rewards are drawn from the Community Pool (40% of genesis supply = 1,256,637,061 PI) over a seven-year decreasing emission schedule:
+Mining rewards are drawn from the Mining Pool (85% of genesis supply = ~2,670,353,755 PI) via a **2pi% (6.28%) geometric decay** emission schedule. Each year, exactly 6.28% of the remaining pool is emitted to miners:
 
-| Year | Allocation (% of Pool) | Tokens Released | Cumulative |
-|------|----------------------|-----------------|------------|
-| 1 | 25% | 314,159,265 | 314,159,265 |
-| 2 | 20% | 251,327,412 | 565,486,677 |
-| 3 | 15% | 188,495,559 | 753,982,236 |
-| 4 | 12% | 150,796,447 | 904,778,683 |
-| 5 | 9% | 113,097,336 | 1,017,876,019 |
-| 6 | 7% | 88,044,594 | 1,105,920,613 |
-| 7 | 6% | 75,471,924 | 1,181,392,537 |
+```
+annual_emission(year) = remaining_pool(year) * 628 / 10,000
+```
 
-Remaining tokens after year 7 continue to be emitted at 6% of the remaining pool balance annually, creating an asymptotically decreasing emission curve. The reward per digit batch decreases over time as more miners compete for a shrinking emission rate, naturally incentivizing efficiency and discouraging late-stage entry by miners with obsolete hardware.
+| Year | Annual Emission | Remaining Pool | Cumulative Emitted |
+|------|----------------|----------------|-------------------|
+| 1 | ~167,656,256 | ~2,502,697,499 | ~167,656,256 |
+| 5 | ~126,481,028 | ~1,888,405,816 | ~781,947,939 |
+| 10 | ~91,465,524 | ~1,364,804,082 | ~1,305,549,673 |
+| 20 | ~47,816,710 | ~713,295,987 | ~1,957,057,768 |
+| 31 (pi decades) | ~27,008,936 | ~402,929,654 | ~2,267,424,101 |
+
+The geometric decay ensures the pool mathematically never reaches zero. Year 1 emits only ~5.3% of total supply -- significantly gentler than front-loaded schedules that risk early chart damage from farming.
+
+**Fee Income Replenishment.** In addition to the decay-based emission, 25% of all transaction base fees flow back into the mining pool at the protocol level. This creates a self-sustaining feedback loop: as network usage grows, fee income can exceed decay-based depletion, making the effective mining pool grow over time. This mechanism ensures mining remains economically viable indefinitely -- a critical distinction from Bitcoin, where mining rewards halve to zero and miners must rely solely on transaction fees.
+
+The reward per digit batch decreases over time as more miners compete for a shrinking emission rate, naturally incentivizing efficiency. However, unlike fixed-schedule emission models, the 2pi% decay combined with fee replenishment provides a smooth, predictable reward curve without abrupt halving events that destabilize miner economics.
 
 ---
 
@@ -344,21 +350,19 @@ Remaining tokens after year 7 continue to be emitted at 6% of the remaining pool
 
 The total supply of PIChain is 3,141,592,653 PI tokens, created at genesis and enforced by an immutable constraint in the genesis block. The token contract contains no mint function. No administrative key, governance vote, or protocol upgrade can create new tokens. This guarantee is enforced at the virtual machine level: any transaction that would increase the total supply is rejected by the execution engine regardless of the caller's privileges.
 
-### 8.2 Token Distribution
+### 8.2 Token Distribution — Satoshi Model
+
+PIChain follows the Satoshi model of distribution: no team allocation, no foundation, no treasury, no ecosystem grants. The protocol is designed to be self-sustaining without any centralized entity.
 
 ```
   3,141,592,653 PI -- Genesis Allocation
 
-  Community & Mining Pool      40%    1,256,637,061 PI
-  Validator Rewards Reserve    20%      628,318,530 PI
-  Foundation & Development     15%      471,238,897 PI
-  Ecosystem Grants Fund        10%      314,159,265 PI
-  Team & Early Contributors     8%      251,327,412 PI
-  Public Sale (Dutch Auction)   5%      157,079,632 PI
-  Strategic Partners             2%       62,831,853 PI
+  Mining Pool             85%    ~2,670,353,755 PI
+  Validator Staking       10%      ~314,159,265 PI
+  Initial Liquidity        5%      ~157,079,633 PI
 ```
 
-Foundation and team allocations vest over four years with a one-year cliff. The public sale employs a Dutch auction mechanism with no insider discounts, ensuring equitable price discovery. The Validator Rewards Reserve provides a seven-year bootstrap fund that supplements transaction fees until the network achieves fee-only sustainability.
+The Mining Pool (85%) distributes tokens to miners via 2pi% geometric decay, replenished by 25% of all transaction base fees. The Validator Staking reserve (10%) secures BFT consensus. The Initial Liquidity allocation (5%) bootstraps DEX trading pairs. No vesting schedules exist because no insider allocations exist. The creator mines alongside all other participants with no special privileges.
 
 ### 8.3 Deflationary Fee Model
 
@@ -373,12 +377,14 @@ PIChain implements an EIP-1559-style dynamic fee mechanism [5]:
 ```
   Base Fee Allocation:
     25%  -->  Burned permanently (removed from circulating supply)
-    65%  -->  Distributed to stakers (validator incentive)
-    10%  -->  Protocol treasury (ongoing development funding)
+    25%  -->  Mining Pool (replenishes miner rewards indefinitely)
+    50%  -->  Block Proposer (validator/staker incentive)
 
   Priority Fee Allocation:
-    100% -->  Block producer (direct incentive for inclusion)
+    100% -->  Block Proposer (direct incentive for inclusion)
 ```
+
+The 25% mining pool allocation is a critical self-sustainability mechanism. Unlike Bitcoin, where mining rewards eventually reach zero through halving, PIChain's fee-to-miner pipeline ensures the mining pool is continuously replenished as network usage grows. This creates a positive feedback loop: more users generate more fees, which fund more mining rewards, which attract more miners, which secure the network for more users.
 
 **Deflationary projections.** The following table presents burn rate estimates under varying network utilization scenarios:
 
@@ -539,11 +545,13 @@ Phase 7: Mainnet                                      Months 20-30
 
 PIChain addresses the fundamental tension between performance and sound monetary policy in blockchain design. By combining DAG-based consensus (eliminating single-leader bottlenecks), optimistic parallel execution (exploiting modern multi-core hardware), and a mathematically grounded deflationary token model (fixed supply with perpetual fee burning), the protocol achieves high throughput and low latency without sacrificing the economic properties that give cryptocurrency its value proposition.
 
+The Satoshi model distribution -- 85% to miners, no team, no foundation, no treasury -- ensures that no centralized entity controls the protocol's economic trajectory. The 2pi% geometric decay emission, combined with the 25% fee-to-miner pipeline, creates a self-sustaining mining economy that requires no ongoing human intervention. The protocol is designed to operate indefinitely without governance, exactly as Satoshi envisioned for Bitcoin.
+
 The Proof of Useful Work mining mechanism transforms blockchain computation from an exercise in artificial difficulty into a contribution to mathematical knowledge. As the PIChain network grows, it simultaneously advances the computation of pi -- an endeavor that connects the protocol to a tradition of mathematical inquiry stretching back millennia.
 
-The fixed supply of 3,141,592,653 PI tokens, combined with the 25% fee burn, creates a system where every transaction makes the remaining tokens marginally more scarce. Unlike inflationary protocols where validators must sell rewards to cover operational costs (creating persistent sell pressure), PIChain's validators earn a share of existing fees from a shrinking supply -- aligning incentives between validators and token holders.
+The fixed supply of 3,141,592,653 PI tokens, combined with the 25% fee burn, creates a system where every transaction makes the remaining tokens marginally more scarce. Unlike inflationary protocols where validators must sell rewards to cover operational costs (creating persistent sell pressure), PIChain's validators earn a share of existing fees from a shrinking supply -- aligning incentives between validators and token holders. Meanwhile, miners benefit from a pool that is continuously replenished by transaction fees, ensuring that the mining economy remains viable long after the initial emission decays.
 
-PIChain is not merely another Layer 1 blockchain. It is a statement that performance and sound money are not mutually exclusive -- that a blockchain can be fast, cheap, and reliable while also being provably scarce. Computing the Infinite, with finite supply.
+PIChain is not merely another Layer 1 blockchain. It is a statement that performance and sound money are not mutually exclusive -- that a blockchain can be fast, cheap, and reliable while also being provably scarce and self-sustaining. Computing the Infinite, with finite supply.
 
 ---
 
@@ -573,4 +581,4 @@ PIChain is not merely another Layer 1 blockchain. It is a statement that perform
 
 *PIChain -- Computing the Infinite.*
 
-*Copyright 2026 PIChain Foundation. All rights reserved.*
+*Copyright 2026 PIChain Contributors. All rights reserved.*

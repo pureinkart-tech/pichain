@@ -124,10 +124,13 @@ impl DbJellyfishMerkleTree {
             return Ok(Some(node));
         }
 
-        // Fallback: scan backwards from current version to 0.
-        // This handles nodes stored before this fix was deployed.
+        // Fallback: scan backwards from current version, bounded to last 1000 versions.
+        // AUDIT-FIX H-5: Previously scanned from version down to 0 which is O(height)
+        // and could stall block production on mature chains if a hash-only index entry
+        // is missing. Now bounded to prevent DoS.
         let version = *self.version.read();
-        for v in (0..=version).rev() {
+        let min_scan = version.saturating_sub(1000);
+        for v in (min_scan..=version).rev() {
             let key = node_key(v, hash);
             match self.db.get_jmt_node(&key)? {
                 Some(data) => {

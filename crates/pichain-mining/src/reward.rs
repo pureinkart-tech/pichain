@@ -1,27 +1,29 @@
-//! Mining reward calculation based on the emission schedule.
+//! Mining reward calculation using 2π% geometric decay.
 //!
-//! Year 1: 314,159,265 PI (25% of pool)
-//! Year 2: 251,327,412 PI (20%)
-//! Year 3: 188,495,559 PI (15%)
-//! ... decreasing over 7+ years
+//! Each year, 6.28% (2π%) of the remaining mining pool is emitted.
+//! This creates a smooth exponential decay that never fully drains the pool.
+//! Transaction fee income (25% of base fees) flows back into the pool,
+//! ensuring mining remains viable forever.
 //!
 //! Supply tracking ensures total rewards never exceed the mining pool cap.
 //! Year is determined from genesis timestamp + current block timestamp.
 
 use pichain_types::{PiAmount, BASE_UNITS_PER_PI, TOTAL_SUPPLY};
 
-/// Total mining pool in base units: exactly 40% of TOTAL_SUPPLY.
+/// Total mining pool in base units: exactly 85% of TOTAL_SUPPLY.
 ///
-/// Derived from TOTAL_SUPPLY to avoid rounding inconsistencies between this
-/// crate and pichain-node (which computes the same value as TOTAL_SUPPLY * 40 / 100).
-/// Previously this was calculated as `1_256_637_061 * BASE_UNITS_PER_PI` which
-/// was 200_000_000 base units (0.2 PI) less than the canonical value.
-const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 40 / 100;
+/// The Satoshi model allocates 85% of total supply to mining, with no
+/// team/treasury/foundation allocations. Miners earn this pool over time
+/// via 2π% geometric decay, supplemented by transaction fee income.
+const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 85 / 100;
 
 /// Total mining pool in whole PI (for display / documentation only).
-/// 40% of 3,141,592,653 PI = 1,256,637,061.2 PI (truncated to integer PI).
+/// 85% of 3,141,592,653 PI ≈ 2,670,353,755 PI.
 #[allow(dead_code)]
 const MINING_POOL_PI: u64 = (MINING_POOL_BASE / BASE_UNITS_PER_PI as u128) as u64;
+
+/// 2π% emission rate in basis points (628 bps = 6.28%).
+const EMISSION_RATE_BPS: u128 = 628;
 
 /// Milliseconds per year (365.25 days for leap year averaging).
 const MS_PER_YEAR: u64 = 365 * 24 * 3600 * 1000 + 6 * 3600 * 1000;
@@ -32,17 +34,6 @@ const MS_PER_YEAR: u64 = 365 * 24 * 3600 * 1000 + 6 * 3600 * 1000;
 /// but height-based year calculations use this constant instead.
 pub(crate) const BLOCKS_PER_YEAR: u64 = 365 * 24 * 3600 * 1000 / 314;
 
-/// Emission schedule: (year, percentage of pool × 100).
-const EMISSION_SCHEDULE: &[(u32, u32)] = &[
-    (1, 2500), // 25%
-    (2, 2000), // 20%
-    (3, 1500), // 15%
-    (4, 1200), // 12%
-    (5, 900),  //  9%
-    (6, 700),  //  7%
-    (7, 600),  //  6%
-];
-
 /// Reward calculator for PI digit mining with supply tracking.
 #[derive(Clone)]
 pub struct RewardCalculator {
@@ -52,6 +43,9 @@ pub struct RewardCalculator {
     genesis_timestamp_ms: u64,
     /// Total rewards distributed so far (in base units).
     total_mined: u64,
+    /// Cumulative transaction fee income added to the mining pool.
+    /// 25% of base fees flow back into the pool, extending its lifetime.
+    fee_income: u64,
 }
 
 impl RewardCalculator {
@@ -60,6 +54,7 @@ impl RewardCalculator {
             blocks_per_year: BLOCKS_PER_YEAR,
             genesis_timestamp_ms: 0,
             total_mined: 0,
+            fee_income: 0,
         }
     }
 
@@ -81,6 +76,22 @@ impl RewardCalculator {
     /// Set total mined (for replay/restore from persisted state).
     pub fn set_total_mined(&mut self, amount: u64) {
         self.total_mined = amount;
+    }
+
+    /// Add transaction fee income to the mining pool.
+    /// This extends the pool's effective lifetime, making mining sustainable forever.
+    pub fn add_fee_income(&mut self, amount: u64) {
+        self.fee_income = self.fee_income.saturating_add(amount);
+    }
+
+    /// Set fee income (for replay/restore from persisted state).
+    pub fn set_fee_income(&mut self, amount: u64) {
+        self.fee_income = amount;
+    }
+
+    /// Get cumulative fee income added to the mining pool.
+    pub fn fee_income(&self) -> u64 {
+        self.fee_income
     }
 
     /// Determine the emission year from a block timestamp.
@@ -125,38 +136,24 @@ impl RewardCalculator {
 
     /// Calculate the annual emission for a given year (in base PI units).
     ///
-    /// Years 1-7 use fixed percentages of the total pool.
-    /// Year 8+ uses exponential tail emission: 6% of the REMAINING pool
-    /// after all prior years' emissions, ensuring the pool is never fully
-    /// drained (geometric decay).
+    /// Uses 2π% (6.28%) geometric decay: each year emits 6.28% of the
+    /// remaining theoretical pool. The pool never fully drains.
+    ///
+    /// Year 1: ~167.6M PI (5.3% of total supply)
+    /// Year 10: ~91.5M PI
+    /// Year 31 (π decades): pool ~82% distributed
     pub fn annual_emission(&self, year: u32) -> PiAmount {
-        // R28-FIX: Cap year to prevent O(year) DoS loop. After year 200, the
-        // remaining pool is negligible (6% compounding for 193 years after year 7
-        // reduces it to ~0.0006% of original pool). Return 0 emission.
+        // Cap year to prevent O(year) DoS loop. After year 200, the
+        // remaining pool is negligible.
         if year > 200 {
             return 0;
         }
 
-        // Years 1-7: fixed percentage of total pool
-        if let Some((_, pct)) = EMISSION_SCHEDULE.iter().find(|(y, _)| *y == year) {
-            return (MINING_POOL_BASE * *pct as u128 / 10_000) as PiAmount;
-        }
+        // Compute remaining pool after all prior years' emissions
+        let remaining = self.remaining_pool_at_year(year) as u128;
 
-        // Year 8+: 6% of the REMAINING pool after all prior years
-        // Compute cumulative emissions for years 1 through (year-1)
-        let mut remaining: u128 = MINING_POOL_BASE;
-        for y in 1..year {
-            let emission = if let Some((_, pct)) = EMISSION_SCHEDULE.iter().find(|(yr, _)| *yr == y) {
-                MINING_POOL_BASE * *pct as u128 / 10_000
-            } else {
-                // This is a year 8+ year in the cumulative sum: 6% of remaining at that point
-                remaining * 6 / 100
-            };
-            remaining = remaining.saturating_sub(emission);
-        }
-
-        // This year's emission: 6% of whatever remains
-        (remaining * 6 / 100) as PiAmount
+        // This year's emission: 2π% (628 bps) of remaining
+        (remaining * EMISSION_RATE_BPS / 10_000) as PiAmount
     }
 
     /// Calculate the total reward for a mining proof.
@@ -176,24 +173,23 @@ impl RewardCalculator {
         let year = self.year_from_timestamp(block_timestamp_ms);
         let reward = self.calculate_reward(year, digit_count);
 
-        // Enforce supply cap: never exceed the total mining pool
-        let remaining = MINING_POOL_BASE.saturating_sub(self.total_mined as u128);
+        // Enforce supply cap: never exceed the effective mining pool (base + fee income)
+        let remaining = self.remaining_pool();
         if remaining == 0 {
             return 0;
         }
-        // Cap the reward at whatever remains in the pool
-        reward.min(remaining as u64)
+        reward.min(remaining)
     }
 
     /// Record a reward distribution. Call this after a proof is accepted.
-    /// Returns Err if the reward would exceed the pool cap (should never happen
-    /// if reward_for_digits_at_time was used, but defense-in-depth).
+    /// Returns Err if the reward would exceed the effective pool cap (base + fee income).
     pub fn record_reward(&mut self, amount: u64) -> Result<(), String> {
+        let effective_cap = (MINING_POOL_BASE as u64).saturating_add(self.fee_income);
         let new_total = (self.total_mined as u128) + (amount as u128);
-        if new_total > MINING_POOL_BASE {
+        if new_total > effective_cap as u128 {
             return Err(format!(
                 "mining reward would exceed pool cap: mined={}, reward={}, cap={}",
-                self.total_mined, amount, MINING_POOL_BASE
+                self.total_mined, amount, effective_cap
             ));
         }
         self.total_mined = new_total as u64;
@@ -201,19 +197,21 @@ impl RewardCalculator {
     }
 
     /// Get the total remaining mining pool based on actual distributions.
+    /// Includes fee income that has been added back to the pool.
     pub fn remaining_pool(&self) -> PiAmount {
-        let total = MINING_POOL_BASE;
-        total.saturating_sub(self.total_mined as u128) as PiAmount
+        let effective_pool = (MINING_POOL_BASE as u64).saturating_add(self.fee_income);
+        effective_pool.saturating_sub(self.total_mined)
     }
 
     /// Get the total remaining mining pool for a given year (theoretical, based on schedule).
+    /// Uses only the base pool (no fee income) for deterministic emission calculation.
     pub fn remaining_pool_at_year(&self, year: u32) -> PiAmount {
-        let mut spent: u128 = 0;
-        for y in 1..year {
-            spent += self.annual_emission(y) as u128;
+        let mut remaining: u128 = MINING_POOL_BASE;
+        for _y in 1..year {
+            let emission = remaining * EMISSION_RATE_BPS / 10_000;
+            remaining = remaining.saturating_sub(emission);
         }
-        let total = MINING_POOL_BASE;
-        (total.saturating_sub(spent)) as PiAmount
+        remaining as PiAmount
     }
 
     /// Calculate reward for a given number of digits, using the block height
@@ -232,13 +230,11 @@ impl RewardCalculator {
         let year = self.year_from_height(block_height);
         let reward = self.calculate_reward(year, digit_count);
 
-        // Enforce supply cap: never exceed the total mining pool
-        let remaining = MINING_POOL_BASE.saturating_sub(self.total_mined as u128);
+        let remaining = self.remaining_pool();
         if remaining == 0 {
             return 0;
         }
-        // Cap the reward at whatever remains in the pool
-        reward.min(remaining as u64)
+        reward.min(remaining)
     }
 
     /// Legacy: calculate reward for a given number of digits (year 1 default).
@@ -246,12 +242,11 @@ impl RewardCalculator {
     /// Prefer reward_for_digits_at_time() or reward_for_digits_at_height().
     pub fn reward_for_digits(&self, digit_count: u32) -> PiAmount {
         let reward = self.calculate_reward(1, digit_count);
-        // Still enforce supply cap
-        let remaining = MINING_POOL_BASE.saturating_sub(self.total_mined as u128);
+        let remaining = self.remaining_pool();
         if remaining == 0 {
             return 0;
         }
-        reward.min(remaining as u64)
+        reward.min(remaining)
     }
 }
 
@@ -269,19 +264,17 @@ mod tests {
     fn year_1_emission() {
         let calc = RewardCalculator::new();
         let emission = calc.annual_emission(1);
-        // 25% of MINING_POOL_BASE (which is 40% of TOTAL_SUPPLY)
-        let expected = MINING_POOL_BASE * 2500 / 10_000;
-        assert_eq!(emission, expected as u64);
+        // 2π% (628 bps) of MINING_POOL_BASE (85% of TOTAL_SUPPLY)
+        let expected = (MINING_POOL_BASE * EMISSION_RATE_BPS / 10_000) as u64;
+        assert_eq!(emission, expected);
     }
 
     #[test]
     fn mining_pool_consistent_with_total_supply() {
-        // Verify the mining pool cap in this crate matches the canonical
-        // 40% of TOTAL_SUPPLY calculation used in pichain-node.
-        let node_pool = pichain_types::TOTAL_SUPPLY * 40 / 100;
+        let node_pool = pichain_types::TOTAL_SUPPLY * 85 / 100;
         assert_eq!(
             MINING_POOL_BASE, node_pool,
-            "mining pool cap must equal 40% of TOTAL_SUPPLY"
+            "mining pool cap must equal 85% of TOTAL_SUPPLY"
         );
     }
 
@@ -325,19 +318,15 @@ mod tests {
     #[test]
     fn supply_cap_enforced() {
         let mut calc = RewardCalculator::new();
-        // Set total_mined to just below pool cap
         let cap = MINING_POOL_BASE as u64;
         calc.set_total_mined(cap - 100);
 
-        // Should only get 100 (the remainder), not the full reward
         let reward = calc.reward_for_digits(1000);
         assert_eq!(reward, 100);
 
-        // After recording, pool should be empty
         calc.record_reward(reward).unwrap();
         assert_eq!(calc.remaining_pool(), 0);
 
-        // Further mining gets 0 reward
         let reward2 = calc.reward_for_digits(1000);
         assert_eq!(reward2, 0);
     }
@@ -345,21 +334,17 @@ mod tests {
     #[test]
     fn year_from_timestamp() {
         let mut calc = RewardCalculator::new();
-        calc.set_genesis_timestamp(1_000_000_000_000); // ~2001
+        calc.set_genesis_timestamp(1_000_000_000_000);
 
-        // At genesis: year 1
         assert_eq!(calc.year_from_timestamp(1_000_000_000_000), 1);
-        // 6 months later: still year 1
         assert_eq!(
             calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR / 2),
             1
         );
-        // 1 year later: year 2
         assert_eq!(
             calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR),
             2
         );
-        // 3 years later: year 4
         assert_eq!(
             calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR * 3),
             4
@@ -374,7 +359,7 @@ mod tests {
         let r_y1 = calc.reward_for_digits_at_time(1000, 1_000_000_000_000);
         let r_y2 = calc.reward_for_digits_at_time(1000, 1_000_000_000_000 + MS_PER_YEAR);
 
-        // Year 2 reward should be less than year 1 (20% vs 25%)
+        // Year 2 reward should be less than year 1 (smaller remaining pool)
         assert!(r_y1 > r_y2, "year 1 reward should exceed year 2");
     }
 
@@ -400,13 +385,9 @@ mod tests {
     fn year_from_height_deterministic() {
         let calc = RewardCalculator::new();
 
-        // Block 0: year 1
         assert_eq!(calc.year_from_height(0), 1);
-        // Block at half a year: still year 1
         assert_eq!(calc.year_from_height(BLOCKS_PER_YEAR / 2), 1);
-        // Block at exactly 1 year boundary: year 2
         assert_eq!(calc.year_from_height(BLOCKS_PER_YEAR), 2);
-        // Block at 3 years: year 4
         assert_eq!(calc.year_from_height(BLOCKS_PER_YEAR * 3), 4);
     }
 
@@ -417,38 +398,25 @@ mod tests {
         let r_y1 = calc.reward_for_digits_at_height(1000, 0);
         let r_y2 = calc.reward_for_digits_at_height(1000, BLOCKS_PER_YEAR);
 
-        // Year 2 reward should be less than year 1 (20% vs 25%)
         assert!(r_y1 > r_y2, "year 1 reward should exceed year 2");
     }
 
     #[test]
     fn height_and_timestamp_year_approximate_agreement() {
-        // Verify that height-based and timestamp-based year calculations
-        // are within 1 year of each other for a chain running at target block time.
-        //
-        // They won't be exactly equal because:
-        // - BLOCKS_PER_YEAR uses 365-day year (31,536,000,000ms / 314)
-        // - MS_PER_YEAR uses 365.25-day year (31,557,600,000ms)
-        // This 0.25-day difference means the height-based year transitions
-        // slightly earlier than the timestamp-based year, which is acceptable
-        // since both provide deterministic replay-safe calculations.
         let mut calc = RewardCalculator::new();
         let genesis_ts: u64 = 1_000_000_000_000;
         calc.set_genesis_timestamp(genesis_ts);
 
-        // Mid-year 1: both should agree
         let mid_y1_height = BLOCKS_PER_YEAR / 2;
         let mid_y1_ts = genesis_ts + mid_y1_height * 314;
         assert_eq!(calc.year_from_height(mid_y1_height), 1);
         assert_eq!(calc.year_from_timestamp(mid_y1_ts), 1);
 
-        // Deep into year 3: both should agree
         let deep_y3_height = BLOCKS_PER_YEAR * 2 + BLOCKS_PER_YEAR / 2;
         let deep_y3_ts = genesis_ts + deep_y3_height * 314;
         assert_eq!(calc.year_from_height(deep_y3_height), 3);
         assert_eq!(calc.year_from_timestamp(deep_y3_ts), 3);
 
-        // At boundary, they may differ by at most 1 year
         let boundary_height = BLOCKS_PER_YEAR;
         let boundary_ts = genesis_ts + boundary_height * 314;
         let year_h = calc.year_from_height(boundary_height);
@@ -458,54 +426,74 @@ mod tests {
     }
 
     #[test]
-    fn year_8_plus_uses_remaining_pool_not_total() {
+    fn geometric_decay_consistent() {
         let calc = RewardCalculator::new();
 
-        // Year 7 emission: 6% of total pool
-        let y7 = calc.annual_emission(7);
-        let expected_y7 = (MINING_POOL_BASE * 600 / 10_000) as u64;
-        assert_eq!(y7, expected_y7, "year 7 should be 6% of total pool");
-
-        // Year 8 emission: 6% of REMAINING pool after years 1-7
-        let y8 = calc.annual_emission(8);
-
-        // Compute expected remaining after years 1-7
-        let mut spent: u128 = 0;
-        for year in 1..=7 {
-            spent += calc.annual_emission(year) as u128;
+        // Every year uses the same 2π% formula — no special cases
+        for year in 1..=20 {
+            let remaining = calc.remaining_pool_at_year(year) as u128;
+            let expected = (remaining * EMISSION_RATE_BPS / 10_000) as u64;
+            assert_eq!(
+                calc.annual_emission(year), expected,
+                "year {} emission should be 2π% of remaining pool", year
+            );
         }
-        let remaining_after_7 = MINING_POOL_BASE - spent;
-        let expected_y8 = (remaining_after_7 * 6 / 100) as u64;
-        assert_eq!(y8, expected_y8, "year 8 should be 6% of remaining pool, not total");
 
-        // Year 8 emission must be less than year 7 emission
-        // (6% of remaining < 6% of total, since remaining < total)
-        assert!(y8 < y7, "year 8 ({}) must be less than year 7 ({}) due to exponential decay", y8, y7);
-
-        // Year 9 should be even less than year 8 (continued decay)
-        let y9 = calc.annual_emission(9);
-        assert!(y9 < y8, "year 9 ({}) must be less than year 8 ({}) due to exponential decay", y9, y8);
+        // Later years emit strictly less
+        let y10 = calc.annual_emission(10);
+        let y20 = calc.annual_emission(20);
+        assert!(y10 > y20);
     }
 
     #[test]
     fn mining_pool_never_fully_drained() {
         let calc = RewardCalculator::new();
 
-        // Sum emissions for 100 years — pool should never be fully drained
         let mut total_emitted: u128 = 0;
         for year in 1..=100 {
             total_emitted += calc.annual_emission(year) as u128;
         }
 
-        // After 100 years the pool must still have remaining tokens
         assert!(
             total_emitted < MINING_POOL_BASE,
             "total emitted over 100 years ({}) must be less than pool ({})",
             total_emitted, MINING_POOL_BASE
         );
 
-        // Verify the tail emission is still positive even at year 100
         let y100 = calc.annual_emission(100);
-        assert!(y100 > 0, "year 100 emission should still be positive (exponential tail)");
+        assert!(y100 > 0, "year 100 emission should still be positive");
+    }
+
+    #[test]
+    fn fee_income_extends_pool() {
+        let mut calc = RewardCalculator::new();
+        let pool_before = calc.remaining_pool();
+
+        // Add fee income
+        calc.add_fee_income(1_000_000_000); // 1 PI
+        let pool_after = calc.remaining_pool();
+        assert_eq!(pool_after, pool_before + 1_000_000_000);
+
+        // Can mine more than base pool thanks to fee income
+        let cap = MINING_POOL_BASE as u64;
+        calc.set_total_mined(cap);
+        // Without fee income, pool would be exhausted. But fee income extends it.
+        assert_eq!(calc.remaining_pool(), 1_000_000_000);
+
+        let reward = calc.reward_for_digits(1000);
+        assert!(reward > 0, "fee income should allow continued mining");
+    }
+
+    #[test]
+    fn year_1_emission_is_gentle() {
+        let calc = RewardCalculator::new();
+        let y1 = calc.annual_emission(1);
+        let total_supply_pi = TOTAL_SUPPLY / BASE_UNITS_PER_PI as u128;
+        let y1_pi = y1 / BASE_UNITS_PER_PI;
+
+        // Year 1 should be ~5.3% of total supply (not 25% like old model)
+        let pct = y1_pi * 100 / total_supply_pi as u64;
+        assert!(pct <= 6, "year 1 should be ≤6% of total supply, got {}%", pct);
+        assert!(pct >= 4, "year 1 should be ≥4% of total supply, got {}%", pct);
     }
 }

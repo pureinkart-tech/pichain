@@ -56,8 +56,10 @@ pub struct ProducedBlock {
     pub total_burned: PiAmount,
     /// Total new PI minted in this block (mining rewards — inflationary).
     pub total_minted: PiAmount,
-    /// Total priority fee reward credited to the block proposer.
+    /// Total fee reward credited to the block proposer (priority + staker share).
     pub proposer_reward: PiAmount,
+    /// Total miner fee income flowing back to mining pool.
+    pub total_miner_fee: PiAmount,
     /// Block production time in milliseconds.
     pub production_time_ms: u64,
 }
@@ -252,11 +254,20 @@ impl BlockProducer {
             .iter()
             .map(|r| r.proposer_reward)
             .fold(0u64, |acc, r| acc.saturating_add(r));
+        let total_miner_fee: PiAmount = execution_results
+            .iter()
+            .map(|r| r.miner_fee)
+            .fold(0u64, |acc, v| acc.saturating_add(v));
 
-        // Credit block proposer with priority fee rewards
+        // Credit block proposer with priority fee + staker share rewards
         if total_proposer_reward > 0 {
             let proposer = self.config.validator_address;
             self.executor.credit_account(proposer, total_proposer_reward);
+        }
+
+        // Feed miner fees back into the mining pool for perpetual sustainability
+        if total_miner_fee > 0 {
+            self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
         }
 
         // 4. Compute transaction root (Merkle root of tx hashes)
@@ -300,6 +311,7 @@ impl BlockProducer {
             base_fee: self.current_base_fee,
             tx_count: tx_count.min(u32::MAX as usize) as u32,
             pi_burned: total_burned,
+            pi_miner_fee: total_miner_fee,
         };
 
         let block = Block {
@@ -375,6 +387,7 @@ impl BlockProducer {
             total_burned,
             total_minted,
             proposer_reward: total_proposer_reward,
+            total_miner_fee,
             production_time_ms: production_time.as_millis() as u64,
         }
     }

@@ -408,7 +408,7 @@ impl StateStore {
         // 3. Block (with corrected state root)
         let block_data = serde_json::to_vec(&corrected_block)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
-        self.db.batch_put_block(&mut batch, height, &block_data);
+        self.db.batch_put_block(&mut batch, height, &block_data)?;
 
         // 4. Transactions + receipts + tx→height index
         for (tx_hash, tx, receipt_opt) in txs_and_receipts {

@@ -6,8 +6,10 @@
 //! - `miningStatus` — periodic mining frontier updates
 
 use axum::extract::ws::{Message, WebSocket};
+use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -58,10 +60,15 @@ struct SubscribeRequest {
 /// Maximum concurrent WebSocket connections to prevent resource exhaustion.
 const MAX_WS_CONNECTIONS: u64 = 500;
 
+/// Maximum WebSocket connections per IP to prevent single-source abuse.
+const MAX_WS_PER_IP: u64 = 10;
+
 /// Manages WebSocket subscriptions and event broadcasting.
 pub struct WsBroadcaster {
     sender: broadcast::Sender<WsEvent>,
     subscriber_count: AtomicU64,
+    /// Per-IP connection counts to prevent single-source abuse.
+    per_ip_counts: DashMap<IpAddr, u64>,
 }
 
 impl WsBroadcaster {
@@ -71,6 +78,7 @@ impl WsBroadcaster {
         Self {
             sender,
             subscriber_count: AtomicU64::new(0),
+            per_ip_counts: DashMap::new(),
         }
     }
 
@@ -80,9 +88,10 @@ impl WsBroadcaster {
         self.sender.send(event).unwrap_or(0)
     }
 
-    /// Get a new receiver for subscribing to events.
-    pub fn subscribe(&self) -> broadcast::Receiver<WsEvent> {
+    /// Get a new receiver for subscribing to events, tracking the client IP.
+    pub fn subscribe(&self, ip: IpAddr) -> broadcast::Receiver<WsEvent> {
         self.subscriber_count.fetch_add(1, Ordering::Relaxed);
+        *self.per_ip_counts.entry(ip).or_insert(0) += 1;
         self.sender.subscribe()
     }
 
@@ -91,18 +100,32 @@ impl WsBroadcaster {
         self.subscriber_count.load(Ordering::Relaxed)
     }
 
-    /// Check if a new connection would exceed the limit.
+    /// Check if a new connection would exceed the global limit.
     pub fn at_capacity(&self) -> bool {
         self.subscriber_count.load(Ordering::Relaxed) >= MAX_WS_CONNECTIONS
     }
 
+    /// Check if a specific IP has too many connections.
+    pub fn ip_at_capacity(&self, ip: &IpAddr) -> bool {
+        self.per_ip_counts
+            .get(ip)
+            .map(|c| *c >= MAX_WS_PER_IP)
+            .unwrap_or(false)
+    }
+
     /// Decrement subscriber count (called when a WebSocket disconnects).
-    pub fn on_disconnect(&self) {
+    pub fn on_disconnect(&self, ip: IpAddr) {
         let _ = self.subscriber_count.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |c| Some(c.saturating_sub(1)),
         );
+        // AUDIT-FIX RPC-M1: Decrement per-IP count atomically.
+        // Use remove_if to avoid TOCTOU race between get_mut/drop/remove.
+        if let Some(mut count) = self.per_ip_counts.get_mut(&ip) {
+            *count = count.saturating_sub(1);
+        }
+        self.per_ip_counts.remove_if(&ip, |_, count| *count == 0);
     }
 }
 
@@ -119,9 +142,9 @@ const WS_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30)
 /// SECURITY (Fix 196): The receiver task is tied to a `CancellationToken` so it
 /// is automatically aborted when the sender loop exits, preventing zombie tasks.
 /// Additionally, idle connections are timed out via periodic pings.
-pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>) {
+pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, client_ip: IpAddr) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
-    let mut rx = broadcaster.subscribe();
+    let mut rx = broadcaster.subscribe(client_ip);
 
     // Default: subscribe to all topics
     let mut sub_blocks = true;
@@ -220,7 +243,7 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>) {
     // the task is cleaned up rather than hanging indefinitely.
     receiver_handle.abort();
 
-    broadcaster.on_disconnect();
+    broadcaster.on_disconnect(client_ip);
 }
 
 #[cfg(test)]
@@ -241,20 +264,41 @@ mod tests {
 
     #[test]
     fn subscriber_count_tracks_subscriptions() {
+        let localhost: IpAddr = "127.0.0.1".parse().unwrap();
+        let other_ip: IpAddr = "10.0.0.1".parse().unwrap();
         let broadcaster = WsBroadcaster::new(16);
         assert_eq!(broadcaster.subscriber_count(), 0);
-        let _rx1 = broadcaster.subscribe();
+        let _rx1 = broadcaster.subscribe(localhost);
         assert_eq!(broadcaster.subscriber_count(), 1);
-        let _rx2 = broadcaster.subscribe();
+        let _rx2 = broadcaster.subscribe(other_ip);
         assert_eq!(broadcaster.subscriber_count(), 2);
-        broadcaster.on_disconnect();
+        broadcaster.on_disconnect(localhost);
         assert_eq!(broadcaster.subscriber_count(), 1);
+    }
+
+    #[test]
+    fn per_ip_limit_enforced() {
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        let broadcaster = WsBroadcaster::new(16);
+        let mut receivers = Vec::new();
+        for _ in 0..MAX_WS_PER_IP {
+            assert!(!broadcaster.ip_at_capacity(&ip));
+            receivers.push(broadcaster.subscribe(ip));
+        }
+        assert!(broadcaster.ip_at_capacity(&ip));
+        // Different IP should still be allowed
+        let other: IpAddr = "10.0.0.2".parse().unwrap();
+        assert!(!broadcaster.ip_at_capacity(&other));
+        // Disconnecting one should free a slot
+        broadcaster.on_disconnect(ip);
+        assert!(!broadcaster.ip_at_capacity(&ip));
     }
 
     #[tokio::test]
     async fn broadcast_delivers_to_subscribers() {
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
         let broadcaster = WsBroadcaster::new(16);
-        let mut rx = broadcaster.subscribe();
+        let mut rx = broadcaster.subscribe(ip);
 
         let event = WsEvent::NewBlock {
             height: 42,

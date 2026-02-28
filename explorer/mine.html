@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Start Mining PIChain</title>
-<meta name="description" content="Step-by-step guide to mining PIChain. Compute digits of PI and earn rewards. No GPUs required.">
+<title>PIChain — Mine in Your Browser</title>
+<meta name="description" content="Mine PIChain directly in your browser. No downloads, no installation. Create a wallet and start earning PI by computing digits of PI.">
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -21,126 +21,141 @@ a { color: var(--accent-light); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* Navbar */
-.navbar {
-  background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
-  position: sticky; top: 0; z-index: 100;
-}
-.navbar-inner {
-  max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px;
-  display: flex; align-items: center; justify-content: space-between;
-}
-.nav-logo {
-  font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px;
-  text-decoration: none; color: var(--text); letter-spacing: -0.5px;
-}
-.pi-sym {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent), #8b5cf6);
-  font-size: 20px; font-weight: 900; color: white;
-}
+.navbar { background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(30, 41, 59, 0.5); position: sticky; top: 0; z-index: 100; }
+.navbar-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); letter-spacing: -0.5px; }
+.pi-sym { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); font-size: 20px; font-weight: 900; color: white; }
 .nav-links { display: flex; align-items: center; gap: 4px; }
-.nav-links a {
-  color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500;
-  padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s;
-}
+.nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s; }
 .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
 .nav-links a.active { color: var(--text); background: rgba(99,102,241,0.12); }
 
-.container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
-.page-title { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
-.page-desc { color: var(--muted); font-size: 16px; margin-bottom: 40px; line-height: 1.7; max-width: 700px; }
+.container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
 
-/* Steps */
-.step {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 32px; margin-bottom: 20px;
-  transition: border-color 0.2s;
-}
-.step:hover { border-color: var(--border-light); }
-.step-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-.step-num {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #7c3aed);
-  color: white; font-weight: 800; font-size: 16px; flex-shrink: 0;
-}
-.step h3 { font-size: 18px; font-weight: 700; }
-.step p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-top: 8px; }
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 32px; border-bottom: 1px solid var(--border); }
+.tab { padding: 12px 24px; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
-/* Code blocks */
-pre {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
-  padding: 20px; margin-top: 16px; overflow-x: auto;
-  font-family: 'SF Mono', 'Cascadia Code', 'Courier New', monospace;
-  font-size: 13px; line-height: 1.7; color: var(--cyan); position: relative;
-}
-pre .c { color: var(--dim); }
-.copy-btn {
-  position: absolute; top: 10px; right: 10px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--muted); padding: 4px 12px; border-radius: 6px;
-  cursor: pointer; font-size: 12px; transition: all 0.2s;
-}
-.copy-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 20px; }
+.card h3 { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
+.card-row { display: flex; gap: 20px; }
+.card-row > .card { flex: 1; }
 
-/* Profiles */
-.profiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
-.profile-card {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
-  padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s;
-}
-.profile-card:hover, .profile-card.selected { border-color: var(--accent); background: rgba(99,102,241,0.04); }
-.profile-card h4 { color: var(--accent-light); font-size: 16px; margin-bottom: 8px; }
-.profile-card .specs { color: var(--dim); font-size: 12px; line-height: 1.6; }
-.profile-card .earn { color: var(--green); font-size: 13px; font-weight: 700; margin-top: 10px; }
+/* Wallet */
+.wallet-addr { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 14px; color: var(--cyan); word-break: break-all; background: var(--bg); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin: 8px 0; }
+.wallet-balance { font-size: 28px; font-weight: 800; color: var(--green); }
+.wallet-balance-label { font-size: 13px; color: var(--dim); }
+.wallet-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
-/* RPC box */
-.rpc-box {
-  background: var(--bg); border: 1px solid var(--accent);
-  border-radius: 12px; padding: 14px 20px;
-  font-family: monospace; font-size: 15px; color: var(--accent-light);
-  display: flex; justify-content: space-between; align-items: center;
-  margin-top: 16px;
-}
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+.btn-primary { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.3); }
+.btn-secondary { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border-light); }
+.btn-secondary:hover { background: rgba(255,255,255,0.08); }
+.btn-danger { background: rgba(251,113,133,0.15); color: var(--rose); border: 1px solid rgba(251,113,133,0.3); }
+.btn-danger:hover { background: rgba(251,113,133,0.25); }
+.btn-success { background: linear-gradient(135deg, #059669, #10b981); color: white; font-size: 16px; padding: 14px 32px; }
+.btn-success:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(16,185,129,0.3); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+/* Mining controls */
+.mining-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.control-group { display: flex; flex-direction: column; gap: 4px; }
+.control-group label { font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+.control-group input[type=range] { width: 120px; accent-color: var(--accent); }
+.control-group select { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 14px; }
+
+/* Stats grid */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+.stat-val { font-size: 22px; font-weight: 800; }
+.stat-val.purple { color: var(--accent-light); }
+.stat-val.cyan { color: var(--cyan); }
+.stat-val.green { color: var(--green); }
+.stat-val.gold { color: var(--gold); }
+.stat-label { font-size: 11px; color: var(--dim); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Log */
+.log-container { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; height: 200px; overflow-y: auto; font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.8; }
+.log-entry { color: var(--muted); }
+.log-entry.success { color: var(--green); }
+.log-entry.error { color: var(--rose); }
+.log-entry.info { color: var(--cyan); }
+.log-entry .ts { color: var(--dim); margin-right: 8px; }
+
+/* Status indicator */
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; }
+.status-dot.idle { background: var(--dim); }
+.status-dot.mining { background: var(--green); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Import modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; max-width: 480px; width: 90%; }
+.modal h3 { margin-bottom: 16px; }
+.modal input[type=text] { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text); font-family: monospace; font-size: 14px; margin-bottom: 16px; }
+.modal input::placeholder { color: var(--dim); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* Note */
-.note {
-  background: rgba(251, 191, 36, 0.05); border-left: 3px solid var(--gold);
-  padding: 16px 20px; border-radius: 0 12px 12px 0;
-  margin-top: 16px; font-size: 13px; color: var(--muted);
-}
+.note { background: rgba(251,191,36,0.05); border-left: 3px solid var(--gold); padding: 14px 18px; border-radius: 0 12px 12px 0; font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 16px; }
 
-/* Calculator */
-.calc-section {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 28px; margin-top: 32px;
-}
-.calc-section h3 { font-size: 18px; font-weight: 700; color: var(--gold); margin-bottom: 16px; }
-.calc-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.calc-row label { color: var(--muted); font-size: 14px; }
-.calc-row input {
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 10px 14px; color: var(--text); font-size: 16px; width: 100px;
-}
-.calc-row input:focus { outline: none; border-color: var(--accent); }
-.calc-result { color: var(--green); font-size: 24px; font-weight: 800; }
-.calc-note { color: var(--dim); font-size: 12px; margin-top: 10px; }
+/* CLI Guide */
+.step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 16px; }
+.step-header { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.step-num { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; font-weight: 800; font-size: 14px; flex-shrink: 0; }
+.step h4 { font-size: 16px; font-weight: 700; }
+.step p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 12px; overflow-x: auto; font-family: 'SF Mono', monospace; font-size: 13px; line-height: 1.7; color: var(--cyan); }
+pre .c { color: var(--dim); }
 
-/* Footer */
-.footer {
-  text-align: center; color: var(--dim); font-size: 13px; margin-top: 48px; padding: 24px;
-  border-top: 1px solid var(--border);
-}
-.footer .tagline { font-size: 11px; margin-top: 4px; }
+/* Download cards */
+.download-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+.dl-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 20px; text-align: center; transition: all 0.2s; position: relative; }
+.dl-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.dl-card.recommended { border-color: var(--accent); background: rgba(99,102,241,0.06); }
+.dl-card .os-icon { margin-bottom: 14px; display: flex; justify-content: center; }
+.dl-card .os-icon svg { width: 48px; height: 48px; }
+.dl-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.dl-card .arch { color: var(--dim); font-size: 13px; margin-bottom: 16px; }
+.dl-card .badge { display: inline-block; background: rgba(99,102,241,0.15); color: var(--accent-light); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin-bottom: 10px; }
+.dl-btn { display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; padding: 10px 24px; border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none; transition: all 0.2s; border: none; cursor: pointer; width: 100%; justify-content: center; }
+.dl-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.3); text-decoration: none; }
+.dl-btn svg { width: 16px; height: 16px; }
+.dl-card .dl-variants { margin-top: 10px; }
+.dl-card .dl-variants a { display: block; color: var(--muted); font-size: 12px; padding: 4px 0; transition: color 0.2s; }
+.dl-card .dl-variants a:hover { color: var(--accent-light); text-decoration: none; }
+.os-tabs { display: flex; gap: 4px; margin-bottom: 0; border-bottom: 1px solid var(--border); }
+.os-tab { padding: 12px 28px; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; display: flex; align-items: center; gap: 8px; }
+.os-tab:hover { color: var(--text); }
+.os-tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+.os-tab svg { width: 18px; height: 18px; }
+.os-content { display: none; }
+.os-content.active { display: block; }
+.step-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 28px; margin-bottom: 12px; }
+.step-card:first-child { margin-top: 24px; }
+.step-card h4 { font-size: 15px; font-weight: 700; }
+.step-card p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+.build-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 32px; }
+.build-section h3 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+
+.footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 48px; padding: 24px; border-top: 1px solid var(--border); }
 
 @media (max-width: 768px) {
-  .profiles { grid-template-columns: 1fr 1fr; }
   .nav-links { display: none; }
-}
-@media (max-width: 480px) {
-  .profiles { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .card-row { flex-direction: column; }
+  .mining-controls { flex-direction: column; align-items: stretch; }
+  .download-grid { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; }
+  .os-tabs { flex-wrap: wrap; }
 }
 </style>
 </head>
@@ -153,218 +168,893 @@ pre .c { color: var(--dim); }
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
       <a href="/mining">Mining</a>
+      <a href="/faucet">Faucet</a>
       <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
+      <a href="/launch">Launch</a>
       <a href="/mine" class="active">Start Mining</a>
     </div>
   </div>
 </nav>
 
 <div class="container">
-  <h1 class="page-title">Mine PI by Computing PI</h1>
-  <p class="page-desc">
-    PIChain rewards miners for computing hexadecimal digits of &pi; using the BBP algorithm.
-    No GPUs required. No special hardware. Rewards scale with your compute power &mdash;
-    everyone earns proportionally.
-  </p>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('browser')">Mine in Browser</button>
+    <button class="tab" onclick="switchTab('cli')">Download &amp; CLI</button>
+  </div>
 
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">1</span>
-      <h3>Install Rust & Build the Miner</h3>
+  <!-- ==================== BROWSER MINER TAB ==================== -->
+  <div class="tab-content active" id="tab-browser">
+
+    <div id="wallet-setup" class="card" style="text-align:center;">
+      <h3>Create Your Mining Wallet</h3>
+      <p style="color:var(--muted);margin-bottom:20px;">Generate a wallet to start mining. Your private key stays in your browser.</p>
+      <button class="btn btn-success" onclick="createWallet()">Create Wallet</button>
+      <div style="margin-top:12px;">
+        <button class="btn btn-secondary" onclick="showImportModal()">Import Existing Wallet</button>
+      </div>
     </div>
-    <p>The miner is written in Rust. Install Rust if you don't have it, then clone and build:</p>
-    <pre><span class="c"># Install Rust (skip if you already have it)</span>
+
+    <div id="wallet-info" style="display:none;">
+      <div class="card-row">
+        <div class="card">
+          <h3>Your Wallet</h3>
+          <div style="font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;">Address</div>
+          <div class="wallet-addr" id="wallet-address"></div>
+          <div class="wallet-balance" id="wallet-balance">0.000</div>
+          <div class="wallet-balance-label">PI Balance</div>
+          <div class="wallet-actions">
+            <button class="btn btn-secondary" onclick="requestFaucet()">Get Testnet PI</button>
+            <button class="btn btn-secondary" onclick="exportWallet()">Export Key</button>
+            <button class="btn btn-danger" onclick="resetWallet()">Reset</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Mining Controls</h3>
+          <div class="status" id="mining-status">
+            <span class="status-dot idle" id="status-dot"></span>
+            <span id="status-text">Idle</span>
+          </div>
+          <div style="margin-top:16px;" class="mining-controls">
+            <div class="control-group">
+              <label>Threads</label>
+              <input type="range" id="thread-count" min="1" max="8" value="2" oninput="document.getElementById('thread-label').textContent=this.value">
+              <span id="thread-label" style="font-size:14px;color:var(--text);text-align:center;">2</span>
+            </div>
+            <div class="control-group">
+              <label>Batch Size</label>
+              <select id="batch-size">
+                <option value="100" selected>100 digits</option>
+                <option value="200">200 digits</option>
+                <option value="500">500 digits</option>
+                <option value="1000">1000 digits</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:16px;">
+            <button class="btn btn-success" id="mine-btn" onclick="toggleMining()" disabled>Start Mining</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val purple" id="s-digits">0</div><div class="stat-label">Digits Computed</div></div>
+        <div class="stat-card"><div class="stat-val green" id="s-proofs">0</div><div class="stat-label">Proofs Confirmed</div></div>
+        <div class="stat-card"><div class="stat-val gold" id="s-earned">0.000</div><div class="stat-label">PI Earned</div></div>
+        <div class="stat-card"><div class="stat-val cyan" id="s-speed">0</div><div class="stat-label">Digits / Sec</div></div>
+      </div>
+
+      <div class="card">
+        <h3>Mining Log</h3>
+        <div class="log-container" id="log"></div>
+      </div>
+
+      <div class="note">
+        Browser mining uses JavaScript Web Workers and is slower than the native CLI miner.
+        For maximum performance, use the <span style="cursor:pointer;color:var(--accent-light);text-decoration:underline;" onclick="switchTab('cli')">CLI miner</span>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CLI MINER TAB ==================== -->
+  <div class="tab-content" id="tab-cli">
+    <h2 style="font-size:28px;font-weight:800;margin-bottom:8px;">Download CLI Miner</h2>
+    <p style="color:var(--muted);font-size:15px;margin-bottom:32px;">Native miner for maximum performance. 10-50x faster than browser mining. Pre-built binaries &mdash; no Rust or build tools required.</p>
+
+    <!-- Download Cards -->
+    <div class="download-grid">
+      <!-- Linux -->
+      <div class="dl-card" id="dl-linux">
+        <div class="os-icon">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#1a2236"/><path d="M24 8c-1.5 0-2.7 1.8-2.7 4 0 1.1.3 2.1.8 2.8-.3.4-.5.9-.5 1.5 0 .9.4 1.7 1 2.2-2.6 1.5-4.6 4.2-5 7.5-.8 1-1.2 2.2-1.2 3.5 0 2 1 3.8 2.5 4.8.3 1.4 1 2.6 2 3.5h6.2c1-.9 1.7-2.1 2-3.5 1.5-1 2.5-2.8 2.5-4.8 0-1.3-.4-2.5-1.2-3.5-.4-3.3-2.4-6-5-7.5.6-.5 1-1.3 1-2.2 0-.6-.2-1.1-.5-1.5.5-.7.8-1.7.8-2.8 0-2.2-1.2-4-2.7-4z" fill="var(--text)"/><circle cx="22" cy="12.5" r="1" fill="#1a2236"/><circle cx="26" cy="12.5" r="1" fill="#1a2236"/></svg>
+        </div>
+        <h3>Linux</h3>
+        <div class="arch">x86_64</div>
+        <a class="dl-btn" href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64" target="_blank">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12zM3 14h10v-1H3v1z"/></svg>
+          Download
+        </a>
+      </div>
+      <!-- macOS -->
+      <div class="dl-card" id="dl-macos">
+        <div class="os-icon">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#1a2236"/><path d="M31.2 16.8c-1.3 0-2.5.6-3.2 1.2-.7-.6-1.9-1.2-3.2-1.2-2.8 0-5 2.6-5 5.8 0 5.4 5.6 10.2 7.5 11.6.3.2.7.2 1 0 1.9-1.4 7.5-6.2 7.5-11.6 0-3.2-2.2-5.8-5-5.8z" fill="var(--text)"/><path d="M28 10c1.2 0 2.3.7 2.8 1.6.3-.1.6-.1.9-.1 0-1.8-1.5-3.5-3.4-3.5-.5 0-1 .1-1.4.4.3.5.7 1 1.1 1.6z" fill="var(--text)" opacity="0.6"/></svg>
+        </div>
+        <h3>macOS</h3>
+        <div class="arch">Apple Silicon (M1/M2/M3/M4)</div>
+        <a class="dl-btn" href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64" target="_blank">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12zM3 14h10v-1H3v1z"/></svg>
+          Download (ARM64)
+        </a>
+        <div class="dl-variants">
+          <a href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-x86_64" target="_blank">Intel Mac (x86_64)</a>
+        </div>
+      </div>
+      <!-- Windows -->
+      <div class="dl-card" id="dl-windows">
+        <div class="os-icon">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M24 4C12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20S35.05 4 24 4z" fill="#1a2236"/><path d="M13 15l8.5-1.2v8.2H13V15zm0 9h8.5v8.2L13 31v-7zm9.5-10.4L35 12v10H22.5v-8.4zm0 10.4H35v10l-12.5 1.6V24z" fill="var(--text)"/></svg>
+        </div>
+        <h3>Windows</h3>
+        <div class="arch">x86_64</div>
+        <a class="dl-btn" href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-windows-x86_64.exe" target="_blank">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12zM3 14h10v-1H3v1z"/></svg>
+          Download (.exe)
+        </a>
+      </div>
+    </div>
+
+    <!-- Setup Instructions (per-OS tabs) -->
+    <h3 style="font-size:20px;font-weight:800;margin-bottom:16px;">Setup Instructions</h3>
+    <div class="os-tabs">
+      <button class="os-tab active" onclick="switchOS('linux')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><path d="M9 1C4.6 1 1 4.6 1 9s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8zm0 2c-.6 0-1.1.7-1.1 1.6s.5 1.6 1.1 1.6 1.1-.7 1.1-1.6S9.6 3 9 3z"/></svg>
+        Linux
+      </button>
+      <button class="os-tab" onclick="switchOS('macos')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><path d="M12.8 6.7c-.5 0-1 .2-1.3.5-.3-.3-.8-.5-1.3-.5-1.1 0-2 1-2 2.3 0 2.2 2.2 4.1 3 4.6.1.1.3.1.4 0 .8-.5 3-2.4 3-4.6 0-1.3-.9-2.3-2-2.3z"/></svg>
+        macOS
+      </button>
+      <button class="os-tab" onclick="switchOS('windows')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><path d="M3 5.5l4.5-.6v4.1H3V5.5zm0 4.5h4.5v4.1L3 13.5V10zm5-5.2L15 4v5H8V4.8zm0 5.2H15v5l-7 .8V10z"/></svg>
+        Windows
+      </button>
+    </div>
+
+    <!-- Linux instructions -->
+    <div class="os-content active" id="os-linux">
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download the binary</h4></div>
+        <p>Download from the button above, or use the terminal:</p>
+        <pre>curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64
+chmod +x pichain-miner-linux-x86_64</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Generate a wallet</h4></div>
+        <pre>./pichain-miner-linux-x86_64 --keypair wallet.json --generate-keypair</pre>
+        <p style="margin-top:8px;">This creates <code style="color:var(--cyan);">wallet.json</code> with your keypair. Keep this file safe!</p>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">3</span><h4>Start mining</h4></div>
+        <pre>./pichain-miner-linux-x86_64 \
+  --keypair wallet.json \
+  --rpc-url https://pichain.net \
+  --profile desktop</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores)</p>
+      </div>
+    </div>
+
+    <!-- macOS instructions -->
+    <div class="os-content" id="os-macos">
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download the binary</h4></div>
+        <p>Download from the button above, or use the terminal:</p>
+        <pre><span class="c"># Apple Silicon (M1/M2/M3/M4)</span>
+curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64
+
+<span class="c"># Intel Mac</span>
+curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-x86_64</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Make it executable &amp; allow it</h4></div>
+        <pre>chmod +x pichain-miner-macos-arm64</pre>
+        <div class="note">
+          <strong>macOS Gatekeeper:</strong> The first time you run the binary, macOS may block it.
+          Right-click the file &rarr; Open, or run:
+          <pre style="margin-top:6px;margin-bottom:0;">xattr -d com.apple.quarantine pichain-miner-macos-arm64</pre>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
+        <pre>./pichain-miner-macos-arm64 --keypair wallet.json --generate-keypair</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
+        <pre>./pichain-miner-macos-arm64 \
+  --keypair wallet.json \
+  --rpc-url https://pichain.net \
+  --profile desktop</pre>
+      </div>
+    </div>
+
+    <!-- Windows instructions -->
+    <div class="os-content" id="os-windows">
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download the .exe</h4></div>
+        <p>Click the Download button above to get <code style="color:var(--cyan);">pichain-miner-windows-x86_64.exe</code></p>
+        <div class="note">
+          <strong>Windows SmartScreen:</strong> You may see "Windows protected your PC". Click <em>More info</em> &rarr; <em>Run anyway</em>.
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Open PowerShell</h4></div>
+        <p>Press <code style="color:var(--cyan);">Win + X</code> &rarr; <em>Terminal</em> (or <em>PowerShell</em>), then navigate to the download folder:</p>
+        <pre>cd $HOME\Downloads</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
+        <pre>.\pichain-miner-windows-x86_64.exe --keypair wallet.json --generate-keypair</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
+        <pre>.\pichain-miner-windows-x86_64.exe `
+  --keypair wallet.json `
+  --rpc-url https://pichain.net `
+  --profile desktop</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores)</p>
+      </div>
+    </div>
+
+    <!-- Build from Source (alternative) -->
+    <div class="build-section" style="margin-top:32px;">
+      <h3>Alternative: Build from Source</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">Produces the fastest possible binary optimized for your exact CPU. Typically 10-20% faster than pre-built binaries.</p>
+      <div class="os-tabs" style="justify-content:flex-start;margin-bottom:0;">
+        <button class="os-tab active" onclick="switchBuild('build-linux')" id="build-tab-linux">Linux</button>
+        <button class="os-tab" onclick="switchBuild('build-mac')" id="build-tab-mac">macOS</button>
+        <button class="os-tab" onclick="switchBuild('build-win')" id="build-tab-win">Windows</button>
+      </div>
+
+      <!-- Linux Build -->
+      <div id="build-linux" class="os-content active" style="margin-top:16px;">
+        <div class="note" style="margin-top:0;margin-bottom:12px;">
+          <strong>Prerequisites:</strong> Git, a C compiler (gcc/clang), and basic build tools.
+        </div>
+        <pre><span class="c"># Step 1: Install build tools (Ubuntu/Debian)</span>
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libssl-dev git
+
+<span class="c"># For Fedora/RHEL:</span>
+<span class="c"># sudo dnf install gcc openssl-devel git</span>
+
+<span class="c"># For Arch:</span>
+<span class="c"># sudo pacman -S base-devel openssl git</span>
+
+<span class="c"># Step 2: Install Rust (skip if you have it)</span>
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-<span class="c"># Clone PIChain and build the miner</span>
+<span class="c"># Step 3: Clone and build</span>
 git clone https://github.com/pureinkart-tech/pichain.git
 cd pichain
 cargo build --release -p pichain-miner
 
-<span class="c"># The binary will be at ./target/release/pichain-miner</span></pre>
-  </div>
+<span class="c"># Step 4: Generate wallet</span>
+./target/release/pichain-miner --keypair wallet.json --generate-keypair
 
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">2</span>
-      <h3>Create a Wallet</h3>
-    </div>
-    <p>Generate a new mining wallet. This creates a keypair file &mdash; keep it safe!</p>
-    <pre>./target/release/pichain-miner --keypair wallet.json --generate-keypair
-
-<span class="c"># Output:</span>
-<span class="c">#   Address:    0x1a2b3c4d...</span>
-<span class="c">#   Saved to:   wallet.json</span>
-<span class="c">#   Keep this file safe!</span></pre>
-  </div>
-
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">3</span>
-      <h3>Choose Your Mining Profile</h3>
-    </div>
-    <p>Select a profile that matches your hardware. You can fine-tune with individual flags.</p>
-    <div class="profiles">
-      <div class="profile-card" onclick="selectProfile('laptop', this)">
-        <h4>Laptop</h4>
-        <div class="specs">2 threads<br>200 digits/batch<br>Light CPU usage</div>
-        <div class="earn" id="earn-laptop">--</div>
-      </div>
-      <div class="profile-card" onclick="selectProfile('desktop', this)">
-        <h4>Desktop</h4>
-        <div class="specs">Half your cores<br>1,000 digits/batch<br>Balanced</div>
-        <div class="earn" id="earn-desktop">--</div>
-      </div>
-      <div class="profile-card selected" onclick="selectProfile('server', this)">
-        <h4>Server</h4>
-        <div class="specs">All cores<br>2,000 digits/batch<br>Full power</div>
-        <div class="earn" id="earn-server">--</div>
-      </div>
-      <div class="profile-card" onclick="selectProfile('max', this)">
-        <h4>Max</h4>
-        <div class="specs">All cores<br>5,000 digits/batch<br>8 concurrent</div>
-        <div class="earn" id="earn-max">--</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">4</span>
-      <h3>Connect & Start Mining</h3>
-    </div>
-    <p>Point your miner at the PIChain RPC node:</p>
-    <div class="rpc-box">
-      <span id="rpc-endpoint">http://YOUR_NODE_IP:8314</span>
-      <button class="copy-btn" onclick="copyRpc()">Copy</button>
-    </div>
-    <pre id="mine-command"><span class="c"># Start mining with your chosen profile</span>
+<span class="c"># Step 5: Start mining</span>
 ./target/release/pichain-miner \
   --keypair wallet.json \
-  --rpc-url <span id="cmd-rpc">http://YOUR_NODE_IP:8314</span> \
-  --profile server</pre>
-    <div class="note">
-      The miner will auto-claim from the devnet faucet if your balance is zero.
-      Mining rewards are credited directly to your wallet on every accepted proof.
-    </div>
-  </div>
+  --rpc-url https://pichain.net \
+  --profile desktop</pre>
+      </div>
 
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">5</span>
-      <h3>Fine-Tune (Optional)</h3>
-    </div>
-    <p>Override profile defaults for precise control:</p>
-    <pre><span class="c"># Custom thread count and batch size</span>
+      <!-- macOS Build -->
+      <div id="build-mac" class="os-content" style="margin-top:16px;">
+        <div class="note" style="margin-top:0;margin-bottom:12px;">
+          <strong>Prerequisites:</strong> Xcode Command Line Tools are required. Without them, the build will fail with "exit status 69" or linker errors.
+        </div>
+        <pre><span class="c"># Step 1: Install Xcode Command Line Tools</span>
+xcode-select --install
+
+<span class="c"># If you see "You have not agreed to the Xcode</span>
+<span class="c"># license agreements", run this and accept:</span>
+sudo xcodebuild -license
+
+<span class="c"># Step 2: Install Homebrew (skip if you have it)</span>
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+<span class="c"># Step 3: Install Rust (skip if you have it)</span>
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+<span class="c"># Step 4: Clone and build</span>
+git clone https://github.com/pureinkart-tech/pichain.git
+cd pichain
+cargo build --release -p pichain-miner
+
+<span class="c"># Step 5: Generate wallet</span>
+./target/release/pichain-miner --keypair wallet.json --generate-keypair
+
+<span class="c"># Step 6: Start mining</span>
 ./target/release/pichain-miner \
   --keypair wallet.json \
-  --rpc-url <span class="cmd-rpc2">http://YOUR_NODE_IP:8314</span> \
-  --threads 8 \
-  --digits-per-batch 1500 \
-  --concurrent-batches 2
+  --rpc-url https://pichain.net \
+  --profile desktop</pre>
+        <div class="note" style="margin-top:12px;">
+          <strong>Common macOS issues:</strong><br>
+          &bull; <em>"exit status 69"</em> &mdash; Run <code style="color:var(--cyan);">sudo xcodebuild -license</code> and accept<br>
+          &bull; <em>"xcrun: error: invalid active developer path"</em> &mdash; Run <code style="color:var(--cyan);">xcode-select --install</code><br>
+          &bull; <em>Linker errors</em> &mdash; Make sure Xcode CLT is installed: <code style="color:var(--cyan);">xcode-select -p</code> should show a path
+        </div>
+      </div>
 
-<span class="c"># Limit CPU to 50% (great for mining while working)</span>
-./target/release/pichain-miner \
-  --keypair wallet.json \
-  --rpc-url <span class="cmd-rpc3">http://YOUR_NODE_IP:8314</span> \
-  --profile desktop \
-  --max-cpu 50</pre>
-  </div>
+      <!-- Windows Build -->
+      <div id="build-win" class="os-content" style="margin-top:16px;">
+        <div class="note" style="margin-top:0;margin-bottom:12px;">
+          <strong>Prerequisites:</strong> You need Visual Studio Build Tools with the C++ workload. Without this, Rust cannot link native code.
+        </div>
+        <pre><span class="c"># Step 1: Install Visual Studio Build Tools</span>
+<span class="c"># Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/</span>
+<span class="c"># During install, select "Desktop development with C++"</span>
+<span class="c"># This provides the MSVC compiler and Windows SDK</span>
 
-  <div class="step">
-    <div class="step-header">
-      <span class="step-num">6</span>
-      <h3>Monitor Your Earnings</h3>
+<span class="c"># Step 2: Install Git for Windows</span>
+<span class="c"># Download from: https://git-scm.com/download/win</span>
+
+<span class="c"># Step 3: Install Rust</span>
+<span class="c"># Download rustup-init.exe from: https://rustup.rs</span>
+<span class="c"># Run it and follow the prompts (defaults are fine)</span>
+
+<span class="c"># Step 4: Open a NEW PowerShell window, then:</span>
+git clone https://github.com/pureinkart-tech/pichain.git
+cd pichain
+cargo build --release -p pichain-miner
+
+<span class="c"># Step 5: Generate wallet</span>
+.\target\release\pichain-miner.exe --keypair wallet.json --generate-keypair
+
+<span class="c"># Step 6: Start mining</span>
+.\target\release\pichain-miner.exe `
+  --keypair wallet.json `
+  --rpc-url https://pichain.net `
+  --profile desktop</pre>
+        <div class="note" style="margin-top:12px;">
+          <strong>Common Windows issues:</strong><br>
+          &bull; <em>"link.exe not found"</em> &mdash; Install Visual Studio Build Tools with "Desktop development with C++"<br>
+          &bull; <em>"cargo not recognized"</em> &mdash; Close and reopen PowerShell after installing Rust<br>
+          &bull; <em>SmartScreen warning</em> &mdash; Click "More info" &rarr; "Run anyway"
+        </div>
+      </div>
     </div>
-    <p>Check your balance and the network mining stats:</p>
-    <pre><span class="c"># View your account balance</span>
-curl <span class="cmd-rpc4">http://YOUR_NODE_IP:8314</span>/api/v1/account/YOUR_ADDRESS
 
-<span class="c"># View network mining stats</span>
-curl <span class="cmd-rpc5">http://YOUR_NODE_IP:8314</span>/api/v1/mining/status</pre>
-    <p style="margin-top:14px">Or visit the <a href="/mining">Mining Dashboard</a> in your browser for real-time stats.</p>
-  </div>
+    <!-- Miner configuration reference -->
+    <div class="build-section" style="margin-top:16px;">
+      <h3>Miner Configuration</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">Fine-tune your miner for your hardware.</p>
+      <pre><span class="c"># Performance profiles (choose one)</span>
+--profile laptop    <span class="c"># 2 threads, gentle on battery</span>
+--profile desktop   <span class="c"># Half your CPU cores</span>
+--profile server    <span class="c"># All CPU cores</span>
+--profile max       <span class="c"># All cores + large batches</span>
 
-  <div class="calc-section">
-    <h3>Estimated Earnings Calculator</h3>
-    <div class="calc-row">
-      <label>CPU Cores:</label>
-      <input type="number" id="calc-cores" value="4" min="1" max="512" onchange="calcEarnings()">
-      <span style="color:var(--dim)">&rarr;</span>
-      <span class="calc-result" id="calc-result">--</span>
-      <span style="color:var(--muted);font-size:14px">PI / hour (estimated)</span>
-    </div>
-    <div class="calc-note">
-      Based on current reward rate. Actual earnings depend on BBP computation speed per core.
+<span class="c"># Limit CPU usage (combine with any profile)</span>
+--max-cpu 50        <span class="c"># Cap at 50% CPU</span>
+
+<span class="c"># Manual fine-tuning</span>
+--threads 8         <span class="c"># Exact thread count</span>
+--digits-per-batch 2000  <span class="c"># Digits per proof</span>
+
+<span class="c"># Check your earnings</span>
+curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
+      <p style="margin-top:12px;color:var(--muted);font-size:14px;">Visit the <a href="/mining">Mining Dashboard</a> for real-time network stats.</p>
     </div>
   </div>
 </div>
 
-<div class="footer">
-  PIChain &mdash; Computing the Infinite
-  <div class="tagline">Anyone can mine. No GPUs. No ASICs. Just math.</div>
+<!-- Import Wallet Modal -->
+<div class="modal-overlay" id="import-modal">
+  <div class="modal">
+    <h3>Import Wallet</h3>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">Paste your 64-character hex secret key (32 bytes):</p>
+    <input type="text" id="import-seed" placeholder="e.g. a1b2c3d4e5f6..." maxlength="64" spellcheck="false" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="hideImportModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="importWallet()">Import</button>
+    </div>
+  </div>
 </div>
+
+<div class="footer">PIChain &mdash; Computing the Infinite</div>
+
+<!-- Ed25519 library -->
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 
 <script>
-const API = window.location.origin;
-let rewardPerDigit = 0;
+// =====================================================================
+// BLAKE3 — Minimal pure-JS implementation
+// Matches the BLAKE3 spec for single-chunk inputs (up to ~65KB).
+// Sufficient for PoW hashing and address derivation.
+// =====================================================================
+const BLAKE3 = (() => {
+  const IV = new Uint32Array([0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]);
+  const MSG_PERM = [2,6,3,10,7,0,4,13,1,11,12,5,9,14,15,8];
+  const CHUNK_START=1, CHUNK_END=2, ROOT=8;
 
-async function init() {
-  try {
-    const res = await fetch(API + '/api/v1/mining/status');
-    const mining = await res.json();
-    rewardPerDigit = mining.reward_per_digit / 1e9;
+  function rotR(x,n){return(x>>>n)|(x<<(32-n));}
+  function g(s,a,b,c,d,mx,my){
+    s[a]=(s[a]+s[b]+mx)|0; s[d]=rotR(s[d]^s[a],16);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],12);
+    s[a]=(s[a]+s[b]+my)|0; s[d]=rotR(s[d]^s[a],8);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],7);
+  }
+  function round(s,m){
+    g(s,0,4,8,12,m[0],m[1]);g(s,1,5,9,13,m[2],m[3]);
+    g(s,2,6,10,14,m[4],m[5]);g(s,3,7,11,15,m[6],m[7]);
+    g(s,0,5,10,15,m[8],m[9]);g(s,1,6,11,12,m[10],m[11]);
+    g(s,2,7,8,13,m[12],m[13]);g(s,3,4,9,14,m[14],m[15]);
+  }
+  function compress(cv,block,counter,blockLen,flags){
+    const s=new Uint32Array([cv[0],cv[1],cv[2],cv[3],cv[4],cv[5],cv[6],cv[7],
+      IV[0],IV[1],IV[2],IV[3],counter&0xFFFFFFFF,(counter/0x100000000)>>>0,blockLen,flags]);
+    const m=new Uint32Array(16);
+    for(let i=0;i<16;i++) m[i]=block[i*4]|(block[i*4+1]<<8)|(block[i*4+2]<<16)|(block[i*4+3]<<24);
+    for(let i=0;i<7;i++){round(s,m);const t=new Uint32Array(16);for(let j=0;j<16;j++)t[j]=m[MSG_PERM[j]];m.set(t);}
+    for(let i=0;i<8;i++){s[i]^=s[i+8];s[i+8]^=cv[i];}
+    return s;
+  }
 
-    const rpcUrl = window.location.origin;
-    document.getElementById('rpc-endpoint').textContent = rpcUrl;
-    document.getElementById('cmd-rpc').textContent = rpcUrl;
-    document.querySelectorAll('.cmd-rpc2, .cmd-rpc3, .cmd-rpc4, .cmd-rpc5')
-      .forEach(el => el.textContent = rpcUrl);
-
-    const dps = 15;
-    const profiles = {
-      laptop:  { cores: 2 },
-      desktop: { cores: 4 },
-      server:  { cores: 8 },
-      max:     { cores: 16 },
-    };
-    for (const [name, p] of Object.entries(profiles)) {
-      const hourlyPI = p.cores * dps * 3600 * rewardPerDigit;
-      document.getElementById('earn-' + name).textContent = '~' + hourlyPI.toFixed(1) + ' PI/hr';
+  function hash(input){
+    if(!(input instanceof Uint8Array))input=new Uint8Array(input);
+    let cv=new Uint32Array(IV);
+    const nBlocks=Math.max(1,Math.ceil(input.length/64));
+    for(let i=0;i<nBlocks;i++){
+      const start=i*64, block=new Uint8Array(64);
+      const end=Math.min(start+64,input.length);
+      block.set(input.subarray(start,end));
+      let fl=0;
+      if(i===0)fl|=CHUNK_START;
+      if(i===nBlocks-1)fl|=CHUNK_END|ROOT;
+      const out=compress(cv,block,0,end-start,fl);
+      if(i===nBlocks-1){
+        const r=new Uint8Array(32);
+        for(let j=0;j<8;j++){r[j*4]=out[j]&0xFF;r[j*4+1]=(out[j]>>8)&0xFF;r[j*4+2]=(out[j]>>16)&0xFF;r[j*4+3]=(out[j]>>24)&0xFF;}
+        return r;
+      }
+      cv=new Uint32Array(out.subarray(0,8));
     }
-    calcEarnings();
-  } catch (e) {
-    console.error('Failed to load mining status:', e);
+  }
+
+  // hash_concat: each slice prefixed with u64 LE length (matches Rust hash_concat)
+  function hashConcat(slices){
+    let total=0;for(const s of slices)total+=8+s.length;
+    const buf=new Uint8Array(total);let off=0;
+    for(const s of slices){
+      const len=s.length;
+      buf[off]=len&0xFF;buf[off+1]=(len>>8)&0xFF;buf[off+2]=(len>>16)&0xFF;buf[off+3]=(len>>24)&0xFF;
+      buf[off+4]=0;buf[off+5]=0;buf[off+6]=0;buf[off+7]=0;off+=8;
+      buf.set(s instanceof Uint8Array?s:new Uint8Array(s),off);off+=s.length;
+    }
+    return hash(buf);
+  }
+
+  return {hash,hashConcat};
+})();
+
+// =====================================================================
+// UTILITY FUNCTIONS
+// =====================================================================
+function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
+function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<8;i++)buf[i]=Number((big>>BigInt(i*8))&0xFFn);return buf;}
+function u32LE(n){const buf=new Uint8Array(4);buf[0]=n&0xFF;buf[1]=(n>>8)&0xFF;buf[2]=(n>>16)&0xFF;buf[3]=(n>>24)&0xFF;return buf;}
+function compareBytes(a,b){for(let i=0;i<a.length;i++){if(a[i]<b[i])return -1;if(a[i]>b[i])return 1;}return 0;}
+function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;const r=new Uint8Array(total);let off=0;for(const a of arrays){r.set(a,off);off+=a.length;}return r;}
+
+// =====================================================================
+// WALLET MANAGEMENT
+// =====================================================================
+const API=window.location.origin;
+let walletSeed=null, walletKeypair=null, walletAddress=null, walletAddressHex='';
+let accountNonce=0, accountBalance=0;
+
+function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
+
+function createWallet(){initWallet(nacl.randomBytes(32));}
+
+function initWallet(seed){
+  walletSeed=seed;
+  walletKeypair=nacl.sign.keyPair.fromSeed(seed);
+  walletAddress=deriveAddress(walletKeypair.publicKey);
+  walletAddressHex=hexEncode(walletAddress);
+  localStorage.setItem('pichain_wallet_seed',hexEncode(seed));
+  document.getElementById('wallet-setup').style.display='none';
+  document.getElementById('wallet-info').style.display='block';
+  document.getElementById('wallet-address').textContent='0x'+walletAddressHex;
+  document.getElementById('mine-btn').disabled=false;
+  const maxT=navigator.hardwareConcurrency||4;
+  const sl=document.getElementById('thread-count');
+  sl.max=Math.min(maxT,16);sl.value=Math.min(2,maxT);
+  document.getElementById('thread-label').textContent=sl.value;
+  updateBalance();
+  addLog('Wallet ready: 0x'+walletAddressHex,'info');
+}
+
+function showImportModal(){document.getElementById('import-modal').classList.add('active');}
+function hideImportModal(){document.getElementById('import-modal').classList.remove('active');}
+
+function importWallet(){
+  const hex=document.getElementById('import-seed').value.trim().replace(/^0x/,'');
+  if(!/^[0-9a-fA-F]{64}$/.test(hex)){alert('Invalid seed. Must be 64 hex characters.');return;}
+  hideImportModal();initWallet(hexDecode(hex));addLog('Wallet imported','info');
+}
+
+function exportWallet(){
+  if(!walletSeed)return;
+  const data=JSON.stringify({secret_key:hexEncode(walletSeed),address:'0x'+walletAddressHex},null,2);
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
+  a.download='pichain-wallet.json';a.click();addLog('Wallet exported','info');
+}
+
+function resetWallet(){
+  if(!confirm('Remove wallet from browser? Make sure you exported your key!'))return;
+  stopMining();localStorage.removeItem('pichain_wallet_seed');
+  walletSeed=null;walletKeypair=null;walletAddress=null;walletAddressHex='';
+  document.getElementById('wallet-setup').style.display='block';
+  document.getElementById('wallet-info').style.display='none';
+}
+
+async function updateBalance(){
+  if(!walletAddressHex)return;
+  try{
+    const r=await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const d=await r.json();
+    accountBalance=d.balance||0;accountNonce=d.nonce||0;
+    document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
+  }catch(e){}
+}
+
+async function requestFaucet(){
+  if(!walletAddressHex)return;
+  try{
+    const r=await fetch(API+'/api/v1/faucet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const d=await r.json();
+    if(d.success){addLog('Faucet: received '+d.amount_pi+' PI','success');updateBalance();}
+    else addLog('Faucet: '+(d.error||'failed'),'error');
+  }catch(e){addLog('Faucet error: '+e.message,'error');}
+}
+
+// =====================================================================
+// BBP WEB WORKER CODE
+// =====================================================================
+const BBP_WORKER_CODE = `
+const FRAC_BITS=64n, FRAC_ONE=1n<<FRAC_BITS, FRAC_MASK=FRAC_ONE-1n;
+
+function modPow16(power,denom){
+  if(denom===0n)return 0n;if(power===0n)return 1n%denom;
+  let r=1n,b=16n%denom,e=power;
+  while(e>0n){if(e&1n)r=(r*b)%denom;e>>=1n;if(e>0n)b=(b*b)%denom;}
+  return r;
+}
+
+function seriesSum(n,j){
+  let sum=0n;
+  for(let k=0n;k<=n;k++){
+    const d=8n*k+j;if(d===0n)continue;
+    const t=(modPow16(n-k,d)<<FRAC_BITS)/d;
+    sum=(sum+t)&FRAC_MASK;
+  }
+  let scale=FRAC_ONE/16n;
+  for(let k=n+1n;;k++){
+    const d=8n*k+j;if(d===0n)continue;
+    const t=scale/d;if(t===0n)break;
+    sum=(sum+t)&FRAC_MASK;scale/=16n;
+  }
+  return sum;
+}
+
+function computeHexDigit(pos){
+  const n=BigInt(pos);
+  const s1=seriesSum(n,1n),s4=seriesSum(n,4n),s5=seriesSum(n,5n),s6=seriesSum(n,6n);
+  let c=4n*s1-2n*s4-s5-s6;
+  let f=c%FRAC_ONE;if(f<0n)f+=FRAC_ONE;
+  return Number((f>>(FRAC_BITS-4n))&0xFn);
+}
+
+self.onmessage=function(e){
+  const{startPosition,count,id}=e.data;
+  const digits=new Uint8Array(count);
+  for(let i=0;i<count;i++) digits[i]=computeHexDigit(startPosition+i);
+  self.postMessage({digits,startPosition,count,id});
+};
+`;
+
+function createBBPWorker(){
+  return new Worker(URL.createObjectURL(new Blob([BBP_WORKER_CODE],{type:'application/javascript'})));
+}
+
+// =====================================================================
+// MINING ENGINE
+// =====================================================================
+let isMining=false, workers=[], miningRound=0;
+let totalDigits=0, totalProofs=0, totalEarned=0, miningStartTime=0, pendingWorkers=0;
+let currentStatus=null;
+let proofsAccepted=0, proofsConfirmed=0, proofsFailed=0;
+let miningStartBalance=0;
+// Browser miners compute AHEAD of the frontier to avoid racing with CLI miners.
+// Each browser miner gets a unique lane based on address hash.
+let browserMiningPosition=0;
+
+function addLog(msg,type=''){
+  const el=document.getElementById('log');
+  const ts=new Date().toLocaleTimeString();
+  const div=document.createElement('div');
+  div.className='log-entry '+type;
+  div.innerHTML='<span class="ts">['+ts+']</span>'+msg;
+  el.appendChild(div);el.scrollTop=el.scrollHeight;
+  while(el.children.length>100)el.removeChild(el.firstChild);
+}
+
+function updateStats(){
+  document.getElementById('s-digits').textContent=totalDigits.toLocaleString();
+  // Show confirmed/pending/failed breakdown
+  const pending=proofsAccepted-proofsConfirmed-proofsFailed;
+  let proofText=proofsConfirmed.toString();
+  if(pending>0)proofText+=' (+'+pending+' pending)';
+  if(proofsFailed>0)proofText+=' ('+proofsFailed+' failed)';
+  document.getElementById('s-proofs').textContent=proofText;
+  document.getElementById('s-earned').textContent=(totalEarned/1e9).toFixed(3);
+  const elapsed=(Date.now()-miningStartTime)/1000;
+  document.getElementById('s-speed').textContent=elapsed>0?(totalDigits/elapsed).toFixed(1):'0';
+}
+
+function toggleMining(){if(isMining)stopMining();else startMining();}
+
+function stopMining(){
+  isMining=false;workers.forEach(w=>w.terminate());workers=[];pendingWorkers=0;
+  document.getElementById('mine-btn').textContent='Start Mining';
+  document.getElementById('mine-btn').className='btn btn-success';
+  document.getElementById('status-dot').className='status-dot idle';
+  document.getElementById('status-text').textContent='Idle';
+  addLog('Mining stopped','info');
+}
+
+async function startMining(){
+  if(!walletKeypair)return;
+  isMining=true;miningRound=0;miningStartTime=Date.now();
+  totalDigits=0;totalProofs=0;totalEarned=0;
+  proofsAccepted=0;proofsConfirmed=0;proofsFailed=0;
+  miningStartBalance=accountBalance;
+  document.getElementById('mine-btn').textContent='Stop Mining';
+  document.getElementById('mine-btn').className='btn btn-danger';
+  document.getElementById('status-dot').className='status-dot mining';
+  document.getElementById('status-text').textContent='Mining';
+  addLog('Mining started','success');
+  miningLoop();
+}
+
+async function miningLoop(){
+  if(!isMining)return;
+  miningRound++;
+  try{
+    const sr=await fetch(API+'/api/v1/mining/status');
+    currentStatus=await sr.json();
+    await updateBalance();
+
+    const batchSize=parseInt(document.getElementById('batch-size').value);
+    const threadCount=parseInt(document.getElementById('thread-count').value);
+    const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
+
+    // On first round, compute a unique starting position for this browser miner.
+    // Uses address hash to assign a "lane" FAR ahead of the frontier (1B-9B ahead).
+    // This prevents overlap with CLI miners (which mine at the frontier sequentially)
+    // and with other browser miners (each gets a unique lane based on address).
+    // max_digit_position = 10B, so we stay well under that limit.
+    if(miningRound===1){
+      const addrHash=BLAKE3.hash(walletAddress);
+      // Use bytes 0-3 as a lane selector
+      const lane=(addrHash[0]|(addrHash[1]<<8)|(addrHash[2]<<16)|((addrHash[3]&0x7F)<<24))>>>0;
+      // Each lane is 1M digits wide; start at least 1B ahead of frontier.
+      // Range: frontier + 1B to frontier + ~9B (well under max_digit_position=10B)
+      const laneOffset=1000000000+(lane%8000)*1000000;
+      browserMiningPosition=frontier+laneOffset;
+      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+Math.round(laneOffset/1e6)+'M ahead of frontier)','info');
+    }
+
+    const position=browserMiningPosition;
+    addLog('Round '+miningRound+': '+batchSize*threadCount+' digits at position '+position.toLocaleString());
+
+    workers.forEach(w=>w.terminate());workers=[];
+    pendingWorkers=threadCount;
+    // Advance position for next round (each thread gets batchSize digits)
+    browserMiningPosition=position+threadCount*batchSize;
+
+    for(let t=0;t<threadCount;t++){
+      const w=createBBPWorker();workers.push(w);
+      const startPos=position+t*batchSize;
+
+      w.onmessage=async function(e){
+        const{digits,startPosition,count}=e.data;
+        totalDigits+=count;updateStats();
+
+        const anchorHash=hexDecode(currentStatus.anchor_block_hash||'0'.repeat(64));
+        const targetHex=currentStatus.difficulty_target_hex||'00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+        const target=hexDecode(targetHex);
+
+        const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,100000);
+        if(nonce===null){addLog('PoW not found','error');pendingWorkers--;checkRoundDone();return;}
+
+        try{
+          const txHash=await submitMiningProof(startPosition,count,digits,nonce,anchorHash);
+          if(txHash){
+            proofsAccepted++;
+            totalProofs=proofsAccepted;
+            updateStats();
+            addLog('Proof sent ('+count+' digits), tx: '+txHash.slice(0,16)+'...','info');
+            // Check receipt asynchronously to confirm success
+            checkReceipt(txHash,count);
+          }
+        }catch(err){addLog('Submit error: '+err.message,'error');}
+        pendingWorkers--;checkRoundDone();
+      };
+
+      w.onerror=function(){pendingWorkers--;checkRoundDone();};
+      w.postMessage({startPosition:startPos,count:batchSize,id:t});
+    }
+  }catch(err){
+    addLog('Error: '+err.message,'error');
+    if(isMining)setTimeout(miningLoop,5000);
   }
 }
 
-function calcEarnings() {
-  const cores = parseInt(document.getElementById('calc-cores').value) || 1;
-  const hourlyPI = cores * 15 * 3600 * rewardPerDigit;
-  document.getElementById('calc-result').textContent = '~' + hourlyPI.toFixed(1);
+function checkRoundDone(){if(pendingWorkers<=0&&isMining){updateBalance();setTimeout(miningLoop,1000);}}
+
+// =====================================================================
+// PoW NONCE SEARCH
+// =====================================================================
+function findPoWNonce(digits,anchorHash,target,minerAddr,maxAttempts){
+  const d=digits instanceof Uint8Array?digits:new Uint8Array(digits);
+  for(let nonce=0;nonce<maxAttempts;nonce++){
+    const hash=BLAKE3.hashConcat([d,u64LE(nonce),anchorHash,minerAddr]);
+    if(compareBytes(hash,target)<=0)return nonce;
+  }
+  return null;
 }
 
-function selectProfile(name, el) {
-  document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  const rpcUrl = window.location.origin;
-  document.getElementById('mine-command').innerHTML =
-    `<span class="c"># Start mining with ${name} profile</span>\n` +
-    `./target/release/pichain-miner \\\n` +
-    `  --keypair wallet.json \\\n` +
-    `  --rpc-url ${rpcUrl} \\\n` +
-    `  --profile ${name}`;
+// =====================================================================
+// TRANSACTION BUILDER
+// =====================================================================
+function buildCanonicalBytes(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,chainId,startPos,digitCount,digits,powNonce,anchorHash){
+  return concatBytes([
+    sender, u64LE(nonce), u64LE(gasLimit), u64LE(maxBaseFee),
+    u64LE(maxPriorityFee), u64LE(chainId),
+    new Uint8Array([5]),                    // MiningProof tag
+    u64LE(startPos), u32LE(digitCount),
+    u32LE(digits.length), new Uint8Array(digits),
+    u32LE(0),                               // proof.len = 0
+    u64LE(powNonce),
+    u32LE(anchorHash.length), new Uint8Array(anchorHash)
+  ]);
 }
 
-function copyRpc() {
-  navigator.clipboard.writeText(document.getElementById('rpc-endpoint').textContent);
-  const btn = event.target;
-  btn.textContent = 'Copied!';
-  setTimeout(() => btn.textContent = 'Copy', 1500);
+async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchorHash){
+  const baseFee=currentStatus.base_fee||1000;
+  // Gas limit must be >= estimated_gas (100_000 + digits*100). Add 10% headroom.
+  const gasLimit=Math.ceil((100000+digitCount*100)*1.1);
+  const chainId=31415;
+
+  const canonical=buildCanonicalBytes(
+    walletAddress,accountNonce,gasLimit,baseFee,100,chainId,
+    startPosition,digitCount,digits,powNonce,anchorHash
+  );
+  const signature=nacl.sign.detached(canonical,walletKeypair.secretKey);
+
+  const signedTx={
+    data:{
+      sender:Array.from(walletAddress),
+      nonce:accountNonce,
+      kind:{MiningProof:{
+        start_position:startPosition,digit_count:digitCount,
+        digits:Array.from(digits),proof:[],
+        pow_nonce:powNonce,
+        anchor_block_hash:Array.from(anchorHash)
+      }},
+      gas_limit:gasLimit,max_base_fee:baseFee,max_priority_fee:100,chain_id:chainId
+    },
+    signature:hexEncode(signature),
+    public_key:Array.from(walletKeypair.publicKey)
+  };
+
+  const jsonBytes=new TextEncoder().encode(JSON.stringify(signedTx));
+  const hexStr=hexEncode(jsonBytes);
+
+  const res=await fetch(API+'/api/v1/tx/submit',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({signed_tx_hex:hexStr})
+  });
+  const result=await res.json();
+  if(result.status==='pending'){accountNonce++;return result.tx_hash;}
+  else throw new Error(result.error||result.status||'rejected');
 }
 
-init();
+// Check a mining proof receipt to see if it actually succeeded on-chain
+async function checkReceipt(txHash,digitCount){
+  const maxRetries=20;
+  for(let i=0;i<maxRetries;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    try{
+      const r=await fetch(API+'/api/v1/receipt/'+txHash);
+      if(!r.ok)continue;
+      const d=await r.json();
+      if(d.status){
+        if(d.status==='success'){
+          proofsConfirmed++;
+          const reward=(currentStatus.reward_per_digit||0)*digitCount;
+          totalEarned+=reward;
+          totalProofs=proofsConfirmed;
+          updateStats();updateBalance();
+          addLog('Proof CONFIRMED! +'+( reward/1e9).toFixed(4)+' PI (tx: '+txHash.slice(0,16)+'...)','success');
+        }else{
+          proofsFailed++;
+          totalProofs=proofsConfirmed;
+          updateStats();updateBalance();
+          addLog('Proof FAILED: '+d.status+' (tx: '+txHash.slice(0,16)+'...)','error');
+        }
+        return;
+      }
+    }catch(e){}
+  }
+  addLog('Could not confirm proof '+txHash.slice(0,16)+'...','error');
+}
+
+// =====================================================================
+// UI
+// =====================================================================
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  document.querySelectorAll('.tab')[tab==='browser'?0:1].classList.add('active');
+}
+
+// OS-specific download tab switching
+function switchOS(os){
+  document.querySelectorAll('.os-tab').forEach((t,i)=>{if(i<3)t.classList.remove('active');});
+  document.querySelectorAll('.os-content').forEach(c=>{if(c.id.startsWith('os-'))c.classList.remove('active');});
+  document.getElementById('os-'+os).classList.add('active');
+  const tabs=document.querySelectorAll('.os-tab');
+  const idx=os==='linux'?0:os==='macos'?1:2;
+  if(tabs[idx])tabs[idx].classList.add('active');
+}
+function switchBuild(id){
+  ['build-linux','build-mac','build-win'].forEach(x=>{
+    const el=document.getElementById(x);if(el)el.classList.remove('active');
+    const tab=document.getElementById('build-tab-'+x.replace('build-',''));if(tab)tab.classList.remove('active');
+  });
+  document.getElementById(id).classList.add('active');
+  document.getElementById('build-tab-'+id.replace('build-','')).classList.add('active');
+}
+// Auto-detect OS and highlight download card
+(function(){
+  const ua=navigator.userAgent.toLowerCase();
+  let os='linux';
+  if(ua.includes('mac'))os='macos';
+  else if(ua.includes('win'))os='windows';
+  const el=document.getElementById('dl-'+os);
+  if(el){
+    el.classList.add('recommended');
+    const badge=document.createElement('div');
+    badge.className='badge';
+    badge.textContent='Recommended for you';
+    el.insertBefore(badge,el.children[1]);
+  }
+  switchOS(os);
+})();
+
+// Restore saved wallet
+(function(){
+  const s=localStorage.getItem('pichain_wallet_seed');
+  if(s&&/^[0-9a-fA-F]{64}$/.test(s))initWallet(hexDecode(s));
+})();
 </script>
 </body>
 </html>

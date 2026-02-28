@@ -25,6 +25,18 @@ fn strip_0x(s: &str) -> &str {
     s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
 }
 
+/// AUDIT-FIX RPC-M2: Check if an IP is loopback, including IPv4-mapped IPv6.
+/// Rust's `is_loopback()` does NOT classify `::ffff:127.0.0.1` as loopback.
+fn is_loopback_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.to_ipv4_mapped().map_or(false, |v4| v4.is_loopback())
+        }
+    }
+}
+
 /// Per-IP rate limiter state.
 struct IpRateLimiter {
     /// Per-IP request counts: IP → (count, window_start)
@@ -106,7 +118,7 @@ async fn rate_limit_middleware(
 ) -> Response {
     // SECURITY: Only trust X-Forwarded-For from known reverse proxy IPs (loopback).
     // Without this, any client can spoof the header to bypass rate limiting.
-    let is_trusted_proxy = addr.ip().is_loopback();
+    let is_trusted_proxy = is_loopback_ip(addr.ip());
     let ip = if is_trusted_proxy {
         request
             .headers()
@@ -255,6 +267,24 @@ pub trait StateProvider: Send + Sync + 'static {
     fn faucet_claim(&self, _address: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
         Err("faucet not available".to_string())
     }
+
+    // --- Launchpad / token listing queries ---
+
+    /// List all token launches.
+    fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> { vec![] }
+    /// List all token mints.
+    fn scan_all_mints(&self) -> Vec<pichain_types::TokenMint> { vec![] }
+    /// List all liquidity pools.
+    fn scan_all_pools(&self) -> Vec<pichain_types::LiquidityPool> { vec![] }
+    /// Get a token launch by mint ID.
+    fn get_launch_by_mint(&self, _mint: &pichain_types::MintId) -> Option<pichain_types::TokenLaunch> { None }
+    /// Get the mint creation nonce for an address (for deterministic MintId derivation).
+    fn get_mint_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    /// Get all token balances for an owner address.
+    fn get_token_balances_for_owner(
+        &self,
+        _owner: &pichain_crypto::ed25519::Address,
+    ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> { vec![] }
 }
 
 /// Mining status data from the state provider.
@@ -267,6 +297,9 @@ pub struct MiningStatusData {
     pub unique_miners: u64,
     pub remaining_pool: u64,
     pub total_mined: u64,
+    /// Cumulative transaction fee income added to mining pool.
+    #[serde(default)]
+    pub fee_income: u64,
     pub reward_per_digit: u64,
     pub emission_year: u32,
     /// Current PoW difficulty in leading zero bits.
@@ -375,6 +408,8 @@ impl RpcServer {
             .route("/explorer", get(serve_explorer))
             .route("/mining", get(serve_mining_dashboard))
             .route("/mine", get(serve_miner_setup))
+            .route("/faucet", get(serve_faucet_page))
+            .route("/download", get(serve_download_page))
             .route("/health", get(health_detailed))
             .route("/metrics", get(prometheus_metrics))
             .route("/api/v1/info", get(get_node_info))
@@ -398,6 +433,14 @@ impl RpcServer {
                 "/api/v1/swap/quote/:mint_in/:mint_out/:amount_in",
                 get(get_swap_quote),
             )
+            // Launchpad / listing endpoints
+            .route("/api/v1/launches", get(get_all_launches))
+            .route("/api/v1/launch/:mint_id", get(get_launch_detail))
+            .route("/api/v1/tokens", get(get_all_tokens))
+            .route("/api/v1/pools", get(get_all_pools))
+            .route("/api/v1/mint-nonce/:address", get(get_mint_nonce))
+            .route("/api/v1/portfolio/:address", get(get_portfolio))
+            .route("/launch", get(serve_launch_page))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -463,17 +506,22 @@ impl RpcServer {
 // --- Route handlers ---
 
 /// WebSocket upgrade handler — upgrades HTTP to WS for real-time subscriptions.
-/// Rejects new connections when at capacity to prevent resource exhaustion.
+/// Rejects new connections when at global or per-IP capacity to prevent resource exhaustion.
 async fn ws_upgrade(
     State(state): State<Arc<RpcState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     ws: WebSocketUpgrade,
 ) -> Response {
     if state.ws_broadcaster.at_capacity() {
         return (StatusCode::SERVICE_UNAVAILABLE, "WebSocket connection limit reached").into_response();
     }
+    let client_ip = addr.ip();
+    if state.ws_broadcaster.ip_at_capacity(&client_ip) {
+        return (StatusCode::TOO_MANY_REQUESTS, "Too many WebSocket connections from this IP").into_response();
+    }
     let broadcaster = state.ws_broadcaster.clone();
     ws.max_message_size(2048)
-        .on_upgrade(move |socket| crate::ws::handle_ws(socket, broadcaster)).into_response()
+        .on_upgrade(move |socket| crate::ws::handle_ws(socket, broadcaster, client_ip)).into_response()
 }
 
 /// Serve the PIChain homepage / landing page.
@@ -516,6 +564,26 @@ async fn serve_miner_setup() -> impl IntoResponse {
     )
 }
 
+/// Faucet page — UI for requesting testnet PI.
+async fn serve_faucet_page() -> impl IntoResponse {
+    const FAUCET_HTML: &str = include_str!("../../../explorer/faucet.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        FAUCET_HTML,
+    )
+}
+
+/// Download page — pre-built miner binaries.
+async fn serve_download_page() -> impl IntoResponse {
+    const DOWNLOAD_HTML: &str = include_str!("../../../explorer/download.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        DOWNLOAD_HTML,
+    )
+}
+
 /// Detailed health check with structured JSON response.
 async fn health_detailed(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
     let uptime_secs = state.started_at.elapsed().as_secs();
@@ -539,7 +607,20 @@ async fn health_detailed(State(state): State<Arc<RpcState>>) -> impl IntoRespons
 }
 
 /// Prometheus-compatible metrics endpoint.
-async fn prometheus_metrics(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+/// AUDIT-FIX H-8: Restrict metrics to localhost only to prevent information disclosure.
+/// Metrics expose internal state (peer count, error rates, uptime) that enables
+/// targeted attacks. Only Prometheus scraping from localhost should access this.
+async fn prometheus_metrics(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<RpcState>>,
+) -> impl IntoResponse {
+    if !is_loopback_ip(addr.ip()) {
+        return (
+            StatusCode::FORBIDDEN,
+            [("content-type", "text/plain; charset=utf-8")],
+            "metrics endpoint is restricted to localhost".to_string(),
+        );
+    }
     let uptime = state.started_at.elapsed().as_secs();
     let requests_total = state.requests_total.load(Ordering::Relaxed);
     let requests_errors = state.requests_errors.load(Ordering::Relaxed);
@@ -732,8 +813,11 @@ async fn get_block(
         }
     };
 
-    if let Some(provider) = &state.state_provider {
-        if let Some(block) = provider.get_block_sync(height) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(Some(block)) = tokio::task::spawn_blocking(move || {
+            provider.get_block_sync(height)
+        }).await {
             return (StatusCode::OK, Json(BlockResponse::from_block(&block)));
         }
     }
@@ -859,7 +943,7 @@ async fn get_transaction(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path(hash_str): axum::extract::Path<String>,
 ) -> (StatusCode, Json<TransactionResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Validate hex length before decode to prevent DoS with huge strings
         let hash_hex = strip_0x(&hash_str);
         if hash_hex.len() == 64 {
@@ -870,7 +954,17 @@ async fn get_transaction(
                 arr.copy_from_slice(&hash_bytes);
                 let tx_hash = pichain_crypto::Hash::from_bytes(arr);
 
-                if let Some(tx) = provider.get_transaction_sync(&tx_hash) {
+                let _permit = state.blocking_semaphore.acquire().await;
+                let tx_hash2 = tx_hash;
+                let provider2 = provider.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let tx = provider2.get_transaction_sync(&tx_hash2)?;
+                    let receipt = provider2.get_receipt_sync(&tx_hash2);
+                    let block_height = provider2.get_tx_block_height(&tx_hash2);
+                    Some((tx, receipt, block_height))
+                }).await;
+
+                if let Ok(Some((tx, receipt, block_height))) = result {
                     let kind_str = match &tx.data.kind {
                         pichain_types::TransactionKind::Transfer { .. } => "Transfer",
                         pichain_types::TransactionKind::DeployContract { .. } => "DeployContract",
@@ -901,7 +995,6 @@ async fn get_transaction(
                         pichain_types::TransactionKind::DelistNft { .. } => "DelistNft",
                     };
 
-                    let receipt = provider.get_receipt_sync(&tx_hash);
                     let receipt_status = receipt.as_ref().map(|r| {
                         match r.status {
                             pichain_types::TransactionStatus::Success => "success".to_string(),
@@ -910,7 +1003,6 @@ async fn get_transaction(
                         }
                     });
                     let gas_used = receipt.as_ref().map(|r| r.gas_used);
-                    let block_height = provider.get_tx_block_height(&tx_hash);
 
                     return (StatusCode::OK, Json(TransactionResponse {
                         tx_hash: hash_str,
@@ -954,7 +1046,7 @@ async fn get_account(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path(address_str): axum::extract::Path<String>,
 ) -> (StatusCode, Json<AccountResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Strip optional "0x"/"0X" prefix
         let hex_str = strip_0x(&address_str);
 
@@ -966,7 +1058,10 @@ async fn get_account(
                     arr.copy_from_slice(&addr_bytes);
                     let address = pichain_crypto::ed25519::Address(arr);
 
-                    if let Some(account) = provider.get_account_sync(&address) {
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
+                        provider.get_account_sync(&address)
+                    }).await {
                         let whole = account.state.balance / 1_000_000_000;
                         let frac = account.state.balance % 1_000_000_000;
                         let balance_pi = format!("{}.{:09}", whole, frac);
@@ -1008,6 +1103,7 @@ struct MiningStatus {
     difficulty_bits: u32,
     difficulty_target_hex: String,
     anchor_block_hash: String,
+    base_fee: u64,
 }
 
 async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningStatus> {
@@ -1026,6 +1122,7 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
                 difficulty_bits: stats.difficulty_bits,
                 difficulty_target_hex: stats.difficulty_target_hex.clone(),
                 anchor_block_hash: stats.anchor_block_hash.clone(),
+                base_fee: provider.current_base_fee(),
             });
         }
     }
@@ -1043,6 +1140,7 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
         difficulty_bits: 8,
         difficulty_target_hex: hex::encode(pichain_mining::difficulty::INITIAL_DIFFICULTY),
         anchor_block_hash: String::new(),
+        base_fee: 1000,
     })
 }
 
@@ -1159,7 +1257,7 @@ async fn get_receipt(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path(hash_str): axum::extract::Path<String>,
 ) -> (StatusCode, Json<ReceiptResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         let hash_hex = strip_0x(&hash_str);
         if hash_hex.len() == 64 {
             if let Ok(hash_bytes) = hex::decode(hash_hex) {
@@ -1168,7 +1266,12 @@ async fn get_receipt(
                     arr.copy_from_slice(&hash_bytes);
                     let tx_hash = pichain_crypto::Hash::from_bytes(arr);
 
-                    if let Some(receipt) = provider.get_receipt_sync(&tx_hash) {
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    let result = tokio::task::spawn_blocking(move || {
+                        provider.get_receipt_sync(&tx_hash)
+                    }).await;
+
+                    if let Ok(Some(receipt)) = result {
                         let status = match &receipt.status {
                             pichain_types::TransactionStatus::Success => "success".to_string(),
                             pichain_types::TransactionStatus::Reverted(msg) => format!("reverted: {msg}"),
@@ -1303,7 +1406,7 @@ async fn get_token_info(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
 ) -> (StatusCode, Json<TokenInfoResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Validate hex length before decoding (32 bytes = 64 hex chars)
         let mint_id_stripped = strip_0x(&mint_id_hex);
         if mint_id_stripped.len() == 64 {
@@ -1313,7 +1416,10 @@ async fn get_token_info(
                 arr.copy_from_slice(&bytes);
                 let mint_id = pichain_types::MintId(arr);
 
-                if let Some(mint) = provider.get_token_mint(&mint_id) {
+                let _permit = state.blocking_semaphore.acquire().await;
+                if let Ok(Some(mint)) = tokio::task::spawn_blocking(move || {
+                    provider.get_token_mint(&mint_id)
+                }).await {
                     return (StatusCode::OK, Json(TokenInfoResponse {
                         mint_id: mint_id_hex,
                         name: mint.name,
@@ -1359,7 +1465,7 @@ async fn get_token_account_balance(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path((mint_id_hex, address_hex)): axum::extract::Path<(String, String)>,
 ) -> (StatusCode, Json<TokenAccountResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Validate hex lengths before decode to prevent DoS
         let mint_id_stripped = strip_0x(&mint_id_hex);
         let addr_stripped = strip_0x(&address_hex);
@@ -1376,7 +1482,10 @@ async fn get_token_account_balance(
                 addr_arr.copy_from_slice(&addr_bytes);
                 let address = pichain_crypto::ed25519::Address(addr_arr);
 
-                if let Some(account) = provider.get_token_account(&address, &mint_id) {
+                let _permit = state.blocking_semaphore.acquire().await;
+                if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
+                    provider.get_token_account(&address, &mint_id)
+                }).await {
                     return (StatusCode::OK, Json(TokenAccountResponse {
                         owner: address_hex,
                         mint_id: mint_id_hex,
@@ -1418,7 +1527,7 @@ async fn get_pool_info(
     State(state): State<Arc<RpcState>>,
     axum::extract::Path((mint_a_hex, mint_b_hex)): axum::extract::Path<(String, String)>,
 ) -> (StatusCode, Json<PoolInfoResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Validate hex lengths before decode to prevent DoS
         let mint_a_stripped = strip_0x(&mint_a_hex);
         let mint_b_stripped = strip_0x(&mint_b_hex);
@@ -1433,7 +1542,10 @@ async fn get_pool_info(
                 b_arr.copy_from_slice(&b_bytes);
                 let mint_b = pichain_types::MintId(b_arr);
 
-                if let Some(pool) = provider.get_pool_by_mints(&mint_a, &mint_b) {
+                let _permit = state.blocking_semaphore.acquire().await;
+                if let Ok(Some(pool)) = tokio::task::spawn_blocking(move || {
+                    provider.get_pool_by_mints(&mint_a, &mint_b)
+                }).await {
                     return (StatusCode::OK, Json(PoolInfoResponse {
                         pool_id: pool.id.to_string(),
                         mint_a: pool.mint_a.to_string(),
@@ -1483,7 +1595,7 @@ async fn get_swap_quote(
         u64,
     )>,
 ) -> (StatusCode, Json<SwapQuoteResponse>) {
-    if let Some(provider) = &state.state_provider {
+    if let Some(provider) = state.state_provider.clone() {
         // Validate hex lengths before decode to prevent DoS
         let mint_in_stripped = strip_0x(&mint_in_hex);
         let mint_out_stripped = strip_0x(&mint_out_hex);
@@ -1500,7 +1612,10 @@ async fn get_swap_quote(
                 out_arr.copy_from_slice(&out_bytes);
                 let mint_out = pichain_types::MintId(out_arr);
 
-                if let Some(quote) = provider.get_swap_quote(&mint_in, &mint_out, amount_in) {
+                let _permit = state.blocking_semaphore.acquire().await;
+                if let Ok(Some(quote)) = tokio::task::spawn_blocking(move || {
+                    provider.get_swap_quote(&mint_in, &mint_out, amount_in)
+                }).await {
                     return (StatusCode::OK, Json(SwapQuoteResponse {
                         mint_in: mint_in_hex,
                         mint_out: mint_out_hex,
@@ -1525,6 +1640,292 @@ async fn get_swap_quote(
         price_impact_bps: 0,
         found: false,
     }))
+}
+
+// ─── Launch page serving ────────────────────────────────────────────────────
+
+async fn serve_launch_page() -> impl IntoResponse {
+    const LAUNCH_HTML: &str = include_str!("../../../explorer/launch.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        LAUNCH_HTML,
+    )
+}
+
+// ─── Launchpad / listing API handlers ───────────────────────────────────────
+
+#[derive(Serialize)]
+struct LaunchListItem {
+    mint_id: String,
+    launch_id: String,
+    creator: String,
+    state: String,
+    tokens_for_sale: u64,
+    tokens_sold: u64,
+    pi_raised: u64,
+    target_pi: u64,
+    current_price: u64,
+    percent_complete: f64,
+    max_per_address: u64,
+    contributors: usize,
+    created_at_ms: u64,
+    // Enriched from TokenMint
+    name: String,
+    symbol: String,
+    metadata_uri: String,
+    decimals: u8,
+    // Bonding curve params
+    launch_type: String,
+    base_price: u64,
+    slope: u64,
+}
+
+async fn get_all_launches(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(data) = tokio::task::spawn_blocking(move || {
+            let launches = provider.scan_all_launches();
+            let mut items: Vec<LaunchListItem> = launches.iter().map(|l| {
+                let mint = provider.get_token_mint(&l.mint);
+                let (lt_name, bp, sl) = match &l.launch_type {
+                    pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
+                        ("FairLaunch".to_string(), *price_per_token, 0u64),
+                    pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope } =>
+                        ("BondingCurve".to_string(), *base_price, *slope),
+                };
+                let current_price = bp.saturating_add(sl.saturating_mul(l.tokens_sold));
+                let pct = if l.target_pi > 0 {
+                    (l.pi_raised as f64 / l.target_pi as f64) * 100.0
+                } else { 0.0 };
+                let state_str = match &l.state {
+                    pichain_types::launchpad::LaunchState::Active => "Active",
+                    pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
+                    pichain_types::launchpad::LaunchState::Finalized => "Finalized",
+                    pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
+                };
+                LaunchListItem {
+                    mint_id: hex::encode(l.mint.0),
+                    launch_id: hex::encode(l.id.0),
+                    creator: hex::encode(l.creator.0),
+                    state: state_str.to_string(),
+                    tokens_for_sale: l.tokens_for_sale,
+                    tokens_sold: l.tokens_sold,
+                    pi_raised: l.pi_raised,
+                    target_pi: l.target_pi,
+                    current_price,
+                    percent_complete: pct,
+                    max_per_address: l.max_per_address,
+                    contributors: l.contributions.len(),
+                    created_at_ms: l.created_at_ms,
+                    name: mint.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
+                    symbol: mint.as_ref().map(|m| m.symbol.clone()).unwrap_or_default(),
+                    metadata_uri: mint.as_ref().map(|m| m.metadata_uri.clone()).unwrap_or_default(),
+                    decimals: mint.as_ref().map(|m| m.decimals).unwrap_or(9),
+                    launch_type: lt_name,
+                    base_price: bp,
+                    slope: sl,
+                }
+            }).collect();
+            items.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+            items
+        }).await {
+            return (StatusCode::OK, Json(serde_json::json!({ "launches": data })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "launches": [] })))
+}
+
+async fn get_launch_detail(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let stripped = strip_0x(&mint_id_hex);
+        if stripped.len() == 64 {
+            if let Ok(bytes) = hex::decode(stripped) {
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    let mint = pichain_types::MintId(arr);
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(result) = tokio::task::spawn_blocking(move || {
+                        let launch = provider.get_launch_by_mint(&mint)?;
+                        let token = provider.get_token_mint(&mint);
+                        Some((launch, token))
+                    }).await {
+                        if let Some((launch, token)) = result {
+                            let (lt_name, bp, sl) = match &launch.launch_type {
+                                pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
+                                    ("FairLaunch", *price_per_token, 0u64),
+                                pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope } =>
+                                    ("BondingCurve", *base_price, *slope),
+                            };
+                            let state_str = match &launch.state {
+                                pichain_types::launchpad::LaunchState::Active => "Active",
+                                pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
+                                pichain_types::launchpad::LaunchState::Finalized => "Finalized",
+                                pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
+                            };
+                            return (StatusCode::OK, Json(serde_json::json!({
+                                "found": true,
+                                "mint_id": mint_id_hex,
+                                "launch_id": hex::encode(launch.id.0),
+                                "creator": hex::encode(launch.creator.0),
+                                "state": state_str,
+                                "tokens_for_sale": launch.tokens_for_sale,
+                                "tokens_sold": launch.tokens_sold,
+                                "pi_raised": launch.pi_raised,
+                                "target_pi": launch.target_pi,
+                                "current_price": bp.saturating_add(sl.saturating_mul(launch.tokens_sold)),
+                                "percent_complete": if launch.target_pi > 0 { (launch.pi_raised as f64 / launch.target_pi as f64) * 100.0 } else { 0.0 },
+                                "max_per_address": launch.max_per_address,
+                                "contributors": launch.contributions.len(),
+                                "created_at_ms": launch.created_at_ms,
+                                "launch_type": lt_name,
+                                "base_price": bp,
+                                "slope": sl,
+                                "liquidity_bps": launch.liquidity_bps,
+                                "token_liquidity_bps": launch.token_liquidity_bps,
+                                "name": token.as_ref().map(|t| t.name.as_str()).unwrap_or(""),
+                                "symbol": token.as_ref().map(|t| t.symbol.as_str()).unwrap_or(""),
+                                "metadata_uri": token.as_ref().map(|t| t.metadata_uri.as_str()).unwrap_or(""),
+                                "decimals": token.as_ref().map(|t| t.decimals).unwrap_or(9),
+                            })));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (StatusCode::NOT_FOUND, Json(serde_json::json!({ "found": false })))
+}
+
+async fn get_all_tokens(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(mints) = tokio::task::spawn_blocking(move || {
+            provider.scan_all_mints()
+        }).await {
+            let items: Vec<serde_json::Value> = mints.iter().map(|m| {
+                serde_json::json!({
+                    "mint_id": hex::encode(m.id.0),
+                    "name": m.name,
+                    "symbol": m.symbol,
+                    "decimals": m.decimals,
+                    "total_supply": m.total_supply,
+                    "max_supply": m.max_supply,
+                    "creator": hex::encode(m.creator.0),
+                    "metadata_uri": m.metadata_uri,
+                    "has_mint_authority": m.mint_authority.is_some(),
+                    "active": m.active,
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "tokens": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "tokens": [] })))
+}
+
+async fn get_all_pools(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(pools) = tokio::task::spawn_blocking(move || {
+            provider.scan_all_pools()
+        }).await {
+            let items: Vec<serde_json::Value> = pools.iter().map(|p| {
+                serde_json::json!({
+                    "pool_id": hex::encode(p.id.0),
+                    "mint_a": hex::encode(p.mint_a.0),
+                    "mint_b": hex::encode(p.mint_b.0),
+                    "reserve_a": p.reserve_a,
+                    "reserve_b": p.reserve_b,
+                    "lp_supply": p.lp_supply,
+                    "fee_bps": p.fee_bps,
+                    "active": p.active,
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "pools": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "pools": [] })))
+}
+
+async fn get_mint_nonce(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let stripped = strip_0x(&address_hex);
+        if stripped.len() == 40 {
+            if let Ok(bytes) = hex::decode(stripped) {
+                if bytes.len() == 20 {
+                    let mut arr = [0u8; 20];
+                    arr.copy_from_slice(&bytes);
+                    let addr = pichain_crypto::ed25519::Address(arr);
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(nonce) = tokio::task::spawn_blocking(move || {
+                        provider.get_mint_nonce(&addr)
+                    }).await {
+                        return (StatusCode::OK, Json(serde_json::json!({
+                            "address": address_hex,
+                            "mint_nonce": nonce,
+                        })));
+                    }
+                }
+            }
+        }
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        "error": "invalid address"
+    })))
+}
+
+async fn get_portfolio(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let stripped = strip_0x(&address_hex);
+        if stripped.len() == 40 {
+            if let Ok(bytes) = hex::decode(stripped) {
+                if bytes.len() == 20 {
+                    let mut arr = [0u8; 20];
+                    arr.copy_from_slice(&bytes);
+                    let addr = pichain_crypto::ed25519::Address(arr);
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(result) = tokio::task::spawn_blocking(move || {
+                        let pi_account = provider.get_account_sync(&addr);
+                        let token_balances = provider.get_token_balances_for_owner(&addr);
+                        (pi_account, token_balances)
+                    }).await {
+                        let (pi_account, token_balances) = result;
+                        let pi_balance = pi_account.map(|a| a.state.balance).unwrap_or(0);
+                        let tokens: Vec<serde_json::Value> = token_balances.iter().map(|(mint_id, acct)| {
+                            serde_json::json!({
+                                "mint_id": hex::encode(mint_id.0),
+                                "balance": acct.balance,
+                            })
+                        }).collect();
+                        return (StatusCode::OK, Json(serde_json::json!({
+                            "address": address_hex,
+                            "pi_balance": pi_balance,
+                            "tokens": tokens,
+                        })));
+                    }
+                }
+            }
+        }
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        "error": "invalid address"
+    })))
 }
 
 #[cfg(test)]

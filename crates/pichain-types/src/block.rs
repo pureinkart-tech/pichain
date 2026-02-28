@@ -43,6 +43,9 @@ pub struct BlockHeader {
     pub tx_count: u32,
     /// Total PI burned in this block.
     pub pi_burned: PiAmount,
+    /// Total miner fee income (25% of base fees) flowing to mining pool.
+    #[serde(default)]
+    pub pi_miner_fee: PiAmount,
 }
 
 impl BlockHeader {
@@ -65,6 +68,7 @@ impl BlockHeader {
         bytes.extend_from_slice(&self.base_fee.to_le_bytes());
         bytes.extend_from_slice(&self.tx_count.to_le_bytes());
         bytes.extend_from_slice(&self.pi_burned.to_le_bytes());
+        bytes.extend_from_slice(&self.pi_miner_fee.to_le_bytes());
         pichain_crypto::hash(&bytes)
     }
 
@@ -139,6 +143,7 @@ impl Block {
                 base_fee: 1_000, // 0.000001 PI initial base fee
                 tx_count: 0,
                 pi_burned: 0,
+                pi_miner_fee: 0,
             },
             transactions: vec![],
             proposer_pubkey: vec![],
