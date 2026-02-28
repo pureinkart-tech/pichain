@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIChain Mining Dashboard</title>
+<meta name="description" content="Real-time PIChain mining monitor. Track frontier progress, mining rewards, and network stats.">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;--accent-glow:rgba(99,102,241,0.25);
+  --cyan:#22d3ee;--cyan-glow:rgba(34,211,238,0.2);
+  --green:#34d399;--green-glow:rgba(52,211,153,0.2);
+  --gold:#fbbf24;--gold-glow:rgba(251,191,36,0.2);
+  --rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh;}
+a{color:var(--accent-light);text-decoration:none;}
+
+/* Navbar */
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+.nav-cta{background:var(--accent)!important;color:white!important;font-weight:600!important;padding:8px 20px!important;}
+.nav-cta:hover{background:var(--accent-light)!important;}
+.mobile-menu{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
+@media(max-width:768px){
+  .nav-links{display:none;}
+  .nav-links.open{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}
+  .mobile-menu{display:block;}
+}
+
+/* Main */
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+
+/* Live indicator */
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:8px;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+/* Stats Grid */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:32px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;transition:border-color 0.3s;}
+.stat-card:hover{border-color:var(--border-light);}
+.stat-icon{font-size:24px;margin-bottom:8px;}
+.stat-val{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;}
+.stat-val.accent{color:var(--accent-light);}
+.stat-val.cyan{color:var(--cyan);}
+.stat-val.green{color:var(--green);}
+.stat-val.gold{color:var(--gold);}
+.stat-label{font-size:11px;color:var(--dim);margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;}
+.stat-sub{font-size:12px;color:var(--muted);margin-top:4px;}
+
+/* Sections */
+.section{margin-bottom:32px;}
+.section-title{font-size:18px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+
+/* Progress bar */
+.progress-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:32px;}
+.progress-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.progress-label{font-size:14px;font-weight:600;}
+.progress-pct{font-size:24px;font-weight:800;color:var(--accent-light);}
+.progress-bar{height:24px;background:var(--bg);border-radius:12px;overflow:hidden;position:relative;}
+.progress-fill{height:100%;border-radius:12px;background:linear-gradient(90deg,var(--accent),#8b5cf6,var(--cyan));transition:width 1s ease;position:relative;}
+.progress-fill::after{content:'';position:absolute;top:0;right:0;bottom:0;left:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.1) 50%,transparent 100%);animation:shimmer 2s infinite;}
+@keyframes shimmer{0%{transform:translateX(-100%);}100%{transform:translateX(100%)}}
+.progress-stats{display:flex;justify-content:space-between;margin-top:10px;font-size:13px;color:var(--muted);}
+
+/* Two-column layout */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+@media(max-width:768px){.two-col{grid-template-columns:1fr;}}
+
+/* Card */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;height:100%;}
+
+/* Miner tracker */
+.tracker-input{display:flex;gap:8px;margin-bottom:16px;}
+.tracker-input input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;color:var(--text);font-size:14px;font-family:monospace;outline:none;transition:border-color 0.2s;}
+.tracker-input input:focus{border-color:var(--accent);}
+.tracker-input button{background:var(--accent);color:white;border:none;border-radius:var(--radius-sm);padding:10px 20px;font-weight:600;cursor:pointer;transition:background 0.2s;white-space:nowrap;}
+.tracker-input button:hover{background:var(--accent-light);}
+.tracker-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.tracker-stat{background:var(--bg);border-radius:var(--radius-sm);padding:14px;text-align:center;}
+.tracker-stat .val{font-size:20px;font-weight:700;}
+.tracker-stat .lbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
+
+/* Activity feed */
+.feed{max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;}
+.feed::-webkit-scrollbar{width:6px;}
+.feed::-webkit-scrollbar-track{background:transparent;}
+.feed::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.feed-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;animation:fadeIn 0.3s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+.feed-item .badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;text-transform:uppercase;white-space:nowrap;}
+.badge-block{background:rgba(99,102,241,0.15);color:var(--accent-light);}
+.badge-mining{background:rgba(34,211,238,0.15);color:var(--cyan);}
+.badge-tx{background:rgba(52,211,153,0.15);color:var(--green);}
+.feed-item .detail{color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.feed-item .time{color:var(--dim);font-size:11px;white-space:nowrap;}
+
+/* Frontier visualization */
+.frontier-viz{display:flex;align-items:center;gap:16px;margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm);}
+.frontier-digits{font-family:'Courier New',monospace;font-size:15px;letter-spacing:1px;color:var(--cyan);word-break:break-all;line-height:1.8;}
+.frontier-digits .new{color:var(--green);font-weight:700;text-shadow:0 0 8px var(--green-glow);}
+.frontier-label{font-size:12px;color:var(--dim);margin-bottom:4px;}
+
+/* Emission chart placeholder */
+.emission-bar{display:flex;height:32px;border-radius:8px;overflow:hidden;margin-top:12px;}
+.emission-mined{background:linear-gradient(90deg,var(--accent),#8b5cf6);transition:width 1s;}
+.emission-remaining{background:var(--bg);flex:1;}
+.emission-legend{display:flex;gap:24px;margin-top:10px;font-size:12px;color:var(--muted);}
+.emission-legend span::before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;}
+.emission-legend .mined::before{background:var(--accent);}
+.emission-legend .remaining::before{background:var(--border);}
+</style>
+</head>
+<body>
+
+<nav class="navbar" id="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <div class="nav-links" id="navLinks">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/dashboard" class="active">Dashboard</a>
+      <a href="/mining">Mining</a>
+      <a href="/faucet">Faucet</a>
+      <a href="/launch">Launch</a>
+      <a href="/download">Download</a>
+      <a href="/mine" class="nav-cta">Start Mining</a>
+    </div>
+    <button class="mobile-menu" onclick="document.getElementById('navLinks').classList.toggle('open')">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title"><span class="live-dot"></span>Mining Dashboard</h1>
+  <p class="page-desc">Real-time network monitoring &mdash; auto-refreshes every 5 seconds</p>
+
+  <!-- Stats Grid -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f4e6;</div>
+      <div class="stat-val accent" id="d-height">--</div>
+      <div class="stat-label">Block Height</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f50d;</div>
+      <div class="stat-val cyan" id="d-frontier">--</div>
+      <div class="stat-label">Frontier Position</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f9ee;</div>
+      <div class="stat-val" id="d-digits">--</div>
+      <div class="stat-label">Digits Verified</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x26cf;</div>
+      <div class="stat-val green" id="d-miners">--</div>
+      <div class="stat-label">Active Miners</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f4b0;</div>
+      <div class="stat-val gold" id="d-reward">--</div>
+      <div class="stat-label">Reward / Digit</div>
+      <div class="stat-sub" id="d-reward-pi"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x26a1;</div>
+      <div class="stat-val" id="d-basefee">--</div>
+      <div class="stat-label">Base Fee</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f512;</div>
+      <div class="stat-val" id="d-difficulty">--</div>
+      <div class="stat-label">PoW Difficulty</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">&#x1f310;</div>
+      <div class="stat-val" id="d-peers">--</div>
+      <div class="stat-label">Peers</div>
+    </div>
+  </div>
+
+  <!-- Mining Pool Progress -->
+  <div class="progress-container">
+    <div class="progress-header">
+      <div>
+        <div class="progress-label">Mining Pool &mdash; Year <span id="d-year">1</span></div>
+      </div>
+      <div class="progress-pct" id="d-pool-pct">0%</div>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="d-pool-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-stats">
+      <span>Mined: <strong id="d-total-mined">0</strong> PI</span>
+      <span>Remaining: <strong id="d-remaining">0</strong> PI</span>
+      <span>Total Supply: <strong>2,670,353,884.757 PI</strong></span>
+    </div>
+  </div>
+
+  <!-- Two-column: Miner Tracker + Activity Feed -->
+  <div class="two-col">
+    <!-- Miner Address Tracker -->
+    <div class="card">
+      <div class="section-title">&#x1f4ca; Your Miner</div>
+      <div class="tracker-input">
+        <input type="text" id="track-addr" placeholder="Enter your wallet address (0x...)" spellcheck="false">
+        <button onclick="trackMiner()">Track</button>
+      </div>
+      <div class="tracker-stats">
+        <div class="tracker-stat">
+          <div class="val green" id="t-balance">--</div>
+          <div class="lbl">Balance (PI)</div>
+        </div>
+        <div class="tracker-stat">
+          <div class="val accent" id="t-nonce">--</div>
+          <div class="lbl">Transactions</div>
+        </div>
+        <div class="tracker-stat">
+          <div class="val gold" id="t-staked">--</div>
+          <div class="lbl">Staked (PI)</div>
+        </div>
+        <div class="tracker-stat">
+          <div class="val cyan" id="t-status">--</div>
+          <div class="lbl">Status</div>
+        </div>
+      </div>
+      <div style="margin-top:16px;">
+        <div class="frontier-label">Frontier Growth Rate</div>
+        <div style="display:flex;gap:16px;font-size:13px;">
+          <div><span style="color:var(--cyan);font-weight:700;" id="d-growth-rate">--</span> <span style="color:var(--dim);">digits/min</span></div>
+          <div><span style="color:var(--green);font-weight:700;" id="d-proofs-rate">--</span> <span style="color:var(--dim);">proofs/min</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Feed -->
+    <div class="card">
+      <div class="section-title">&#x1f4e1; Live Activity</div>
+      <div class="feed" id="activity-feed">
+        <div class="feed-item">
+          <span class="badge badge-block">INIT</span>
+          <span class="detail">Connecting to node...</span>
+          <span class="time">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API=window.location.origin;
+let prevFrontier=0, prevTime=0, prevRanges=0;
+let trackedAddress='';
+let prevHeight=0;
+
+function formatNum(n){return Number(n).toLocaleString();}
+function formatPI(base){return (Number(base)/1e9).toFixed(3);}
+function timeAgo(ms){
+  if(!ms)return '--';
+  const s=Math.floor((Date.now()-ms)/1000);
+  if(s<60)return s+'s ago';
+  if(s<3600)return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+
+function addFeedItem(badge,badgeClass,detail){
+  const feed=document.getElementById('activity-feed');
+  const div=document.createElement('div');
+  div.className='feed-item';
+  const now=new Date();
+  const ts=now.toLocaleTimeString();
+  div.innerHTML='<span class="badge '+badgeClass+'">'+badge+'</span><span class="detail">'+detail+'</span><span class="time">'+ts+'</span>';
+  feed.insertBefore(div,feed.firstChild);
+  while(feed.children.length>50)feed.removeChild(feed.lastChild);
+}
+
+async function refreshDashboard(){
+  try{
+    const [infoRes,miningRes]=await Promise.all([
+      fetch(API+'/api/v1/info'),
+      fetch(API+'/api/v1/mining/status')
+    ]);
+    const info=await infoRes.json();
+    const mining=await miningRes.json();
+
+    // Stats
+    document.getElementById('d-height').textContent=formatNum(info.block_height);
+    document.getElementById('d-frontier').textContent=formatNum(mining.frontier_position);
+    document.getElementById('d-digits').textContent=formatNum(mining.total_digits_verified);
+    document.getElementById('d-miners').textContent=mining.unique_miners;
+    document.getElementById('d-reward').textContent=formatNum(mining.reward_per_digit);
+    document.getElementById('d-reward-pi').textContent=(mining.reward_per_digit/1e9).toFixed(6)+' PI';
+    document.getElementById('d-basefee').textContent=formatNum(mining.base_fee||0);
+    document.getElementById('d-difficulty').textContent=mining.difficulty_bits+'-bit';
+    document.getElementById('d-peers').textContent=info.peer_count||0;
+    document.getElementById('d-year').textContent=mining.emission_year;
+
+    // Mining pool progress
+    const totalPool=2670353884757000000; // total emission in base units
+    const mined=Number(mining.total_mined);
+    const remaining=Number(mining.remaining_pool);
+    const pct=(mined/totalPool*100);
+    document.getElementById('d-pool-pct').textContent=pct.toFixed(6)+'%';
+    document.getElementById('d-pool-fill').style.width=Math.max(pct,0.1)+'%';
+    document.getElementById('d-total-mined').textContent=formatPI(mined);
+    document.getElementById('d-remaining').textContent=(remaining/1e9).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+
+    // Growth rate
+    const now=Date.now();
+    if(prevFrontier>0&&prevTime>0){
+      const dt=(now-prevTime)/60000; // minutes
+      if(dt>0.05){
+        const dDigits=mining.frontier_position-prevFrontier;
+        const dRanges=mining.total_ranges-prevRanges;
+        document.getElementById('d-growth-rate').textContent=Math.round(dDigits/dt).toLocaleString();
+        document.getElementById('d-proofs-rate').textContent=(dRanges/dt).toFixed(1);
+      }
+    }
+    prevFrontier=mining.frontier_position;
+    prevRanges=mining.total_ranges;
+    prevTime=now;
+
+    // Detect new blocks
+    if(prevHeight>0&&info.block_height>prevHeight){
+      for(let h=prevHeight+1;h<=info.block_height;h++){
+        addFeedItem('BLOCK','badge-block','Block #'+formatNum(h)+' produced');
+      }
+    }
+    prevHeight=info.block_height;
+
+    // Track address
+    if(trackedAddress){
+      try{
+        const acctRes=await fetch(API+'/api/v1/account/'+trackedAddress);
+        const acct=await acctRes.json();
+        if(acct.found){
+          document.getElementById('t-balance').textContent=acct.balance_pi;
+          document.getElementById('t-nonce').textContent=formatNum(acct.nonce);
+          document.getElementById('t-staked').textContent=formatPI(acct.staked);
+          document.getElementById('t-status').textContent=acct.balance>0?'Active':'Unfunded';
+        }else{
+          document.getElementById('t-status').textContent='Not Found';
+        }
+      }catch(e){}
+    }
+  }catch(err){
+    addFeedItem('ERR','badge-mining','Connection lost: '+err.message);
+  }
+}
+
+function trackMiner(){
+  let addr=document.getElementById('track-addr').value.trim();
+  if(!addr)return;
+  if(addr.startsWith('0x'))addr=addr.slice(2);
+  trackedAddress=addr;
+  addFeedItem('TRACK','badge-tx','Tracking address 0x'+addr.slice(0,8)+'...');
+  refreshDashboard();
+  // Save to localStorage
+  try{localStorage.setItem('pichain-track-addr',addr);}catch(e){}
+}
+
+// Load saved address
+try{
+  const saved=localStorage.getItem('pichain-track-addr');
+  if(saved){
+    trackedAddress=saved;
+    document.getElementById('track-addr').value='0x'+saved;
+  }
+}catch(e){}
+
+// Detect new mining proofs via block polling
+let lastBlockTxCount=0;
+async function checkNewBlocks(){
+  try{
+    const res=await fetch(API+'/api/v1/block/latest');
+    const block=await res.json();
+    if(block.found&&block.tx_count>0&&block.tx_count!==lastBlockTxCount){
+      lastBlockTxCount=block.tx_count;
+      if(block.tx_count>0){
+        addFeedItem('MINE','badge-mining',block.tx_count+' mining proof'+(block.tx_count>1?'s':'')+' in block #'+formatNum(block.height));
+      }
+    }
+  }catch(e){}
+}
+
+// Initial load + auto-refresh
+refreshDashboard();
+setInterval(refreshDashboard,5000);
+setInterval(checkNewBlocks,5000);
+
+// Page title with live stats
+setInterval(()=>{
+  const f=document.getElementById('d-frontier').textContent;
+  if(f!=='--')document.title='Frontier: '+f+' | PIChain Dashboard';
+},5000);
+</script>
+</body>
+</html>

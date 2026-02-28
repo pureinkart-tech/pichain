@@ -223,10 +223,10 @@ pre .c { color: var(--dim); }
             <div class="control-group">
               <label>Batch Size</label>
               <select id="batch-size">
-                <option value="100" selected>100 digits</option>
-                <option value="200">200 digits</option>
-                <option value="500">500 digits</option>
-                <option value="1000">1000 digits</option>
+                <option value="10">10 digits (fast)</option>
+                <option value="20" selected>20 digits</option>
+                <option value="50">50 digits</option>
+                <option value="100">100 digits</option>
               </select>
             </div>
           </div>
@@ -784,7 +784,10 @@ function computeHexDigit(pos){
 self.onmessage=function(e){
   const{startPosition,count,id}=e.data;
   const digits=new Uint8Array(count);
-  for(let i=0;i<count;i++) digits[i]=computeHexDigit(startPosition+i);
+  for(let i=0;i<count;i++){
+    digits[i]=computeHexDigit(startPosition+i);
+    if(i>0&&i%5===0) self.postMessage({type:'progress',done:i,total:count,id});
+  }
   self.postMessage({digits,startPosition,count,id});
 };
 `;
@@ -866,19 +869,17 @@ async function miningLoop(){
     const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
 
     // On first round, compute a unique starting position for this browser miner.
-    // BBP algorithm time is O(n) per digit, so positions must stay reasonable.
-    // At position 10M, each digit takes ~6x longer than at 1.67M — still feasible.
-    // At position 1B+, each digit takes ~600x longer — completely broken.
-    // Offset 5-10M ahead gives hours of buffer before CLI miner catches up
-    // (~1.2M digits/hour advancement rate on server profile).
+    // BBP algorithm is O(n) per digit — at position 2M each digit takes ~0.7s in JS,
+    // at 7M it takes ~3s, at 1B+ it takes minutes. Keep positions LOW.
+    // Offset 200K-1.2M ahead: fast computation, 10-60 min buffer before CLI catches up.
     if(miningRound===1){
       const addrHash=BLAKE3.hash(walletAddress);
       const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
-      // 5000 lanes, 1K digits apart, starting 5M ahead of frontier.
-      // Range: frontier + 5M to frontier + 10M (fast to compute, well under 10B limit)
-      const laneOffset=5000000+(lane%5000)*1000;
+      // 1000 lanes, 1K digits apart, starting 200K ahead of frontier.
+      // Range: frontier + 200K to frontier + 1.2M (fast to compute, well under 10B limit)
+      const laneOffset=200000+(lane%1000)*1000;
       browserMiningPosition=frontier+laneOffset;
-      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1e6).toFixed(1)+'M ahead of frontier)','info');
+      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1000).toFixed(0)+'K ahead of frontier)','info');
     }
 
     const position=browserMiningPosition;
@@ -894,7 +895,13 @@ async function miningLoop(){
       const startPos=position+t*batchSize;
 
       w.onmessage=async function(e){
+        // Handle progress updates from worker
+        if(e.data.type==='progress'){
+          document.getElementById('status-text').textContent='Computing... '+e.data.done+'/'+e.data.total+' digits';
+          return;
+        }
         const{digits,startPosition,count}=e.data;
+        document.getElementById('status-text').textContent='Mining';
         totalDigits+=count;updateStats();
 
         const anchorHash=hexDecode(currentStatus.anchor_block_hash||'0'.repeat(64));

@@ -410,6 +410,7 @@ impl RpcServer {
             .route("/mine", get(serve_miner_setup))
             .route("/faucet", get(serve_faucet_page))
             .route("/download", get(serve_download_page))
+            .route("/dashboard", get(serve_dashboard))
             .route("/health", get(health_detailed))
             .route("/metrics", get(prometheus_metrics))
             .route("/api/v1/info", get(get_node_info))
@@ -571,6 +572,16 @@ async fn serve_faucet_page() -> impl IntoResponse {
         StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
         FAUCET_HTML,
+    )
+}
+
+/// Real-time mining dashboard.
+async fn serve_dashboard() -> impl IntoResponse {
+    const DASHBOARD_HTML: &str = include_str!("../../../explorer/dashboard.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        DASHBOARD_HTML,
     )
 }
 
