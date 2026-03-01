@@ -1775,6 +1775,7 @@ struct LaunchListItem {
     launch_type: String,
     base_price: u64,
     slope: u64,
+    price_scale: u64,
 }
 
 async fn get_all_launches(
@@ -1786,13 +1787,13 @@ async fn get_all_launches(
             let launches = provider.scan_all_launches();
             let mut items: Vec<LaunchListItem> = launches.iter().map(|l| {
                 let mint = provider.get_token_mint(&l.mint);
-                let (lt_name, bp, sl) = match &l.launch_type {
+                let (lt_name, bp, sl, ps) = match &l.launch_type {
                     pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
-                        ("FairLaunch".to_string(), *price_per_token, 0u64),
-                    pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope } =>
-                        ("BondingCurve".to_string(), *base_price, *slope),
+                        ("FairLaunch".to_string(), *price_per_token, 0u64, 1u64),
+                    pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } =>
+                        ("BondingCurve".to_string(), *base_price, *slope, *price_scale),
                 };
-                let current_price = bp.saturating_add(sl.saturating_mul(l.tokens_sold));
+                let current_price = l.current_price();
                 let pct = if l.target_pi > 0 {
                     (l.pi_raised as f64 / l.target_pi as f64) * 100.0
                 } else { 0.0 };
@@ -1823,6 +1824,7 @@ async fn get_all_launches(
                     launch_type: lt_name,
                     base_price: bp,
                     slope: sl,
+                    price_scale: ps,
                 }
             }).collect();
             items.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
@@ -1853,11 +1855,11 @@ async fn get_launch_detail(
                         Some((launch, token))
                     }).await {
                         if let Some((launch, token)) = result {
-                            let (lt_name, bp, sl) = match &launch.launch_type {
+                            let (lt_name, bp, sl, ps) = match &launch.launch_type {
                                 pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
-                                    ("FairLaunch", *price_per_token, 0u64),
-                                pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope } =>
-                                    ("BondingCurve", *base_price, *slope),
+                                    ("FairLaunch", *price_per_token, 0u64, 1u64),
+                                pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } =>
+                                    ("BondingCurve", *base_price, *slope, *price_scale),
                             };
                             let state_str = match &launch.state {
                                 pichain_types::launchpad::LaunchState::Active => "Active",
@@ -1875,7 +1877,7 @@ async fn get_launch_detail(
                                 "tokens_sold": launch.tokens_sold,
                                 "pi_raised": launch.pi_raised,
                                 "target_pi": launch.target_pi,
-                                "current_price": bp.saturating_add(sl.saturating_mul(launch.tokens_sold)),
+                                "current_price": launch.current_price(),
                                 "percent_complete": if launch.target_pi > 0 { (launch.pi_raised as f64 / launch.target_pi as f64) * 100.0 } else { 0.0 },
                                 "max_per_address": launch.max_per_address,
                                 "contributors": launch.contributions.len(),
@@ -1883,6 +1885,7 @@ async fn get_launch_detail(
                                 "launch_type": lt_name,
                                 "base_price": bp,
                                 "slope": sl,
+                                "price_scale": ps,
                                 "liquidity_bps": launch.liquidity_bps,
                                 "token_liquidity_bps": launch.token_liquidity_bps,
                                 "name": token.as_ref().map(|t| t.name.as_str()).unwrap_or(""),

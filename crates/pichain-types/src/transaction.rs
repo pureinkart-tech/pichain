@@ -437,10 +437,11 @@ impl TransactionData {
                         buf.push(0);
                         buf.extend_from_slice(&price_per_token.to_le_bytes());
                     }
-                    crate::launchpad::LaunchType::BondingCurve { base_price, slope } => {
+                    crate::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } => {
                         buf.push(1);
                         buf.extend_from_slice(&base_price.to_le_bytes());
                         buf.extend_from_slice(&slope.to_le_bytes());
+                        buf.extend_from_slice(&price_scale.to_le_bytes());
                     }
                 }
                 buf.extend_from_slice(&tokens_for_sale.to_le_bytes());

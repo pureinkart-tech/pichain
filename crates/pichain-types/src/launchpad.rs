@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::token::MintId;
 
+fn default_price_scale() -> u64 {
+    1
+}
+
 /// Unique identifier for a token launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct LaunchId(pub [u8; 32]);
@@ -42,12 +46,17 @@ pub enum LaunchType {
         price_per_token: u64,
     },
     /// Bonding curve — price increases with supply purchased.
-    /// Price = base_price + slope * tokens_sold
+    /// Price = base_price + slope * display_tokens_sold
+    /// Actual cost = (base_price * display_amount + slope * display_amount * (2*display_sold + display_amount - 1) / 2) / price_scale
     BondingCurve {
-        /// Base price per token in base PI units.
+        /// Base price per display token (scaled by price_scale).
         base_price: u64,
-        /// Price increase per token sold (in base PI units per token).
+        /// Price increase per display token sold (scaled by price_scale).
         slope: u64,
+        /// Divisor for price calculations. Enables fractional pricing for tokens
+        /// with large supplies. Default: 1 (backward compatible).
+        #[serde(default = "default_price_scale")]
+        price_scale: u64,
     },
 }
 
@@ -95,6 +104,9 @@ pub struct TokenLaunch {
     pub contributions: std::collections::HashMap<Address, u64>,
     /// Creation timestamp.
     pub created_at_ms: u64,
+    /// Token decimals (for display-unit bonding curve math).
+    #[serde(default)]
+    pub token_decimals: u8,
 }
 
 impl TokenLaunch {
@@ -104,7 +116,8 @@ impl TokenLaunch {
     /// Standard token liquidity: 20% of unsold tokens go to AMM pool.
     pub const DEFAULT_TOKEN_LIQUIDITY_BPS: u16 = 2000;
 
-    /// Calculate the cost to buy `amount` tokens at current state.
+    /// Calculate the cost to buy `amount` tokens (in base units) at current state.
+    /// Returns the cost in base PI units.
     pub fn calculate_cost(&self, amount: u64) -> Option<u64> {
         if amount == 0 {
             return None;
@@ -120,39 +133,46 @@ impl TokenLaunch {
                 // Simple: cost = amount * price
                 amount.checked_mul(*price_per_token)
             }
-            LaunchType::BondingCurve { base_price, slope } => {
-                // Integral of (base_price + slope * x) from tokens_sold to tokens_sold + amount
-                // Cost = base_price * amount + slope * (amount * (2*tokens_sold + amount - 1)) / 2
-                let amount = amount as u128;
-                let sold = self.tokens_sold as u128;
-                let base = *base_price as u128;
-                let s = *slope as u128;
+            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+                let ps = (*price_scale).max(1) as u128;
 
-                let linear_cost = match base.checked_mul(amount) {
+                // Convert to display units if token has decimals
+                let scale = if self.token_decimals > 0 {
+                    10u128.pow(self.token_decimals as u32)
+                } else {
+                    1u128
+                };
+                let a = (amount as u128) / scale;
+                let s = (self.tokens_sold as u128) / scale;
+
+                if a == 0 {
+                    // Amount too small for one display token — minimum cost
+                    return Some(1);
+                }
+
+                let bp = *base_price as u128;
+                let sl = *slope as u128;
+
+                // Cost = (base_price * a + slope * a * (2*s + a - 1) / 2) / price_scale
+                let linear_cost = match bp.checked_mul(a) {
                     Some(v) => v,
                     None => return None,
                 };
-                // Sum of slope * x from sold to sold+amount-1
-                // = slope * sum(x, x=sold..sold+amount-1)
-                // = slope * (amount * (2*sold + amount - 1) / 2)
-                // Ceiling division: (a + b - 1) / b
-                let inner = match (2u128.checked_mul(sold))
-                    .and_then(|v| v.checked_add(amount))
+                let inner = match (2u128.checked_mul(s))
+                    .and_then(|v| v.checked_add(a))
                     .and_then(|v| v.checked_sub(1))
-                    .and_then(|v| v.checked_mul(amount))
-                    .and_then(|v| v.checked_mul(s))
+                    .and_then(|v| v.checked_mul(a))
+                    .and_then(|v| v.checked_mul(sl))
                 {
-                    Some(v) => (v + 1) / 2,  // Changed from `v / 2` to `(v + 1) / 2` (ceiling)
-                    None => return None,
-                };
-                let curve_cost = inner;
-
-                let total = match linear_cost.checked_add(curve_cost) {
-                    Some(v) => v,
+                    Some(v) => (v + 1) / 2,
                     None => return None,
                 };
 
-                // Check it fits in u64
+                let total = match linear_cost.checked_add(inner) {
+                    Some(v) => v / ps,
+                    None => return None,
+                };
+
                 if total > u64::MAX as u128 {
                     None
                 } else {
@@ -181,13 +201,14 @@ impl TokenLaunch {
                 let tokens = pi_amount / price_per_token;
                 std::cmp::min(tokens, remaining)
             }
-            LaunchType::BondingCurve { base_price, slope } => {
+            LaunchType::BondingCurve { base_price, slope, .. } => {
                 // Guard against zero-cost infinite loop
                 if *base_price == 0 && *slope == 0 {
                     return 0;
                 }
 
-                // Binary search for the maximum tokens buyable
+                // Binary search for the maximum tokens buyable.
+                // calculate_cost() already handles display-unit conversion and price_scale.
                 let mut lo: u64 = 0;
                 let mut hi = remaining;
 
@@ -204,15 +225,26 @@ impl TokenLaunch {
         }
     }
 
-    /// Calculate the current price per token.
+    /// Calculate the current price per display token (in base PI units).
     pub fn current_price(&self) -> u64 {
         match &self.launch_type {
             LaunchType::FairLaunch { price_per_token } => *price_per_token,
-            LaunchType::BondingCurve { base_price, slope } => {
-                // Use u128 to prevent overflow on slope * tokens_sold
+            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+                let ps = (*price_scale).max(1) as u128;
+
+                // Convert tokens_sold to display units
+                let scale = if self.token_decimals > 0 {
+                    10u128.pow(self.token_decimals as u32)
+                } else {
+                    1u128
+                };
+                let s = (self.tokens_sold as u128) / scale;
+
+                // Price per display token = (base_price + slope * display_sold) / price_scale
                 let price = (*base_price as u128)
-                    .saturating_add((*slope as u128).saturating_mul(self.tokens_sold as u128));
-                // Cap at u64::MAX if overflow
+                    .saturating_add((*slope as u128).saturating_mul(s));
+                let price = price / ps;
+
                 if price > u64::MAX as u128 { u64::MAX } else { price as u64 }
             }
         }
@@ -262,9 +294,11 @@ mod tests {
             max_per_address: 100_000_000, // 0.1 PI max
             contributions: std::collections::HashMap::new(),
             created_at_ms: 0,
+            token_decimals: 0,
         }
     }
 
+    /// Simple bonding curve with no decimals (legacy-compatible: price_scale=1, token_decimals=0)
     fn make_bonding_launch() -> TokenLaunch {
         let mint = MintId::derive(&Address([2u8; 20]), 0);
         TokenLaunch {
@@ -274,6 +308,7 @@ mod tests {
             launch_type: LaunchType::BondingCurve {
                 base_price: 100,
                 slope: 1,
+                price_scale: 1,
             },
             state: LaunchState::Active,
             tokens_for_sale: 10_000,
@@ -285,6 +320,39 @@ mod tests {
             max_per_address: u64::MAX,
             contributions: std::collections::HashMap::new(),
             created_at_ms: 0,
+            token_decimals: 0,
+        }
+    }
+
+    /// Realistic bonding curve: 1B tokens with 9 decimals, price_scale enables fractional pricing.
+    /// Target: ~1 PI for 2% of supply, ~100 PI total.
+    fn make_scaled_bonding_launch() -> TokenLaunch {
+        let mint = MintId::derive(&Address([3u8; 20]), 0);
+        // 1B display tokens * 10^9 = 10^18 base units
+        // 80% for sale = 800M display tokens = 8 * 10^17 base units
+        let tokens_for_sale: u64 = 800_000_000 * 1_000_000_000; // 8e17
+        TokenLaunch {
+            id: LaunchId::from_mint(&mint),
+            mint,
+            creator: Address([3u8; 20]),
+            launch_type: LaunchType::BondingCurve {
+                // price_scale = 1e9 to allow sub-integer base_price per display token
+                // base_price / price_scale = 62.5 base PI per display token at start
+                base_price: 62_500_000_000, // 6.25e10
+                slope: 156,
+                price_scale: 1_000_000_000, // 1e9
+            },
+            state: LaunchState::Active,
+            tokens_for_sale,
+            tokens_sold: 0,
+            pi_raised: 0,
+            target_pi: 100_000_000_000, // 100 PI
+            liquidity_bps: TokenLaunch::DEFAULT_LIQUIDITY_BPS,
+            token_liquidity_bps: TokenLaunch::DEFAULT_TOKEN_LIQUIDITY_BPS,
+            max_per_address: u64::MAX,
+            contributions: std::collections::HashMap::new(),
+            created_at_ms: 0,
+            token_decimals: 9,
         }
     }
 
@@ -374,6 +442,78 @@ mod tests {
                 assert!(
                     cost <= pi,
                     "inconsistency: {tokens} tokens cost {cost} but tokens_for_pi({pi}) returned {tokens}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scaled_bonding_curve_2_percent_costs_about_1_pi() {
+        let launch = make_scaled_bonding_launch();
+        // 2% of 800M display tokens = 16M display tokens = 16e15 base units
+        let two_percent_base = 16_000_000u64 * 1_000_000_000; // 1.6e16
+        let cost = launch.calculate_cost(two_percent_base).unwrap();
+        // Should be roughly 1-2 PI (1e9 to 2e9 base PI)
+        assert!(
+            cost >= 500_000_000 && cost <= 3_000_000_000,
+            "2% should cost ~1 PI, got {} ({:.3} PI)",
+            cost, cost as f64 / 1e9
+        );
+    }
+
+    #[test]
+    fn scaled_bonding_curve_total_about_100_pi() {
+        let launch = make_scaled_bonding_launch();
+        // Cost of all tokens
+        let total_cost = launch.calculate_cost(launch.tokens_for_sale).unwrap();
+        // Should be roughly 50-150 PI (target_pi = 100 PI)
+        assert!(
+            total_cost >= 30_000_000_000 && total_cost <= 200_000_000_000,
+            "total cost should be ~100 PI, got {} ({:.1} PI)",
+            total_cost, total_cost as f64 / 1e9
+        );
+    }
+
+    #[test]
+    fn scaled_bonding_curve_tokens_for_pi() {
+        let launch = make_scaled_bonding_launch();
+        // 1 PI should buy roughly 2% of tokens
+        let one_pi = 1_000_000_000u64;
+        let tokens = launch.tokens_for_pi(one_pi);
+        let pct = tokens as f64 / launch.tokens_for_sale as f64 * 100.0;
+        assert!(
+            pct >= 0.5 && pct <= 5.0,
+            "1 PI should buy ~2% of tokens, got {:.2}% ({} tokens)",
+            pct, tokens
+        );
+    }
+
+    #[test]
+    fn scaled_bonding_curve_price_increases() {
+        let mut launch = make_scaled_bonding_launch();
+        let price1 = launch.current_price();
+        // Sell 10% of tokens
+        launch.tokens_sold = launch.tokens_for_sale / 10;
+        let price2 = launch.current_price();
+        assert!(
+            price2 > price1,
+            "price should increase after sales: {} vs {}",
+            price1, price2
+        );
+    }
+
+    #[test]
+    fn scaled_bonding_curve_cost_consistency() {
+        let launch = make_scaled_bonding_launch();
+        let one_pi = 1_000_000_000u64;
+        for pi_amount in [one_pi / 10, one_pi, one_pi * 5, one_pi * 10, one_pi * 50] {
+            let tokens = launch.tokens_for_pi(pi_amount);
+            if tokens > 0 {
+                let cost = launch.calculate_cost(tokens).unwrap();
+                assert!(
+                    cost <= pi_amount,
+                    "inconsistency: {} tokens cost {} but tokens_for_pi({}) returned {}",
+                    tokens, cost, pi_amount, tokens
                 );
             }
         }

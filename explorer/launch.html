@@ -370,36 +370,6 @@ a:hover { text-decoration: underline; }
           <div class="cost-row" id="balanceRow" style="display:none;"><span>Your balance</span><span id="balanceVal" style="color:var(--cyan);">--</span></div>
         </div>
 
-        <!-- Launch Settings (Advanced) -->
-        <div class="advanced-toggle" onclick="toggleAdvanced()">Launch Settings &#9662;</div>
-        <div class="advanced-fields" id="advancedFields">
-          <div class="form-row">
-            <label>Decimals</label>
-            <input type="number" id="createDecimals" value="9" min="0" max="18">
-            <div class="form-hint">Token decimal places (default: 9)</div>
-          </div>
-          <div class="form-row">
-            <label>Max Supply</label>
-            <input type="number" id="createMaxSupply" value="1000000000">
-            <div class="form-hint">Total supply cap (default: 1 billion tokens)</div>
-          </div>
-          <div class="form-row">
-            <label>Tokens for Sale (%)</label>
-            <input type="number" id="createSalePct" value="80" min="1" max="100">
-            <div class="form-hint">Percentage of supply available on bonding curve</div>
-          </div>
-          <div class="form-row">
-            <label>Target PI</label>
-            <input type="number" id="createTargetPi" value="100" step="0.1">
-            <div class="form-hint">PI raised to graduate to DEX (default: 100 PI)</div>
-          </div>
-          <div class="form-row">
-            <label>Max per Address (PI)</label>
-            <input type="number" id="createMaxPerAddr" value="10" step="0.1">
-            <div class="form-hint">Maximum PI any single address can spend</div>
-          </div>
-        </div>
-
         <button class="btn" style="width:100%;padding:16px;font-size:16px;font-weight:700;" onclick="createTokenAndLaunch()" id="createBtn">
           Create Token
         </button>
@@ -903,9 +873,9 @@ function buildCreateTokenCanonical(sender,nonce,name,symbol,decimals,maxSupply,m
 }
 
 // Tag 18: CreateLaunch (BondingCurve)
-function buildCreateLaunchCanonical(sender,nonce,mintId,basePrice,slope,tokensForSale,targetPi,maxPerAddr) {
+function buildCreateLaunchCanonical(sender,nonce,mintId,basePrice,slope,priceScale,tokensForSale,targetPi,maxPerAddr) {
   const h = buildTxHeader(sender,nonce,75000,currentBaseFee,100,CHAIN_ID);
-  return concatBytes([h,new Uint8Array([18]),mintId,new Uint8Array([1]),u64LE(basePrice),u64LE(slope),u64LE(tokensForSale),u64LE(targetPi),u64LE(maxPerAddr)]);
+  return concatBytes([h,new Uint8Array([18]),mintId,new Uint8Array([1]),u64LE(basePrice),u64LE(slope),u64LE(priceScale),u64LE(tokensForSale),u64LE(targetPi),u64LE(maxPerAddr)]);
 }
 
 // Tag 19: ParticipateInLaunch
@@ -1037,34 +1007,48 @@ function updateCostPreview() {
     devTokensRow.style.display = '';
     document.getElementById('devBuyCostVal').textContent = devBuyFloat.toFixed(2) + ' PI';
 
-    // Estimate tokens from bonding curve at position 0
-    const decimals = parseInt(document.getElementById('createDecimals').value) || 9;
-    const maxSupplyTokens = parseInt(document.getElementById('createMaxSupply').value) || 1000000000;
-    const salePct = parseInt(document.getElementById('createSalePct').value) || 80;
-    const targetPiFloat = parseFloat(document.getElementById('createTargetPi').value) || 100;
+    // Fixed launch parameters (pump.fun style)
+    const decimals = 9;
+    const maxSupplyTokens = 1000000000;
+    const salePct = 80;
+    const targetPiFloat = 100;
 
     const maxSupply = BigInt(maxSupplyTokens) * BigInt(Math.pow(10, decimals));
     const tokensForSale = maxSupply * BigInt(salePct) / 100n;
     const targetPi = BigInt(Math.floor(targetPiFloat * 1e9));
 
-    let basePrice = Number(targetPi / (tokensForSale * 2n)) || 1;
-    let slope = 1;
-    const N = tokensForSale;
-    const baseTotal = BigInt(basePrice) * N;
-    if (targetPi > baseTotal && N > 1n) {
-      slope = Number(((targetPi - baseTotal) * 2n) / (N * (N - 1n))) || 1;
+    // Compute bonding curve params in display-token units with price_scale
+    const displayTokens = BigInt(maxSupplyTokens) * BigInt(salePct) / 100n; // display tokens for sale
+    const PRICE_SCALE = BigInt(1e9); // allows fractional pricing
+    // target = (base_price * N + slope * N * (N-1) / 2) / price_scale
+    // => base_price = target * price_scale / (N * 2)  (half from linear, half from quadratic)
+    let basePrice, slope, priceScale = Number(PRICE_SCALE);
+    if (displayTokens > 0n) {
+      basePrice = Number((targetPi * PRICE_SCALE) / (displayTokens * 2n)) || 1;
+      slope = 1;
+      const N = displayTokens;
+      const baseTotal = BigInt(basePrice) * N;
+      const scaledTarget = targetPi * PRICE_SCALE;
+      if (scaledTarget > baseTotal && N > 1n) {
+        slope = Number(((scaledTarget - baseTotal) * 2n) / (N * (N - 1n))) || 1;
+      }
+      if (basePrice < 1) basePrice = 1;
+      if (slope < 1) slope = 1;
+    } else {
+      basePrice = 1; slope = 1;
     }
-    if (basePrice < 1) basePrice = 1;
-    if (slope < 1) slope = 1;
 
-    // Binary search: how many tokens for devBuy PI?
+    // Binary search: how many base-unit tokens for devBuy PI?
     const bp = BigInt(basePrice);
     const sl = BigInt(slope);
+    const ps = PRICE_SCALE;
+    const scale = BigInt(Math.pow(10, decimals));
     const piBase = BigInt(Math.floor(devBuyFloat * 1e9));
     let lo = 0n, hi = tokensForSale;
     while (lo < hi) {
       const mid = (lo + hi + 1n) / 2n;
-      const cost = bp * mid + sl * mid * (mid - 1n) / 2n;
+      const a = mid / scale; // display tokens
+      const cost = (bp * a + sl * a * (a - 1n) / 2n) / ps;
       if (cost <= piBase) lo = mid; else hi = mid - 1n;
     }
     const pctOwned = tokensForSale > 0n ? (Number(lo * 10000n / maxSupply) / 100).toFixed(2) : '0';
@@ -1112,11 +1096,12 @@ async function createTokenAndLaunch() {
   const twitter = document.getElementById('createTwitter').value.trim();
   const telegram = document.getElementById('createTelegram').value.trim();
   const discord = document.getElementById('createDiscord').value.trim();
-  const decimals = parseInt(document.getElementById('createDecimals').value) || 9;
-  const maxSupplyTokens = parseInt(document.getElementById('createMaxSupply').value) || 1000000000;
-  const salePct = parseInt(document.getElementById('createSalePct').value) || 80;
-  const targetPiFloat = parseFloat(document.getElementById('createTargetPi').value) || 100;
-  const maxPerAddrFloat = parseFloat(document.getElementById('createMaxPerAddr').value) || 10;
+  // Fixed launch parameters (pump.fun style)
+  const decimals = 9;
+  const maxSupplyTokens = 1000000000;
+  const salePct = 80;
+  const targetPiFloat = 100;
+  const maxPerAddrFloat = 10;
 
   const devBuyFloat = parseFloat(document.getElementById('createDevBuy').value) || 0;
 
@@ -1139,16 +1124,20 @@ async function createTokenAndLaunch() {
   const targetPi = BigInt(Math.floor(targetPiFloat * 1e9));
   const maxPerAddr = BigInt(Math.floor(maxPerAddrFloat * 1e9));
 
-  // Auto-calculate bonding curve params
+  // Auto-calculate bonding curve params using display-token units with price_scale
+  const PRICE_SCALE = BigInt(1e9);
+  const displayTokens = BigInt(maxSupplyTokens) * BigInt(salePct) / 100n;
   let basePrice, slope;
-  if(tokensForSale > 0n) {
-    basePrice = Number(targetPi / (tokensForSale * 2n)) || 1;
-    slope = Number((targetPi * 2n) / (tokensForSale * tokensForSale / tokensForSale)) || 1;
-    // Better slope: target = base*N + slope*N*(N-1)/2 => slope = 2*(target - base*N) / (N*(N-1))
-    const N = tokensForSale;
+  const priceScale = Number(PRICE_SCALE);
+  if(displayTokens > 0n) {
+    // target = (base_price * N + slope * N * (N-1) / 2) / price_scale  (in display tokens)
+    basePrice = Number((targetPi * PRICE_SCALE) / (displayTokens * 2n)) || 1;
+    slope = 1;
+    const N = displayTokens;
     const baseTotal = BigInt(basePrice) * N;
-    if(targetPi > baseTotal && N > 1n) {
-      slope = Number(((targetPi - baseTotal) * 2n) / (N * (N - 1n))) || 1;
+    const scaledTarget = targetPi * PRICE_SCALE;
+    if(scaledTarget > baseTotal && N > 1n) {
+      slope = Number(((scaledTarget - baseTotal) * 2n) / (N * (N - 1n))) || 1;
     }
     if(basePrice < 1) basePrice = 1;
     if(slope < 1) slope = 1;
@@ -1180,11 +1169,11 @@ async function createTokenAndLaunch() {
 
     // Tx 2: CreateLaunch
     status.textContent = 'Signing CreateLaunch...';
-    const canonical2 = buildCreateLaunchCanonical(walletAddress, accountNonce+1, mintId, basePrice, slope, Number(tokensForSale), Number(targetPi), Number(maxPerAddr));
+    const canonical2 = buildCreateLaunchCanonical(walletAddress, accountNonce+1, mintId, basePrice, slope, priceScale, Number(tokensForSale), Number(targetPi), Number(maxPerAddr));
     const sig2 = nacl.sign.detached(canonical2, walletKeypair.secretKey);
     const hex2 = buildSignedTxJson('CreateLaunch', {
       mint: Array.from(mintId),
-      launch_type: { BondingCurve: { base_price: basePrice, slope: slope } },
+      launch_type: { BondingCurve: { base_price: basePrice, slope: slope, price_scale: priceScale } },
       tokens_for_sale: Number(tokensForSale),
       target_pi: Number(targetPi),
       max_per_address: Number(maxPerAddr)
@@ -1253,13 +1242,6 @@ async function createTokenAndLaunch() {
   btn.disabled = false;
 }
 
-function toggleAdvanced() {
-  const el = document.getElementById('advancedFields');
-  el.classList.toggle('open');
-  const toggle = el.previousElementSibling;
-  toggle.innerHTML = el.classList.contains('open') ? 'Launch Settings &#9652;' : 'Launch Settings &#9662;';
-}
-
 // =====================================================================
 // BUY ON BONDING CURVE
 // =====================================================================
@@ -1268,17 +1250,21 @@ function previewBuy(mintId) {
   const launch = allLaunches.find(l=>l.mint_id===mintId);
   if(!launch || piAmount <= 0) { document.getElementById('buyEstimate').textContent = '--'; return; }
 
-  // Estimate tokens from bonding curve: cost = base_price * amount + slope * amount * (2*sold + amount - 1) / 2
-  // Reverse: given PI, how many tokens?
+  // Estimate tokens using display-unit bonding curve with price_scale
   const bp = BigInt(launch.base_price);
   const sl = BigInt(launch.slope);
+  const ps = BigInt(launch.price_scale || 1);
   const sold = BigInt(launch.tokens_sold);
   const piBase = BigInt(Math.floor(piAmount * 1e9));
-  // Binary search for token amount
+  const scale = BigInt(Math.pow(10, launch.decimals || 0));
+  const soldDisplay = sold / scale;
+  // Binary search over base-unit tokens
   let lo = 0n, hi = BigInt(launch.tokens_for_sale) - sold;
   while(lo < hi) {
     const mid = (lo + hi + 1n) / 2n;
-    const cost = bp * mid + sl * mid * (2n * sold + mid - 1n) / 2n;
+    const a = mid / scale; // display tokens being bought
+    if (a === 0n) { lo = mid; continue; }
+    const cost = (bp * a + sl * a * (2n * soldDisplay + a - 1n) / 2n) / ps;
     if(cost <= piBase) lo = mid; else hi = mid - 1n;
   }
   document.getElementById('buyEstimate').textContent = formatTokens(Number(lo), launch.decimals) + ' $' + launch.symbol;

@@ -1884,6 +1884,7 @@ impl TransactionExecutor {
                             *target_pi,
                             *max_per_address,
                             token_mint.mint_authority,
+                            token_mint.decimals,
                         );
                         (result.status, result.events)
                     }
@@ -3094,6 +3095,7 @@ mod tests {
             1_000_000_000,
             u64::MAX,
             Some(creator_kp.address()),
+            0,
         );
         assert_eq!(result.status, TransactionStatus::Success);
 

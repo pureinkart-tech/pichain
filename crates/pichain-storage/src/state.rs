@@ -823,6 +823,7 @@ mod tests {
             max_per_address: 100_000_000,
             contributions: HashMap::new(),
             created_at_ms: 12345,
+            token_decimals: 0,
         };
         let launchpad_store = crate::LaunchpadStore::new(&db);
         launchpad_store.batch_put_launch(&mut batch, &launch).unwrap();

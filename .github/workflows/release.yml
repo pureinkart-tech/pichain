@@ -116,17 +116,30 @@ jobs:
           cp target/${{ matrix.target }}/release/bundle/appimage/*.AppImage dist/${{ matrix.artifact }}.AppImage 2>/dev/null || true
           cp target/${{ matrix.target }}/release/bundle/deb/*.deb dist/${{ matrix.artifact }}.deb 2>/dev/null || true
 
-      - name: Sign and collect macOS artifacts
+      - name: Fix macOS signing and collect artifacts
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          # Ad-hoc sign the .app bundle (inside the bundle dir, before DMG creation already did it,
-          # but we re-sign with --deep to cover all nested frameworks/binaries)
           APP_PATH=$(find target/${{ matrix.target }}/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
           if [ -n "$APP_PATH" ]; then
-            codesign --sign - --force --deep "$APP_PATH"
+            # Remove the bundle-level ad-hoc signature that Tauri adds.
+            # Ad-hoc signed apps downloaded from the internet trigger macOS Gatekeeper's
+            # "damaged and can't be opened" error. Unsigned apps instead show the softer
+            # "unidentified developer" dialog, which users can bypass with right-click → Open.
+            codesign --remove-signature "$APP_PATH" 2>/dev/null || true
+
+            # Re-sign ONLY the main binary (required for Apple Silicon Macs to execute ARM binaries)
+            BINARY="$APP_PATH/Contents/MacOS/pichain-miner-gui"
+            if [ -f "$BINARY" ]; then
+              codesign --sign - --force "$BINARY"
+            fi
+
+            # Recreate DMG with the fixed .app (Tauri's DMG has the old signed version)
+            hdiutil create -volname "PIChain Miner" -srcfolder "$APP_PATH" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
+          else
+            # Fallback: copy Tauri's DMG
+            cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
           fi
-          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
 
       - name: Collect Windows artifacts
         if: runner.os == 'Windows'

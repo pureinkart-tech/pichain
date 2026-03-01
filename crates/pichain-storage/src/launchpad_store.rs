@@ -109,6 +109,7 @@ mod tests {
             max_per_address: 100_000_000,
             contributions: HashMap::new(),
             created_at_ms: 12345,
+            token_decimals: 0,
         };
 
         store.put_launch(&launch).unwrap();
@@ -142,6 +143,7 @@ mod tests {
             launch_type: LaunchType::BondingCurve {
                 base_price: 100,
                 slope: 1,
+                price_scale: 1,
             },
             state: LaunchState::Active,
             tokens_for_sale: 10_000,
@@ -153,6 +155,7 @@ mod tests {
             max_per_address: u64::MAX,
             contributions: HashMap::new(),
             created_at_ms: 0,
+            token_decimals: 0,
         };
 
         store.put_launch(&launch).unwrap();

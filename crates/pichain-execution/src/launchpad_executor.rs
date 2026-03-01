@@ -108,6 +108,7 @@ impl LaunchpadExecutor {
         target_pi: u64,
         max_per_address: u64,
         mint_authority: Option<Address>,
+        token_decimals: u8,
     ) -> LaunchpadResult {
         // M4-FIX: Defense-in-depth — verify sender is the mint authority even though
         // the caller (executor.rs) already checks this. Prevents misuse if create_launch
@@ -143,6 +144,7 @@ impl LaunchpadExecutor {
             max_per_address,
             contributions: HashMap::new(),
             created_at_ms: self.block_timestamp(),
+            token_decimals,
         };
 
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
@@ -461,6 +463,7 @@ mod tests {
             1_000_000_000,
             100_000_000,
             Some(creator),
+            0,
         );
         assert_eq!(result.status, TransactionStatus::Success);
         assert!(executor.get_launch_by_mint(&mint).is_some());
@@ -479,6 +482,7 @@ mod tests {
             1_000_000_000,
             100_000_000,
             Some(creator),
+            0,
         );
         let r = executor.create_launch(
             creator,
@@ -490,6 +494,7 @@ mod tests {
             1_000_000_000,
             100_000_000,
             Some(creator),
+            0,
         );
         assert!(matches!(r.status, TransactionStatus::Reverted(_)));
     }
@@ -507,6 +512,7 @@ mod tests {
             1_000_000_000,
             100_000_000,
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -531,6 +537,7 @@ mod tests {
             1_000_000_000,
             10_000, // Very low max
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -549,11 +556,13 @@ mod tests {
             LaunchType::BondingCurve {
                 base_price: 100,
                 slope: 1,
+                price_scale: 1,
             },
             10_000,
             10_000_000,
             u64::MAX,
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -578,6 +587,7 @@ mod tests {
             100_000, // Low target
             u64::MAX,
             Some(creator),
+            0,
         );
 
         // Participate enough to reach target
@@ -616,6 +626,7 @@ mod tests {
             100_000,
             u64::MAX,
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -639,6 +650,7 @@ mod tests {
             100_000,
             u64::MAX,
             Some(creator),
+            0,
         );
 
         let r = executor.finalize(creator, mint);
@@ -658,6 +670,7 @@ mod tests {
             1_000_000_000,
             u64::MAX,
             Some(creator),
+            0,
         );
 
         let buyer1 = Address([2u8; 20]);
@@ -685,6 +698,7 @@ mod tests {
             u64::MAX,
             u64::MAX, // no per-address limit
             Some(creator),
+            0,
         );
 
         let buyer1 = Address([2u8; 20]);
@@ -725,11 +739,13 @@ mod tests {
             LaunchType::BondingCurve {
                 base_price: 100,
                 slope: 1,
+                price_scale: 1,
             },
             10_000,
             10_000_000,
             u64::MAX, // unlimited per-address
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -779,6 +795,7 @@ mod tests {
             1_000_000_000,
             max_per_address,
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
@@ -820,11 +837,13 @@ mod tests {
             LaunchType::BondingCurve {
                 base_price: u64::MAX / 2,
                 slope: u64::MAX / 2,
+                price_scale: 1,
             },
             1_000_000,
             u64::MAX,
             u64::MAX,
             Some(creator),
+            0,
         );
 
         // Manually corrupt tokens_sold to a high value that will cause
@@ -857,6 +876,7 @@ mod tests {
             1_000_000_000,
             100_000_000,
             Some(creator),
+            0,
         );
 
         let buyer = Address([2u8; 20]);
