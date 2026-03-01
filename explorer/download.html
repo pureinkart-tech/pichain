@@ -192,6 +192,21 @@ pre .c { color: var(--dim); }
     </div>
   </div>
 
+  <!-- macOS Gatekeeper fix -->
+  <div id="macos-fix" style="display:none;margin-bottom:32px;">
+    <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:var(--radius);padding:20px 24px;">
+      <h3 style="color:var(--gold);font-size:16px;margin-bottom:10px;">macOS: "PIChain Miner is damaged and can't be opened"</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:12px;">This is a macOS Gatekeeper warning because the app isn't signed with an Apple Developer certificate (we're an open-source project). The app is safe &mdash; you can verify the source on <a href="https://github.com/pureinkart-tech/pichain" target="_blank" rel="noopener">GitHub</a>.</p>
+      <p style="color:var(--text);font-size:14px;font-weight:600;margin-bottom:8px;">Fix: Open Terminal and run:</p>
+      <pre style="margin:0 0 12px;font-size:13px;"><span class="c"># For the desktop app (.dmg):</span>
+<span class="c"># After mounting the DMG + dragging to Applications:</span>
+xattr -cr /Applications/PIChain\ Miner.app
+
+<span class="c"># Or right-click the app → Open → click "Open" in the dialog</span></pre>
+      <p style="color:var(--dim);font-size:12px;">This removes the quarantine flag that macOS adds to downloaded files. You only need to do this once.</p>
+    </div>
+  </div>
+
   <!-- ===== CLI Downloads (Advanced) ===== -->
   <h2 style="font-size:18px;font-weight:700;margin-bottom:8px;text-align:center;color:var(--muted);">CLI Miner (Advanced)</h2>
   <p style="color:var(--dim);font-size:13px;text-align:center;margin-bottom:20px;">Command-line version for servers and power users. Requires terminal.</p>
@@ -544,6 +559,12 @@ if (el) {
   badge.className = 'badge';
   badge.textContent = 'Recommended for you';
   el.insertBefore(badge, el.children[1]);
+}
+
+// Show macOS Gatekeeper fix section on Mac
+if (detectedOS === 'macos') {
+  const macFix = document.getElementById('macos-fix');
+  if (macFix) macFix.style.display = 'block';
 }
 
 // Auto-select the matching instructions tab

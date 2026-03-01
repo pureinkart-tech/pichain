@@ -5,7 +5,7 @@
 //! algorithm, and submits mining proof transactions to earn rewards.
 //!
 //! Usage:
-//!   pichain-miner --keypair wallet.json --rpc-url http://127.0.0.1:3140
+//!   pichain-miner --keypair wallet.json --rpc-url https://pichain.net
 
 use clap::Parser;
 use pichain_crypto::Keypair;
@@ -33,7 +33,8 @@ use tracing::{error, info, warn};
 #[command(name = "pichain-miner", version, about)]
 struct Args {
     /// RPC endpoint of the PIChain node.
-    #[arg(long, default_value = "http://127.0.0.1:3140")]
+    /// Use https://pichain.net for the public node, or http://127.0.0.1:8314 for a local node.
+    #[arg(long, default_value = "https://pichain.net")]
     rpc_url: String,
 
     /// Path to the keypair file (hex-encoded secret key).
@@ -258,7 +259,7 @@ async fn auto_faucet(client: &reqwest::Client, rpc_url: &str, address_hex: &str)
             Ok(acct) if acct.found && acct.balance > 0 => {
                 info!(
                     balance = acct.balance,
-                    balance_pi = acct.balance / 1_000_000_000,
+                    balance_pi = format!("{:.3}", acct.balance as f64 / 1e9),
                     "Wallet has balance, no faucet needed"
                 );
                 return;
@@ -282,7 +283,7 @@ async fn auto_faucet(client: &reqwest::Client, rpc_url: &str, address_hex: &str)
             Ok(result) if result.success => {
                 info!(
                     amount = result.amount,
-                    pi = result.amount / 1_000_000_000,
+                    pi = format!("{:.3}", result.amount as f64 / 1e9),
                     "Faucet claim successful"
                 );
             }

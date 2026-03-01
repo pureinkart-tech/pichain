@@ -5420,6 +5420,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "hex",
+ "libc",
  "num_cpus",
  "pichain-crypto",
  "pichain-mining",

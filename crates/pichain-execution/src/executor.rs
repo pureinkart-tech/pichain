@@ -881,14 +881,26 @@ impl TransactionExecutor {
             }
         }
 
-        if sender.available_balance() < total_cost {
+        // For balance check: fees can come from available_balance + locked_balance,
+        // but transfer amounts can only come from available_balance (locked is fee-only).
+        let fee_capable = sender.fee_balance();
+        let transfer_capable = sender.available_balance();
+        let can_afford = if transfer_amount > 0 {
+            // Need: available_balance >= transfer_amount AND
+            // fee_balance >= total_fee + transfer_amount
+            transfer_capable >= transfer_amount && fee_capable >= total_cost
+        } else {
+            fee_capable >= total_cost
+        };
+
+        if !can_afford {
             return ExecutionResult {
                 tx_hash,
                 effect: TransactionEffect {
                     tx_hash,
                     status: TransactionStatus::Reverted(format!(
-                        "insufficient balance: need {total_cost}, have {}",
-                        sender.available_balance()
+                        "insufficient balance: need {total_cost}, have {} (+ {} locked for fees)",
+                        sender.available_balance(), sender.locked_balance
                     )),
                     gas_used,
                     base_fee,
@@ -933,35 +945,42 @@ impl TransactionExecutor {
             };
         }
 
-        sender.balance = match sender.balance.checked_sub(total_fee) {
-            Some(v) => v,
-            None => {
-                // Should never happen — balance was already validated above.
-                // Return error rather than silently underflow.
-                return ExecutionResult {
-                    tx_hash,
-                    effect: TransactionEffect {
+        // Deduct fees: first from regular balance, then overflow from locked_balance.
+        // locked_balance is non-transferable PI granted on wallet activation, only usable for fees.
+        if sender.balance >= total_fee {
+            sender.balance -= total_fee;
+        } else {
+            let remainder = total_fee - sender.balance;
+            sender.balance = 0;
+            sender.locked_balance = match sender.locked_balance.checked_sub(remainder) {
+                Some(v) => v,
+                None => {
+                    // Should never happen — fee_balance was validated above.
+                    return ExecutionResult {
                         tx_hash,
-                        status: TransactionStatus::Reverted(format!(
-                            "fee underflow: balance {} < fee {}",
-                            sender.balance, total_fee
-                        )),
-                        gas_used,
-                        base_fee,
-                        created_objects: vec![],
-                        modified_objects: vec![],
-                        deleted_objects: vec![],
-                        events: vec![],
-                    },
-                    state_changes,
-                    pi_burned: 0,
-                    pi_minted: 0,
-                    proposer_reward: 0,
-                    miner_fee: 0,
-                    state_reads: vec![],
-                };
-            }
-        };
+                        effect: TransactionEffect {
+                            tx_hash,
+                            status: TransactionStatus::Reverted(format!(
+                                "fee underflow: balance {} + locked {} < fee {}",
+                                sender.balance, sender.locked_balance, total_fee
+                            )),
+                            gas_used,
+                            base_fee,
+                            created_objects: vec![],
+                            modified_objects: vec![],
+                            deleted_objects: vec![],
+                            events: vec![],
+                        },
+                        state_changes,
+                        pi_burned: 0,
+                        pi_minted: 0,
+                        proposer_reward: 0,
+                        miner_fee: 0,
+                        state_reads: vec![],
+                    };
+                }
+            };
+        }
         // Safe: nonce overflow was checked above.
         sender.nonce += 1;
 

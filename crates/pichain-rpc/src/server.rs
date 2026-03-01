@@ -268,6 +268,12 @@ pub trait StateProvider: Send + Sync + 'static {
         Err("faucet not available".to_string())
     }
 
+    /// Activate a wallet: grant 3.14 PI locked (non-transferable, fee-only).
+    /// Returns the locked amount granted, or error if already activated.
+    fn activate_wallet(&self, _address: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
+        Err("wallet activation not available".to_string())
+    }
+
     // --- Launchpad / token listing queries ---
 
     /// List all token launches.
@@ -427,6 +433,7 @@ impl RpcServer {
             .route("/api/v1/receipt/:hash", get(get_receipt))
             .route("/api/v1/blocks", get(get_block_range))
             .route("/api/v1/faucet", post(claim_faucet))
+            .route("/api/v1/wallet/activate", post(activate_wallet))
             // Token endpoints
             .route("/api/v1/token/:mint_id", get(get_token_info))
             .route(
@@ -1055,6 +1062,7 @@ struct AccountResponse {
     balance_pi: String,
     nonce: u64,
     staked: u64,
+    locked_balance: u64,
     found: bool,
 }
 
@@ -1087,6 +1095,7 @@ async fn get_account(
                             balance_pi,
                             nonce: account.state.nonce,
                             staked: account.state.staked,
+                            locked_balance: account.state.locked_balance,
                             found: true,
                         }));
                     }
@@ -1101,6 +1110,7 @@ async fn get_account(
         balance_pi: "0.0".to_string(),
         nonce: 0,
         staked: 0,
+        locked_balance: 0,
         found: false,
     }))
 }
@@ -1251,6 +1261,73 @@ async fn claim_faucet(
         error: Some("faucet unavailable".to_string()),
         address: req.address,
     }))
+}
+
+// --- Wallet activation handler ---
+
+#[derive(Deserialize)]
+struct ActivateRequest {
+    address: String,
+}
+
+#[derive(Serialize)]
+struct ActivateResponse {
+    success: bool,
+    locked_amount: u64,
+    locked_amount_pi: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    address: String,
+}
+
+async fn activate_wallet(
+    State(state): State<Arc<RpcState>>,
+    Json(req): Json<ActivateRequest>,
+) -> (StatusCode, Json<ActivateResponse>) {
+    let fail = |status: StatusCode, err: String, addr: String| {
+        (status, Json(ActivateResponse {
+            success: false,
+            locked_amount: 0,
+            locked_amount_pi: "0".to_string(),
+            error: Some(err),
+            address: addr,
+        }))
+    };
+
+    if let Some(provider) = &state.state_provider {
+        let hex_str = strip_0x(&req.address);
+        if hex_str.len() != 40 {
+            return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string(), req.address);
+        }
+        if let Ok(addr_bytes) = hex::decode(hex_str) {
+            if addr_bytes.len() == 20 {
+                let mut arr = [0u8; 20];
+                arr.copy_from_slice(&addr_bytes);
+                let address = pichain_crypto::ed25519::Address(arr);
+
+                match provider.activate_wallet(&address) {
+                    Ok(amount) => {
+                        return (StatusCode::OK, Json(ActivateResponse {
+                            success: true,
+                            locked_amount: amount,
+                            locked_amount_pi: format!(
+                                "{}.{:09}",
+                                amount / 1_000_000_000,
+                                amount % 1_000_000_000
+                            ),
+                            error: None,
+                            address: req.address,
+                        }));
+                    }
+                    Err(e) => {
+                        return fail(StatusCode::UNPROCESSABLE_ENTITY, e, req.address);
+                    }
+                }
+            }
+        }
+    }
+
+    fail(StatusCode::SERVICE_UNAVAILABLE, "activation unavailable".to_string(), req.address)
 }
 
 // --- Receipt handler ---

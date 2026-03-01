@@ -15,6 +15,13 @@ pub struct WalletInfo {
     pub path: String,
 }
 
+#[derive(Serialize, Clone)]
+pub struct CreateWalletResult {
+    pub address: String,
+    pub path: String,
+    pub secret_key: String,
+}
+
 pub fn default_wallet_dir() -> PathBuf {
     dirs_or_home().join(".pichain")
 }
@@ -27,7 +34,7 @@ fn dirs_or_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
-pub fn create_wallet(save_path: &str) -> Result<WalletInfo, String> {
+pub fn create_wallet(save_path: &str) -> Result<CreateWalletResult, String> {
     let path = PathBuf::from(save_path);
 
     if path.exists() {
@@ -44,9 +51,10 @@ pub fn create_wallet(save_path: &str) -> Result<WalletInfo, String> {
 
     let kp = Keypair::generate();
     let address = hex::encode(kp.address().0);
+    let secret_key_hex = hex::encode(kp.secret.to_bytes());
 
     let wallet = WalletFile {
-        secret_key: hex::encode(kp.secret.to_bytes()),
+        secret_key: secret_key_hex.clone(),
         address: Some(address.clone()),
     };
 
@@ -61,14 +69,22 @@ pub fn create_wallet(save_path: &str) -> Result<WalletInfo, String> {
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
 
-    Ok(WalletInfo {
+    Ok(CreateWalletResult {
         address,
         path: path.display().to_string(),
+        secret_key: secret_key_hex,
     })
 }
 
 pub fn import_wallet(secret_key_hex: &str, save_path: &str) -> Result<WalletInfo, String> {
     let path = PathBuf::from(save_path);
+
+    if path.exists() {
+        return Err(format!(
+            "Wallet already exists at '{}'. Remove it first or choose a different path.",
+            path.display()
+        ));
+    }
 
     let secret_bytes =
         hex::decode(secret_key_hex.trim()).map_err(|e| format!("Invalid hex: {e}"))?;

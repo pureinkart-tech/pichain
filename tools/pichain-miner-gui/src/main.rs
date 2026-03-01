@@ -7,7 +7,7 @@ mod wallet;
 use miner::MiningConfig;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
 use tokio::sync::Mutex;
 
 // ---------- App state ----------
@@ -16,6 +16,7 @@ struct AppState {
     running: Arc<AtomicBool>,
     mining_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     wallet_path: Mutex<Option<String>>,
+    http_client: reqwest::Client,
 }
 
 impl Default for AppState {
@@ -24,6 +25,11 @@ impl Default for AppState {
             running: Arc::new(AtomicBool::new(false)),
             mining_task: Mutex::new(None),
             wallet_path: Mutex::new(None),
+            http_client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_default(),
         }
     }
 }
@@ -36,7 +42,7 @@ async fn get_wallet_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn create_wallet(save_path: String) -> Result<wallet::WalletInfo, String> {
+async fn create_wallet(save_path: String) -> Result<wallet::CreateWalletResult, String> {
     wallet::create_wallet(&save_path)
 }
 
@@ -64,31 +70,46 @@ async fn check_wallet_exists(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn get_balance(rpc_url: String, address: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
-    let resp = client
+async fn get_balance(
+    state: State<'_, AppState>,
+    rpc_url: String,
+    address: String,
+) -> Result<serde_json::Value, String> {
+    let resp = state
+        .http_client
         .get(format!("{}/api/v1/account/{}", rpc_url, address))
         .send()
         .await
         .map_err(|e| format!("Request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Server error: HTTP {}", resp.status()));
+    }
     let acct: miner::AccountResponse =
         resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     Ok(serde_json::json!({
         "balance": acct.balance,
         "nonce": acct.nonce,
         "found": acct.found,
+        "locked_balance": acct.locked_balance.unwrap_or(0),
     }))
 }
 
 #[tauri::command]
-async fn get_mining_status(rpc_url: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
-    let resp = client
+async fn get_mining_status(
+    state: State<'_, AppState>,
+    rpc_url: String,
+) -> Result<serde_json::Value, String> {
+    let resp = state
+        .http_client
         .get(format!("{}/api/v1/mining/status", rpc_url))
         .send()
         .await
         .map_err(|e| format!("Cannot reach node: {e}"))?;
-    let status: miner::MiningStatus = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Server error: HTTP {}", resp.status()));
+    }
+    let status: miner::MiningStatus =
+        resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     Ok(serde_json::json!({
         "frontier_position": status.frontier_position,
         "total_digits_verified": status.total_digits_verified,
@@ -99,15 +120,22 @@ async fn get_mining_status(rpc_url: String) -> Result<serde_json::Value, String>
 }
 
 #[tauri::command]
-async fn claim_faucet(rpc_url: String, address: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+async fn claim_faucet(
+    state: State<'_, AppState>,
+    rpc_url: String,
+    address: String,
+) -> Result<serde_json::Value, String> {
     let body = serde_json::json!({ "address": address });
-    let resp = client
+    let resp = state
+        .http_client
         .post(format!("{}/api/v1/faucet", rpc_url))
         .json(&body)
         .send()
         .await
         .map_err(|e| format!("Request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Server error: HTTP {}", resp.status()));
+    }
     let result: miner::FaucetResponse =
         resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     Ok(serde_json::json!({
@@ -166,6 +194,49 @@ async fn is_mining(state: State<'_, AppState>) -> Result<bool, String> {
 }
 
 #[tauri::command]
+async fn export_wallet_key(state: State<'_, AppState>) -> Result<String, String> {
+    let path = state.wallet_path.lock().await;
+    let path = path
+        .as_deref()
+        .ok_or_else(|| "No wallet loaded".to_string())?;
+    let (kp, _info) = wallet::load_wallet(path)?;
+    Ok(hex::encode(kp.secret.to_bytes()))
+}
+
+#[tauri::command]
+async fn reset_wallet(state: State<'_, AppState>) -> Result<String, String> {
+    if state.running.load(Ordering::Relaxed) {
+        return Err("Stop mining before resetting wallet".to_string());
+    }
+    let mut path = state.wallet_path.lock().await;
+    if let Some(p) = path.take() {
+        let _ = std::fs::remove_file(&p);
+    }
+    Ok("Wallet reset".to_string())
+}
+
+#[tauri::command]
+async fn activate_wallet(
+    state: State<'_, AppState>,
+    rpc_url: String,
+    address: String,
+) -> Result<serde_json::Value, String> {
+    let body = serde_json::json!({ "address": address });
+    let resp = state
+        .http_client
+        .post(format!("{}/api/v1/wallet/activate", rpc_url))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+    let result: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))?;
+    Ok(result)
+}
+
+#[tauri::command]
 async fn get_system_info() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "cpu_cores": num_cpus::get(),
@@ -191,8 +262,22 @@ fn main() {
             start_mining,
             stop_mining,
             is_mining,
+            export_wallet_key,
+            reset_wallet,
+            activate_wallet,
             get_system_info,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Graceful shutdown: stop mining before closing
+                let state = window.state::<AppState>();
+                if state.running.load(Ordering::Relaxed) {
+                    state.running.store(false, Ordering::Relaxed);
+                    // Give the mining loop a moment to notice the flag
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running PIChain Miner");
 }

@@ -41,6 +41,10 @@ pub struct AccountState {
     pub unbonding_height: u64,
     /// Data size in bytes (for state rent calculation).
     pub data_size: u64,
+    /// Non-transferable PI balance, usable only for gas fees.
+    /// Granted on wallet activation (3.14 PI) and cannot be sent to other accounts.
+    #[serde(default)]
+    pub locked_balance: PiAmount,
 }
 
 impl AccountState {
@@ -60,6 +64,7 @@ impl AccountState {
             unbonding: 0,
             unbonding_height: 0,
             data_size: 0,
+            locked_balance: 0,
         }
     }
 
@@ -101,13 +106,19 @@ impl AccountState {
         Ok(())
     }
 
-    /// Total available balance (balance minus staked and unbonding).
-    /// Unbonding funds are locked until the unbonding period completes,
-    /// so they must not be spendable.
+    /// Total available balance for transfers (balance minus staked and unbonding).
+    /// Does NOT include locked_balance (which is fee-only, non-transferable).
     pub fn available_balance(&self) -> PiAmount {
         self.balance
             .saturating_sub(self.staked)
             .saturating_sub(self.unbonding)
+    }
+
+    /// Total balance available for paying gas fees (includes locked_balance).
+    /// locked_balance can only be used for fees, never for transfers.
+    pub fn fee_balance(&self) -> PiAmount {
+        self.available_balance()
+            .saturating_add(self.locked_balance)
     }
 }
 
@@ -199,5 +210,29 @@ mod tests {
         acct.unbonding = 600;
         // 1_000 - 500 - 600 = -100 -> saturates to 0
         assert_eq!(acct.available_balance(), 0);
+    }
+
+    #[test]
+    fn fee_balance_includes_locked() {
+        let mut acct = AccountState::with_balance(5_000);
+        acct.staked = 1_000;
+        acct.locked_balance = 3_140_000_000; // 3.14 PI locked
+        assert_eq!(acct.available_balance(), 4_000); // locked NOT included
+        assert_eq!(acct.fee_balance(), 4_000 + 3_140_000_000); // locked IS included
+    }
+
+    #[test]
+    fn locked_balance_default_zero() {
+        let acct = AccountState::new();
+        assert_eq!(acct.locked_balance, 0);
+        assert_eq!(acct.fee_balance(), 0);
+    }
+
+    #[test]
+    fn locked_balance_backwards_compat() {
+        // Simulate loading an old account without locked_balance field
+        let json = r#"{"balance":1000,"nonce":0,"code_hash":null,"storage_root":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"staked":0,"delegate":null,"unbonding":0,"unbonding_height":0,"data_size":0}"#;
+        let state: AccountState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.locked_balance, 0);
     }
 }

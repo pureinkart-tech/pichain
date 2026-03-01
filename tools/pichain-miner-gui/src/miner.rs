@@ -36,6 +36,8 @@ pub struct AccountResponse {
     pub balance: u64,
     pub nonce: u64,
     pub found: bool,
+    #[serde(default)]
+    pub locked_balance: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -117,14 +119,30 @@ impl MiningConfig {
 }
 
 fn now_ts() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs() % 86400;
-    let h = secs / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    format!("{h:02}:{m:02}:{s:02}")
+    // Use chrono-free local time: get UTC seconds and apply system offset
+    #[cfg(unix)]
+    {
+        use std::mem::MaybeUninit;
+        unsafe {
+            let epoch = libc::time(std::ptr::null_mut());
+            let mut tm = MaybeUninit::<libc::tm>::uninit();
+            libc::localtime_r(&epoch, tm.as_mut_ptr());
+            let tm = tm.assume_init();
+            format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // Fallback: UTC time (Windows Tauri builds can add chrono later)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs() % 86400;
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        let s = secs % 60;
+        format!("{h:02}:{m:02}:{s:02}")
+    }
 }
 
 fn emit_log(app: &AppHandle, message: &str, level: &str) {
@@ -154,16 +172,19 @@ pub async fn mining_loop(
         .build()
         .unwrap_or_default();
 
-    // Configure rayon
-    let _ = rayon::ThreadPoolBuilder::new()
+    // Build a per-session thread pool so profile changes take effect on restart
+    let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(config.threads)
-        .build_global();
+        .build()
+        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
     let mut local_nonce: Option<u64> = None;
     let mut total_digits: u64 = 0;
     let mut proofs_submitted: u64 = 0;
     let mut proofs_confirmed: u64 = 0;
     let mut loop_count: u64 = 0;
+    let mut last_known_balance: u64 = 0;
+    let mut consecutive_errors: u32 = 0;
     let session_start = std::time::Instant::now();
 
     emit_log(
@@ -196,7 +217,7 @@ pub async fn mining_loop(
                 digits_computed: total_digits,
                 proofs_submitted,
                 proofs_confirmed,
-                balance: 0,
+                balance: last_known_balance,
                 uptime_secs: uptime,
                 digits_per_sec: dps,
                 state: "fetching".to_string(),
@@ -210,25 +231,42 @@ pub async fn mining_loop(
             .send()
             .await
         {
-            Ok(resp) => match resp.json::<MiningStatus>().await {
-                Ok(s) => s,
-                Err(e) => {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    consecutive_errors += 1;
+                    let delay = 5u64.min(2u64.saturating_pow(consecutive_errors)).max(2);
                     emit_log(
                         &app,
-                        &format!("Failed to parse mining status: {e}"),
+                        &format!("Node returned HTTP {} — retrying in {}s", resp.status(), delay),
                         "error",
                     );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     continue;
                 }
-            },
+                match resp.json::<MiningStatus>().await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        consecutive_errors += 1;
+                        let delay = 5u64.min(2u64.saturating_pow(consecutive_errors)).max(2);
+                        emit_log(
+                            &app,
+                            &format!("Failed to parse mining status: {e} — retrying in {}s", delay),
+                            "error",
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                        continue;
+                    }
+                }
+            }
             Err(e) => {
+                consecutive_errors += 1;
+                let delay = 5u64.min(2u64.saturating_pow(consecutive_errors)).max(2);
                 emit_log(
                     &app,
-                    &format!("Cannot reach node: {e} — retrying in 5s"),
+                    &format!("Cannot reach node: {e} — retrying in {}s", delay),
                     "error",
                 );
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                 continue;
             }
         };
@@ -283,8 +321,16 @@ pub async fn mining_loop(
         };
 
         // 2. Get account nonce + balance
+        // Re-query balance periodically (every 10 rounds) even when nonce is cached
         let (nonce, balance) = if let Some(n) = local_nonce {
-            (n, 0u64)
+            // Periodic balance check (non-blocking, doesn't reset nonce)
+            let bal = if loop_count % 10 == 0 {
+                match client.get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex)).send().await {
+                    Ok(resp) => resp.json::<AccountResponse>().await.ok().map(|a| a.balance).unwrap_or(0),
+                    Err(_) => 0,
+                }
+            } else { 0 };
+            (n, bal)
         } else {
             match client
                 .get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex))
@@ -315,6 +361,7 @@ pub async fn mining_loop(
                 Err(_) => (0, 0),
             }
         };
+        if balance > 0 { last_known_balance = balance; }
 
         emit_log(
             &app,
@@ -353,18 +400,20 @@ pub async fn mining_loop(
         let compute_start = std::time::Instant::now();
 
         let batches: Vec<(u64, u32, Vec<u8>)> = if effective_batch_count == 1 {
-            let digits = BbpComputer::compute_hex_digits_parallel(position, effective_batch_size);
+            let digits = pool.install(|| BbpComputer::compute_hex_digits_parallel(position, effective_batch_size));
             vec![(position, effective_batch_size, digits)]
         } else {
             use rayon::prelude::*;
-            (0..effective_batch_count)
-                .into_par_iter()
-                .map(|i| {
-                    let pos = position.saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
-                    let digits = BbpComputer::compute_hex_digits_parallel(pos, effective_batch_size);
-                    (pos, effective_batch_size, digits)
-                })
-                .collect()
+            pool.install(|| {
+                (0..effective_batch_count)
+                    .into_par_iter()
+                    .map(|i| {
+                        let pos = position.saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
+                        let digits = BbpComputer::compute_hex_digits_parallel(pos, effective_batch_size);
+                        (pos, effective_batch_size, digits)
+                    })
+                    .collect()
+            })
         };
 
         let compute_time = compute_start.elapsed();
@@ -470,11 +519,12 @@ pub async fn mining_loop(
                             total_digits += batch_digit_count as u64;
                             let reward =
                                 (mining_status.reward_per_digit as f64 * batch_digit_count as f64) / 1e9;
+                            let tx_short = &result.tx_hash[..result.tx_hash.len().min(12)];
                             emit_log(
                                 &app,
                                 &format!(
                                     "Proof submitted! tx:{} +{:.4} PI",
-                                    &result.tx_hash[..12],
+                                    tx_short,
                                     reward
                                 ),
                                 "success",
@@ -511,6 +561,7 @@ pub async fn mining_loop(
             local_nonce = Some(current_nonce);
         }
 
+        consecutive_errors = 0; // Reset backoff on successful round
         loop_count += 1;
 
         // Update stats after round
@@ -539,20 +590,40 @@ pub async fn mining_loop(
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    // Final stats
+    // Session summary
     let uptime = session_start.elapsed().as_secs();
     let dps = if uptime > 0 {
         total_digits as f64 / uptime as f64
     } else {
         0.0
     };
+    let h = uptime / 3600;
+    let m = (uptime % 3600) / 60;
+    let s = uptime % 60;
+    let uptime_str = if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{}s", s)
+    };
+    emit_log(
+        &app,
+        &format!(
+            "Session summary: {} digits, {}/{} proofs confirmed, {:.1} digits/sec, uptime {}",
+            total_digits, proofs_confirmed, proofs_submitted, dps, uptime_str
+        ),
+        "info",
+    );
+
+    // Final stats emit
     let _ = app.emit(
         "mining-stats",
         MiningStats {
             digits_computed: total_digits,
             proofs_submitted,
             proofs_confirmed,
-            balance: 0,
+            balance: last_known_balance,
             uptime_secs: uptime,
             digits_per_sec: dps,
             state: "idle".to_string(),

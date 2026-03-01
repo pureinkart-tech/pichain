@@ -468,6 +468,30 @@ impl StateStore {
 
         Ok(())
     }
+
+    // --- Wallet activation tracking ---
+
+    /// Check if an address has already been activated (received locked PI grant).
+    pub fn is_wallet_activated(&self, address: &Address) -> Result<bool, StorageError> {
+        let key = activation_key(address);
+        Ok(self.db.get_state(&key)?.is_some())
+    }
+
+    /// Mark an address as activated.
+    pub fn mark_wallet_activated(&mut self, address: &Address) -> Result<(), StorageError> {
+        let key = activation_key(address);
+        self.db.put_state(&key, &[1])?;
+        Ok(())
+    }
+}
+
+/// Create a RocksDB key for wallet activation tracking.
+/// Prefix 'w' + 20-byte address.
+fn activation_key(address: &Address) -> Vec<u8> {
+    let mut key = Vec::with_capacity(21);
+    key.push(b'w');
+    key.extend_from_slice(&address.0);
+    key
 }
 
 /// Create a RocksDB key for an account address.

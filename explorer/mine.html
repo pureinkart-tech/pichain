@@ -171,6 +171,21 @@ pre .c { color: var(--dim); }
 
 .footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 48px; padding: 24px; border-top: 1px solid var(--border); }
 
+/* Toast notifications */
+.toast-container { position: fixed; top: 80px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; animation: toastIn 0.3s ease, toastOut 0.3s ease 3.7s forwards; max-width: 360px; }
+.toast.success { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+.toast.error { background: rgba(251,113,133,0.15); color: var(--rose); border: 1px solid rgba(251,113,133,0.3); }
+.toast.info { background: rgba(99,102,241,0.15); color: var(--accent-light); border: 1px solid rgba(99,102,241,0.3); }
+@keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* Inline error message */
+.inline-error { color: var(--rose); font-size: 12px; margin-top: -8px; margin-bottom: 12px; display: none; }
+
+/* Button loading state */
+.btn.loading { pointer-events: none; opacity: 0.6; }
+
 @media (max-width: 768px) {
   .nav-links { display: none; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -241,9 +256,15 @@ pre .c { color: var(--dim); }
         <div class="card">
           <h3>Your Wallet</h3>
           <div style="font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;">Address</div>
-          <div class="wallet-addr" id="wallet-address"></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="wallet-addr" id="wallet-address" style="flex:1;margin:8px 0;"></div>
+            <button class="btn btn-secondary" onclick="copyAddress()" style="padding:8px 12px;font-size:12px;white-space:nowrap;" title="Copy address">Copy</button>
+          </div>
           <div class="wallet-balance" id="wallet-balance">0.000</div>
           <div class="wallet-balance-label">PI Balance</div>
+          <div id="locked-balance-row" style="font-size:12px;color:var(--gold);margin-top:4px;display:none;">
+            <span id="locked-balance">0.000</span> PI locked (fees only)
+          </div>
           <div class="wallet-actions">
             <button class="btn btn-secondary" onclick="requestFaucet()">Get Testnet PI</button>
             <button class="btn btn-secondary" onclick="exportWallet()">Export Key</button>
@@ -259,12 +280,12 @@ pre .c { color: var(--dim); }
           <div style="margin-top:16px;" class="mining-controls">
             <div class="control-group">
               <label>Threads</label>
-              <input type="range" id="thread-count" min="1" max="8" value="2" oninput="document.getElementById('thread-label').textContent=this.value">
+              <input type="range" id="thread-count" min="1" max="8" value="2" oninput="document.getElementById('thread-label').textContent=this.value;saveSettings()">
               <span id="thread-label" style="font-size:14px;color:var(--text);text-align:center;">2</span>
             </div>
             <div class="control-group">
               <label>Batch Size</label>
-              <select id="batch-size">
+              <select id="batch-size" onchange="saveSettings()">
                 <option value="10">10 digits (fast)</option>
                 <option value="20" selected>20 digits</option>
                 <option value="50">50 digits</option>
@@ -627,6 +648,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
     <h3>Import Wallet</h3>
     <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">Paste your 64-character hex secret key (32 bytes):</p>
     <input type="text" id="import-seed" placeholder="e.g. a1b2c3d4e5f6..." maxlength="64" spellcheck="false" autocomplete="off">
+    <div class="inline-error" id="import-error"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="hideImportModal()">Cancel</button>
       <button class="btn btn-primary" onclick="importWallet()">Import</button>
@@ -658,10 +680,12 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
   </div>
 </div>
 
+<div class="toast-container" id="toast-container"></div>
+
 <div class="footer">PIChain &mdash; Computing the Infinite</div>
 
 <!-- Ed25519 library -->
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js" integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp" crossorigin="anonymous"></script>
 
 <script>
 // =====================================================================
@@ -737,6 +761,37 @@ const BLAKE3 = (() => {
 // =====================================================================
 // UTILITY FUNCTIONS
 // =====================================================================
+// Toast notifications
+function showToast(msg, type='info') {
+  const c = document.getElementById('toast-container');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// Settings persistence
+function saveSettings() {
+  const threads = document.getElementById('thread-count');
+  const batch = document.getElementById('batch-size');
+  if (threads) localStorage.setItem('pichain_mine_threads', threads.value);
+  if (batch) localStorage.setItem('pichain_mine_batch', batch.value);
+}
+function loadSettings() {
+  const threads = localStorage.getItem('pichain_mine_threads');
+  const batch = localStorage.getItem('pichain_mine_batch');
+  if (threads) {
+    const el = document.getElementById('thread-count');
+    if (el) { el.value = threads; document.getElementById('thread-label').textContent = threads; }
+  }
+  if (batch) {
+    const el = document.getElementById('batch-size');
+    if (el) el.value = batch;
+  }
+}
+
 function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
 function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
 function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<8;i++)buf[i]=Number((big>>BigInt(i*8))&0xFFn);return buf;}
@@ -753,7 +808,7 @@ let accountNonce=0, accountBalance=0;
 
 function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
 
-function createWallet(){initWallet(nacl.randomBytes(32));}
+function createWallet(){initWallet(nacl.randomBytes(32));showToast('Wallet created! Your key is stored in this browser.','success');}
 
 function initWallet(seed){
   walletSeed=seed;
@@ -769,17 +824,56 @@ function initWallet(seed){
   const sl=document.getElementById('thread-count');
   sl.max=Math.min(maxT,16);sl.value=Math.min(2,maxT);
   document.getElementById('thread-label').textContent=sl.value;
+  activateWallet();
   updateBalance();
   addLog('Wallet ready: 0x'+walletAddressHex,'info');
 }
 
-function showImportModal(){document.getElementById('import-modal').classList.add('active');}
+async function activateWallet(){
+  if(!walletAddressHex)return;
+  try{
+    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const d=await r.json();
+    if(d.success){
+      addLog('Wallet activated! +'+d.locked_amount_pi+' PI locked for gas fees','success');
+      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
+      refreshBalance();
+    }else if(d.error){
+      addLog('Wallet activation: '+d.error,'info');
+    }
+  }catch(e){
+    addLog('Could not activate wallet (node may be unreachable)','warn');
+  }
+}
+
+function showImportModal(){
+  document.getElementById('import-modal').classList.add('active');
+  document.getElementById('import-seed').value='';
+  const err=document.getElementById('import-error');if(err)err.style.display='none';
+}
 function hideImportModal(){document.getElementById('import-modal').classList.remove('active');}
 
 function importWallet(){
   const hex=document.getElementById('import-seed').value.trim().replace(/^0x/,'');
-  if(!/^[0-9a-fA-F]{64}$/.test(hex)){alert('Invalid seed. Must be 64 hex characters.');return;}
-  hideImportModal();initWallet(hexDecode(hex));addLog('Wallet imported','info');
+  const err=document.getElementById('import-error');
+  if(!/^[0-9a-fA-F]{64}$/.test(hex)){
+    if(err){err.textContent='Invalid seed. Must be 64 hex characters (32 bytes).';err.style.display='block';}
+    return;
+  }
+  if(err)err.style.display='none';
+  hideImportModal();initWallet(hexDecode(hex));addLog('Wallet imported','info');showToast('Wallet imported successfully','success');
+}
+
+function copyAddress(){
+  if(!walletAddressHex)return;
+  navigator.clipboard.writeText('0x'+walletAddressHex).then(()=>{
+    showToast('Address copied!','success');
+  }).catch(()=>{
+    // Fallback: select the address text
+    const el=document.getElementById('wallet-address');
+    if(el){const range=document.createRange();range.selectNodeContents(el);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);}
+    showToast('Select and copy the address manually','info');
+  });
 }
 
 function exportWallet(){
@@ -805,7 +899,13 @@ async function refreshBalance(){
     const d=await r.json();
     accountBalance=d.balance||0;
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
+    updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
+}
+function updateLockedDisplay(locked){
+  const row=document.getElementById('locked-balance-row');
+  if(locked>0){document.getElementById('locked-balance').textContent=(locked/1e9).toFixed(3);row.style.display='block';}
+  else{row.style.display='none';}
 }
 // Full sync: balance + nonce from on-chain state. Only call when NOT mining
 // or when starting a new mining session (before first proof submission).
@@ -816,17 +916,21 @@ async function updateBalance(){
     const d=await r.json();
     accountBalance=d.balance||0;accountNonce=d.nonce||0;
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
+    updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
 }
 
 async function requestFaucet(){
   if(!walletAddressHex)return;
+  const btn=document.querySelector('[onclick="requestFaucet()"]');
+  if(btn){btn.classList.add('loading');btn.textContent='Claiming...';}
   try{
     const r=await fetch(API+'/api/v1/faucet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
     const d=await r.json();
-    if(d.success){addLog('Faucet: received '+d.amount_pi+' PI','success');updateBalance();}
-    else addLog('Faucet: '+(d.error||'failed'),'error');
-  }catch(e){addLog('Faucet error: '+e.message,'error');}
+    if(d.success){addLog('Faucet: received '+d.amount_pi+' PI','success');showToast('Received '+d.amount_pi+' PI from faucet!','success');updateBalance();}
+    else{addLog('Faucet: '+(d.error||'failed'),'error');showToast('Faucet: '+(d.error||'failed'),'error');}
+  }catch(e){addLog('Faucet error: '+e.message,'error');showToast('Faucet error: '+e.message,'error');}
+  finally{if(btn){btn.classList.remove('loading');btn.textContent='Get Testnet PI';}}
 }
 
 // =====================================================================
@@ -891,6 +995,7 @@ let proofsAccepted=0, proofsConfirmed=0, proofsFailed=0;
 let miningStartBalance=0;
 let browserMiningPosition=0;
 let roundStartTime=0, roundDigitsTotal=0, roundDigitsDone=0;
+let consecutiveErrors=0;
 
 function addLog(msg,type=''){
   const el=document.getElementById('log');
@@ -922,6 +1027,7 @@ async function refreshNetStats(){
       fetch(API+'/api/v1/mining/status'),
       fetch(API+'/api/v1/info')
     ]);
+    if(!sr.ok||!ir.ok)throw new Error('HTTP error');
     const m=await sr.json();
     const info=await ir.json();
     currentStatus=m;
@@ -930,7 +1036,13 @@ async function refreshNetStats(){
     document.getElementById('n-reward').textContent=(m.reward_per_digit/1e9).toFixed(6);
     document.getElementById('n-height').textContent=Number(info.block_height).toLocaleString();
     document.getElementById('n-difficulty').textContent=m.difficulty_bits+'-bit';
-  }catch(e){}
+    // Connection indicator
+    const dot=document.getElementById('status-dot');
+    if(dot&&!isMining){dot.className='status-dot mining';document.getElementById('status-text').textContent='Connected';}
+  }catch(e){
+    const dot=document.getElementById('status-dot');
+    if(dot&&!isMining){dot.className='status-dot idle';document.getElementById('status-text').textContent='Offline';}
+  }
 }
 refreshNetStats();
 setInterval(refreshNetStats,8000);
@@ -973,17 +1085,40 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 function stopMining(){
+  if(!isMining)return;
   isMining=false;workers.forEach(w=>w.terminate());workers=[];pendingWorkers=0;
   document.getElementById('mine-btn').textContent='Start Mining';
   document.getElementById('mine-btn').className='btn btn-success';
   document.getElementById('status-dot').className='status-dot idle';
   document.getElementById('status-text').textContent='Idle';
+  document.getElementById('thread-count').disabled=false;
+  document.getElementById('batch-size').disabled=false;
   hideRoundProgress();
+  // Session summary
+  if(miningStartTime>0){
+    const elapsed=Math.round((Date.now()-miningStartTime)/1000);
+    const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60),s=elapsed%60;
+    const uptime=h>0?h+'h '+m+'m '+s+'s':m>0?m+'m '+s+'s':s+'s';
+    const speed=elapsed>0?(totalDigits/elapsed).toFixed(1):'0';
+    addLog('Session: '+totalDigits.toLocaleString()+' digits, '+proofsConfirmed+'/'+proofsAccepted+' proofs, '+(totalEarned/1e9).toFixed(4)+' PI earned, '+speed+' d/s, '+uptime,'info');
+  }
   addLog('Mining stopped','info');
+  refreshBalance();
 }
 
 async function startMining(){
   if(!walletKeypair)return;
+  // Pre-flight: verify RPC is reachable
+  document.getElementById('status-text').textContent='Connecting...';
+  try{
+    const r=await fetch(API+'/api/v1/mining/status',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+  }catch(e){
+    addLog('Cannot reach node at '+API+': '+e.message,'error');
+    showToast('Cannot reach PIChain node. Check your connection.','error');
+    document.getElementById('status-text').textContent='Idle';
+    return;
+  }
   // Sync nonce from on-chain ONCE before mining starts
   await updateBalance();
   isMining=true;miningRound=0;miningStartTime=Date.now();
@@ -992,6 +1127,8 @@ async function startMining(){
   miningStartBalance=accountBalance;
   document.getElementById('mine-btn').textContent='Stop Mining';
   document.getElementById('mine-btn').className='btn btn-danger';
+  document.getElementById('thread-count').disabled=true;
+  document.getElementById('batch-size').disabled=true;
   document.getElementById('status-dot').className='status-dot mining';
   document.getElementById('status-text').textContent='Starting...';
   addLog('Mining started (nonce: '+accountNonce+')','success');
@@ -1003,6 +1140,7 @@ async function miningLoop(){
   miningRound++;
   try{
     const sr=await fetch(API+'/api/v1/mining/status');
+    if(!sr.ok)throw new Error('Node returned HTTP '+sr.status);
     currentStatus=await sr.json();
     await refreshBalance(); // balance only — nonce managed locally during mining
 
@@ -1010,6 +1148,16 @@ async function miningLoop(){
     const threadCount=parseInt(document.getElementById('thread-count').value);
     const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
     const maxBatch=currentStatus.max_batch_at_position||Infinity;
+
+    // Clamp batch size to available gap to avoid oversized batches being rejected
+    if(maxBatch<batchSize&&maxBatch>=10){
+      addLog('Capping batch to '+maxBatch+' digits (gap size)','info');
+      batchSize=maxBatch;
+    } else if(maxBatch<10){
+      addLog('Gap too small (< 10 digits), waiting...','info');
+      if(isMining)setTimeout(miningLoop,5000);
+      return;
+    }
 
     // On first round, compute a unique starting position for this browser miner.
     // BBP algorithm is O(n) per digit — at position 2M each digit takes ~0.7s in JS,
@@ -1025,10 +1173,21 @@ async function miningLoop(){
       addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1000).toFixed(0)+'K ahead of frontier)','info');
     }
 
+    // Capture round-local snapshot of status to avoid race conditions
+    // (currentStatus may be updated by refreshNetStats polling mid-round)
+    const roundStatus={
+      anchor_block_hash:currentStatus.anchor_block_hash||'0'.repeat(64),
+      difficulty_target_hex:currentStatus.difficulty_target_hex||'00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+      base_fee:currentStatus.base_fee||1000,
+      reward_per_digit:currentStatus.reward_per_digit||0
+    };
+
     const position=browserMiningPosition;
     roundStartTime=Date.now();
     roundDigitsTotal=batchSize*threadCount;
     roundDigitsDone=0;
+    const workerProgress=new Array(threadCount).fill(0);
+    let workersCompleted=0;
     updateRoundProgress(0,roundDigitsTotal);
     addLog('Round '+miningRound+': '+roundDigitsTotal+' digits at position '+position.toLocaleString());
 
@@ -1039,25 +1198,33 @@ async function miningLoop(){
     for(let t=0;t<threadCount;t++){
       const w=createBBPWorker();workers.push(w);
       const startPos=position+t*batchSize;
+      const workerId=t;
 
       w.onmessage=async function(e){
         if(e.data.type==='progress'){
-          roundDigitsDone=e.data.done;
-          updateRoundProgress(e.data.done,e.data.total);
-          document.getElementById('status-text').textContent='Computing '+e.data.done+'/'+e.data.total;
+          workerProgress[workerId]=e.data.done;
+          const totalDone=workerProgress.reduce((a,b)=>a+b,0);
+          updateRoundProgress(totalDone,roundDigitsTotal);
+          document.getElementById('status-text').textContent='Computing '+totalDone+'/'+roundDigitsTotal;
           return;
         }
         const{digits,startPosition,count}=e.data;
-        roundDigitsDone=count;
-        updateRoundProgress(roundDigitsTotal,roundDigitsTotal);
-        const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
-        document.getElementById('status-text').textContent='Submitting proof...';
-        document.getElementById('rp-detail').textContent='Computed in '+roundSec+'s — submitting proof...';
+        workerProgress[workerId]=count;
+        workersCompleted++;
+        const totalDone=workerProgress.reduce((a,b)=>a+b,0);
+        updateRoundProgress(totalDone,roundDigitsTotal);
+        if(workersCompleted<threadCount){
+          document.getElementById('status-text').textContent='Computing '+totalDone+'/'+roundDigitsTotal;
+        } else {
+          const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
+          document.getElementById('status-text').textContent='Submitting proof...';
+          document.getElementById('rp-detail').textContent='Computed in '+roundSec+'s — submitting proof...';
+        }
         totalDigits+=count;updateStats();
 
-        const anchorHash=hexDecode(currentStatus.anchor_block_hash||'0'.repeat(64));
-        const targetHex=currentStatus.difficulty_target_hex||'00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-        const target=hexDecode(targetHex);
+        // Use round-local snapshot, not potentially-stale currentStatus
+        const anchorHash=hexDecode(roundStatus.anchor_block_hash);
+        const target=hexDecode(roundStatus.difficulty_target_hex);
 
         const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,100000);
         if(nonce===null){addLog('PoW not found','error');pendingWorkers--;checkRoundDone();return;}
@@ -1079,9 +1246,12 @@ async function miningLoop(){
       w.onerror=function(){pendingWorkers--;checkRoundDone();};
       w.postMessage({startPosition:startPos,count:batchSize,id:t});
     }
+    consecutiveErrors=0; // Reset on successful round start
   }catch(err){
-    addLog('Error: '+err.message,'error');
-    if(isMining)setTimeout(miningLoop,5000);
+    consecutiveErrors++;
+    const delay=Math.min(30000,Math.pow(2,consecutiveErrors)*1000);
+    addLog('Error: '+err.message+' — retrying in '+(delay/1000)+'s','error');
+    if(isMining)setTimeout(miningLoop,delay);
   }
 }
 
@@ -1090,7 +1260,7 @@ function checkRoundDone(){
     const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
     document.getElementById('status-text').textContent='Mining';
     document.getElementById('rp-detail').textContent='Round completed in '+roundSec+'s';
-    updateBalance();
+    refreshBalance(); // balance only — nonce managed locally during mining
     setTimeout(miningLoop,1000);
   }
 }
@@ -1158,6 +1328,7 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({signed_tx_hex:hexStr})
   });
+  if(!res.ok)throw new Error('Submit HTTP '+res.status);
   const result=await res.json();
   if(result.status==='pending'){accountNonce++;return result.tx_hash;}
   else throw new Error(result.error||result.status||'rejected');
@@ -1169,6 +1340,7 @@ async function checkReceipt(txHash,digitCount){
   const maxRetries=80;
   const interval=3000;
   for(let i=0;i<maxRetries;i++){
+    if(!isMining&&i>5){addLog('Receipt check cancelled (mining stopped)','info');return;}
     await new Promise(r=>setTimeout(r,interval));
     try{
       const r=await fetch(API+'/api/v1/receipt/'+txHash);
@@ -1241,11 +1413,24 @@ function switchBuild(id){
   switchOS(os);
 })();
 
-// Restore saved wallet
+// Restore saved settings and wallet
 (function(){
+  loadSettings();
   const s=localStorage.getItem('pichain_wallet_seed');
   if(s&&/^[0-9a-fA-F]{64}$/.test(s))initWallet(hexDecode(s));
 })();
+
+// Keyboard handling: Escape closes modals, click-outside dismisses
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    document.querySelectorAll('.modal-overlay.active').forEach(m=>m.classList.remove('active'));
+  }
+});
+document.querySelectorAll('.modal-overlay').forEach(overlay=>{
+  overlay.addEventListener('click',function(e){
+    if(e.target===overlay)overlay.classList.remove('active');
+  });
+});
 </script>
 </body>
 </html>

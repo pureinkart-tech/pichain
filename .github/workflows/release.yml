@@ -116,16 +116,17 @@ jobs:
           cp target/${{ matrix.target }}/release/bundle/appimage/*.AppImage dist/${{ matrix.artifact }}.AppImage 2>/dev/null || true
           cp target/${{ matrix.target }}/release/bundle/deb/*.deb dist/${{ matrix.artifact }}.deb 2>/dev/null || true
 
-      - name: Collect macOS artifacts
+      - name: Sign and collect macOS artifacts
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
+          # Ad-hoc sign the .app bundle (inside the bundle dir, before DMG creation already did it,
+          # but we re-sign with --deep to cover all nested frameworks/binaries)
+          APP_PATH=$(find target/${{ matrix.target }}/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
+          if [ -n "$APP_PATH" ]; then
+            codesign --sign - --force --deep "$APP_PATH"
+          fi
           cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
-
-      - name: Ad-hoc sign macOS artifact
-        if: runner.os == 'macOS'
-        run: |
-          for f in dist/*.dmg; do codesign --sign - --force "$f" 2>/dev/null || true; done
 
       - name: Collect Windows artifacts
         if: runner.os == 'Windows'

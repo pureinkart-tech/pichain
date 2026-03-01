@@ -23,5 +23,8 @@ reqwest = { version = "0.12", features = ["json"] }
 tauri = { version = "2", features = [] }
 dirs = "6.0.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

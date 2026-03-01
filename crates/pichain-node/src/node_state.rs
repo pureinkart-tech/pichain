@@ -1115,6 +1115,59 @@ impl StateProvider for NodeState {
         Ok(faucet_amount)
     }
 
+    fn activate_wallet(&self, address: &Address) -> Result<u64, String> {
+        // 3.14 PI in base units (1 PI = 1_000_000_000)
+        let locked_grant: u64 = 3_140_000_000;
+
+        // Check if already activated (read lock first for fast path)
+        {
+            let store = self.store.read();
+            if store.is_wallet_activated(address).unwrap_or(false) {
+                return Err("wallet already activated".to_string());
+            }
+        }
+
+        // Write lock for atomic check-and-set
+        let mut store = self.store.write();
+
+        // Re-check under write lock (TOCTOU protection)
+        if store.is_wallet_activated(address).unwrap_or(false) {
+            return Err("wallet already activated".to_string());
+        }
+
+        // Load or create account
+        let mut account = store
+            .get_account(address)
+            .map_err(|e| format!("storage error: {e}"))?
+            .unwrap_or_else(|| Account::new(*address));
+
+        // Grant locked balance
+        account.state.locked_balance = account
+            .state
+            .locked_balance
+            .checked_add(locked_grant)
+            .ok_or("locked balance overflow")?;
+
+        // Persist account + activation flag
+        store
+            .put_account(&account)
+            .map_err(|e| format!("storage error: {e}"))?;
+        store
+            .mark_wallet_activated(address)
+            .map_err(|e| format!("storage error: {e}"))?;
+
+        // Update executor cache
+        self.executor.set_account(*address, account.state);
+
+        info!(
+            %address,
+            locked_amount = locked_grant,
+            "wallet activated with locked PI grant"
+        );
+
+        Ok(locked_grant)
+    }
+
     fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> {
         let in_mem = self.executor.launchpad_executor().all_launches();
         if !in_mem.is_empty() {

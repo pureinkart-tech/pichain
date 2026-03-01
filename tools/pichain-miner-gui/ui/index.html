@@ -68,6 +68,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 .control-group label { font-size: 11px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 .control-group select, .control-group input { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: 13px; width: 100%; -webkit-app-region: no-drag; }
 .control-group select:focus, .control-group input:focus { outline: none; border-color: var(--accent); }
+.control-group select:disabled, .control-group input:disabled { opacity: 0.5; cursor: not-allowed; }
 .mine-btn-wrap { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 
 /* Status indicator */
@@ -79,13 +80,14 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* Stats grid */
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
 .stat-val { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .stat-val.purple { color: var(--accent-light); }
 .stat-val.cyan { color: var(--cyan); }
 .stat-val.green { color: var(--green); }
 .stat-val.gold { color: var(--gold); }
+.stat-val.white { color: var(--text); }
 .stat-label { font-size: 10px; color: var(--dim); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* Log */
@@ -100,12 +102,23 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 /* Modal */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; }
 .modal-overlay.active { display: flex; }
-.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 480px; width: 90%; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 520px; width: 90%; }
 .modal h3 { margin-bottom: 16px; font-size: 18px; }
 .modal input[type=text], .modal input[type=password] { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; color: var(--text); font-family: monospace; font-size: 13px; margin-bottom: 12px; -webkit-app-region: no-drag; }
 .modal input::placeholder { color: var(--dim); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .modal p { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
+/* Secret key display */
+.secret-key-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; color: var(--rose); word-break: break-all; margin: 8px 0 12px; user-select: all; -webkit-app-region: no-drag; cursor: text; }
+.warning-box { background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.3); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 12px; font-size: 12px; color: var(--rose); line-height: 1.6; }
+
+/* Toast notification */
+.toast { position: fixed; top: 64px; right: 24px; z-index: 300; padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; opacity: 0; transform: translateX(100%); transition: all 0.3s ease; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateX(0); }
+.toast.success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: var(--green); }
+.toast.error { background: rgba(251,113,133,0.15); border: 1px solid rgba(251,113,133,0.4); color: var(--rose); }
+.toast.warn { background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.4); color: var(--gold); }
 
 /* Responsive */
 @media (max-width: 700px) {
@@ -116,13 +129,22 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 </head>
 <body>
 
+<!-- Toast notification container -->
+<div class="toast" id="toast"></div>
+
 <!-- Header -->
 <div class="header">
   <div class="header-left">
     <div class="pi-sym">&pi;</div>
     <h1>PIChain Miner</h1>
   </div>
-  <span class="version">v0.1.0</span>
+  <div style="display:flex;align-items:center;gap:10px;-webkit-app-region:no-drag;">
+    <div class="status" id="conn-status" title="Node connection status">
+      <div class="status-dot idle" id="conn-dot"></div>
+      <span id="conn-text" style="font-size:11px;color:var(--dim);">Offline</span>
+    </div>
+    <span class="version">v0.1.0</span>
+  </div>
 </div>
 
 <!-- Setup screen (shown when no wallet loaded) -->
@@ -130,12 +152,13 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
   <div class="setup">
     <div class="pi-big">&pi;</div>
     <h2>Welcome to PIChain Miner</h2>
-    <p>Mine PI digits and earn PI tokens. Create a wallet to get started, or import an existing one.</p>
+    <p>Compute PI digits and earn PI tokens by contributing to the PIChain network. Create a new wallet to get started, or import an existing one.</p>
     <div class="setup-actions">
-      <button class="btn btn-primary btn-lg" onclick="doCreateWallet()">Create New Wallet</button>
+      <button class="btn btn-primary btn-lg" id="create-wallet-btn" onclick="doCreateWallet()">Create New Wallet</button>
       <button class="btn btn-secondary btn-lg" onclick="showImportModal()">Import Wallet</button>
     </div>
     <p style="font-size:12px;color:var(--dim);margin-top:8px;" id="setup-status"></p>
+    <p style="font-size:11px;color:var(--dim);margin-top:4px;">Your wallet is saved locally. Free testnet PI will be claimed automatically.</p>
   </div>
 </div>
 
@@ -147,17 +170,22 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <div class="card" style="flex:2;">
       <h3>Wallet</h3>
       <div class="wallet-addr">
-        <span id="wallet-address">—</span>
+        <span id="wallet-address">&mdash;</span>
         <button class="copy-btn" onclick="copyAddress()" title="Copy address">&#x1f4cb;</button>
       </div>
       <div class="wallet-actions">
-        <button class="btn btn-secondary btn-sm" onclick="refreshBalance()">Refresh</button>
-        <button class="btn btn-secondary btn-sm" onclick="doFaucet()">Faucet</button>
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" onclick="refreshBalance()">Refresh</button>
+        <button class="btn btn-secondary btn-sm" id="faucet-btn" onclick="doFaucet()">Faucet (Free PI)</button>
+        <button class="btn btn-secondary btn-sm" onclick="doExportKey()">Export Key</button>
+        <button class="btn btn-danger btn-sm" onclick="doResetWallet()">Reset Wallet</button>
       </div>
     </div>
     <div class="card" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
       <div class="wallet-balance" id="wallet-balance">0.000</div>
       <div class="wallet-balance-unit">PI Balance</div>
+      <div id="locked-balance-row" style="margin-top:6px;font-size:12px;color:var(--gold);display:none;">
+        <span id="locked-balance">0.000</span> PI locked (fees only)
+      </div>
     </div>
   </div>
 
@@ -167,20 +195,20 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <div class="controls-row">
       <div class="control-group">
         <label>RPC Endpoint</label>
-        <input type="text" id="rpc-url" value="http://127.0.0.1:8314" placeholder="http://host:port">
+        <input type="text" id="rpc-url" value="https://pichain.net" placeholder="https://pichain.net" title="Public node: https://pichain.net. Local node: http://127.0.0.1:8314">
       </div>
       <div class="control-group">
         <label>Profile</label>
-        <select id="profile" onchange="updateProfileWarning()">
+        <select id="profile" onchange="updateProfileWarning(); saveSettings();" title="Controls how much CPU power mining uses">
           <option value="laptop">Laptop (2 threads, light)</option>
           <option value="desktop" selected>Desktop (half CPU)</option>
-          <option value="server">Server (all CPU)</option>
-          <option value="max">Max (all CPU + large batches)</option>
+          <option value="server">Server (all CPU cores)</option>
+          <option value="max">Max (all cores + large batches)</option>
         </select>
       </div>
       <div class="control-group" style="flex:0.5;">
         <label>Chain ID</label>
-        <input type="text" id="chain-id" value="31415">
+        <input type="text" id="chain-id" value="31415" title="31415 for testnet/devnet">
       </div>
     </div>
     <div id="profile-warning" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);font-size:12px;color:var(--gold);display:none;">
@@ -203,7 +231,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     </div>
     <div class="stat-card">
       <div class="stat-val cyan" id="stat-proofs">0 / 0</div>
-      <div class="stat-label">Proofs (OK / Sent)</div>
+      <div class="stat-label">Accepted / Sent</div>
     </div>
     <div class="stat-card">
       <div class="stat-val green" id="stat-earned">0.0000</div>
@@ -212,6 +240,10 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <div class="stat-card">
       <div class="stat-val gold" id="stat-rate">0</div>
       <div class="stat-label">Digits / sec</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val white" id="stat-uptime">0:00</div>
+      <div class="stat-label">Uptime</div>
     </div>
   </div>
 
@@ -228,9 +260,42 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <h3>Import Wallet</h3>
     <p>Enter your 64-character hex secret key:</p>
     <input type="password" id="import-key" placeholder="secret key (64 hex characters)">
+    <div id="import-error" style="color:var(--rose);font-size:12px;margin-bottom:8px;display:none;"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="hideImportModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="doImportWallet()">Import</button>
+      <button class="btn btn-primary" id="import-btn" onclick="doImportWallet()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Wallet backup warning modal (shown after creation) -->
+<div class="modal-overlay" id="backup-modal">
+  <div class="modal">
+    <h3 style="color:var(--rose);">Back Up Your Secret Key</h3>
+    <div class="warning-box">
+      <strong>IMPORTANT:</strong> This is the ONLY time your secret key will be shown. If you lose it, your wallet and all PI tokens are gone forever. No one can recover it for you.
+    </div>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:4px;">Your secret key:</p>
+    <div class="secret-key-box" id="backup-secret-key"></div>
+    <p style="font-size:12px;">Save this key somewhere safe (password manager, encrypted file, written down). Your wallet file is at <span style="color:var(--cyan);font-family:monospace;font-size:11px;" id="backup-wallet-path"></span></p>
+    <div style="display:flex;align-items:center;gap:8px;margin:12px 0;">
+      <input type="checkbox" id="backup-ack" style="-webkit-app-region:no-drag;cursor:pointer;">
+      <label for="backup-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I have saved my secret key</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary btn-sm" onclick="copySecretKey()">Copy Key</button>
+      <button class="btn btn-primary" id="backup-proceed" onclick="dismissBackupModal()" disabled>Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Error/info modal (replaces alert()) -->
+<div class="modal-overlay" id="info-modal">
+  <div class="modal">
+    <h3 id="info-modal-title">Notice</h3>
+    <p id="info-modal-message"></p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="document.getElementById('info-modal').classList.remove('active')">OK</button>
     </div>
   </div>
 </div>
@@ -269,42 +334,90 @@ let walletPath = '';
 let isMining = false;
 let estimatedEarned = 0;
 let lastRewardPerDigit = 0;
+let pendingSecretKey = ''; // temporary, cleared after backup modal
+
+// ---------- Settings persistence ----------
+
+function saveSettings() {
+  try {
+    localStorage.setItem('pichain-settings', JSON.stringify({
+      rpcUrl: document.getElementById('rpc-url').value,
+      profile: document.getElementById('profile').value,
+      chainId: document.getElementById('chain-id').value,
+    }));
+  } catch (e) { /* ignore */ }
+}
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('pichain-settings'));
+    if (s) {
+      if (s.rpcUrl) document.getElementById('rpc-url').value = s.rpcUrl;
+      if (s.profile) document.getElementById('profile').value = s.profile;
+      if (s.chainId) document.getElementById('chain-id').value = s.chainId;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// Auto-save RPC and chain ID on change
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('rpc-url').addEventListener('change', saveSettings);
+  document.getElementById('chain-id').addEventListener('change', saveSettings);
+});
+
+// ---------- Toast notifications ----------
+
+function showToast(msg, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'toast ' + type + ' show';
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ---------- Modal helpers (replaces alert()) ----------
+
+function showInfoModal(title, message) {
+  document.getElementById('info-modal-title').textContent = title;
+  document.getElementById('info-modal-message').textContent = message;
+  document.getElementById('info-modal').classList.add('active');
+}
 
 // ---------- Initialization ----------
 
 async function init() {
+  loadSettings();
+  updateProfileWarning();
+
   try {
-    // Get default wallet path
     walletPath = await invoke('get_wallet_path');
 
-    // Check if wallet already exists
     const exists = await invoke('check_wallet_exists', { path: walletPath });
     if (exists) {
       await loadExistingWallet();
     }
 
-    // Get system info for profile auto-select
-    const sys = await invoke('get_system_info');
-    if (sys.cpu_cores <= 4) {
-      document.getElementById('profile').value = 'laptop';
-    } else if (sys.cpu_cores <= 8) {
-      document.getElementById('profile').value = 'desktop';
-    } else {
-      document.getElementById('profile').value = 'server';
+    // Get system info for profile auto-select (only if no saved setting)
+    if (!localStorage.getItem('pichain-settings')) {
+      const sys = await invoke('get_system_info');
+      if (sys.cpu_cores <= 4) {
+        document.getElementById('profile').value = 'laptop';
+      } else if (sys.cpu_cores <= 8) {
+        document.getElementById('profile').value = 'desktop';
+      } else {
+        document.getElementById('profile').value = 'server';
+      }
+      updateProfileWarning();
     }
-
   } catch (e) {
     console.error('Init error:', e);
   }
 
-  // Listen for mining events
-  listen('mining-stats', (event) => {
-    updateStats(event.payload);
-  });
+  // Check connection on startup
+  checkConnection();
 
-  listen('mining-log', (event) => {
-    appendLog(event.payload);
-  });
+  // Listen for mining events
+  listen('mining-stats', (event) => updateStats(event.payload));
+  listen('mining-log', (event) => appendLog(event.payload));
 }
 
 async function loadExistingWallet() {
@@ -312,28 +425,94 @@ async function loadExistingWallet() {
     const info = await invoke('load_wallet', { path: walletPath });
     walletAddress = info.address;
     showMiningScreen();
+    await activateWallet(); // Activates if not already done (idempotent)
     await refreshBalance();
   } catch (e) {
     console.error('Failed to load wallet:', e);
   }
 }
 
+// ---------- Wallet activation (3.14 PI locked grant) ----------
+
+async function activateWallet() {
+  if (!walletAddress) return;
+  try {
+    const rpc = document.getElementById('rpc-url').value;
+    const result = await invoke('activate_wallet', { rpcUrl: rpc, address: walletAddress });
+    if (result.success) {
+      const amt = result.locked_amount_pi || '3.14';
+      appendLog({ timestamp: now(), message: 'Wallet activated! +' + amt + ' PI locked for gas fees', level: 'success' });
+      showToast('+' + amt + ' PI locked for gas fees!', 'success');
+    } else {
+      const err = result.error || 'already activated';
+      appendLog({ timestamp: now(), message: 'Wallet activation: ' + err, level: 'warn' });
+    }
+  } catch (e) {
+    appendLog({ timestamp: now(), message: 'Could not activate wallet (node may be unreachable)', level: 'warn' });
+  }
+}
+
 // ---------- Wallet operations ----------
 
 async function doCreateWallet() {
+  const btn = document.getElementById('create-wallet-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
   try {
     walletPath = await invoke('get_wallet_path');
-    const info = await invoke('create_wallet', { savePath: walletPath });
-    walletAddress = info.address;
+    const result = await invoke('create_wallet', { savePath: walletPath });
+    walletAddress = result.address;
+    pendingSecretKey = result.secret_key;
     showMiningScreen();
     appendLog({ timestamp: now(), message: 'New wallet created: ' + walletAddress, level: 'success' });
+    // Show backup warning with secret key
+    showBackupModal(result.secret_key, result.path);
+    // Activate wallet to get 3.14 PI locked grant for gas fees
+    await activateWallet();
     await refreshBalance();
   } catch (e) {
     document.getElementById('setup-status').textContent = 'Error: ' + e;
   }
+  btn.disabled = false;
+  btn.textContent = 'Create New Wallet';
 }
 
+// ---------- Backup modal ----------
+
+function showBackupModal(secretKey, path) {
+  document.getElementById('backup-secret-key').textContent = secretKey;
+  document.getElementById('backup-wallet-path').textContent = path;
+  document.getElementById('backup-ack').checked = false;
+  document.getElementById('backup-proceed').disabled = true;
+  document.getElementById('backup-modal').classList.add('active');
+}
+
+function dismissBackupModal() {
+  document.getElementById('backup-modal').classList.remove('active');
+  document.getElementById('backup-secret-key').textContent = '';
+  pendingSecretKey = '';
+  showToast('Wallet ready! You can start mining.', 'success');
+}
+
+function copySecretKey() {
+  const key = document.getElementById('backup-secret-key').textContent;
+  navigator.clipboard.writeText(key);
+  showToast('Secret key copied to clipboard', 'warn');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ack = document.getElementById('backup-ack');
+  if (ack) {
+    ack.addEventListener('change', () => {
+      document.getElementById('backup-proceed').disabled = !ack.checked;
+    });
+  }
+});
+
+// ---------- Import / other wallet ops ----------
+
 function showImportModal() {
+  document.getElementById('import-error').style.display = 'none';
   document.getElementById('import-modal').classList.add('active');
   document.getElementById('import-key').focus();
 }
@@ -341,14 +520,20 @@ function showImportModal() {
 function hideImportModal() {
   document.getElementById('import-modal').classList.remove('active');
   document.getElementById('import-key').value = '';
+  document.getElementById('import-error').style.display = 'none';
 }
 
 async function doImportWallet() {
   const key = document.getElementById('import-key').value.trim();
-  if (key.length !== 64) {
-    alert('Secret key must be exactly 64 hex characters');
+  const errEl = document.getElementById('import-error');
+  if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
+    errEl.textContent = 'Secret key must be exactly 64 hex characters (0-9, a-f).';
+    errEl.style.display = 'block';
     return;
   }
+  const btn = document.getElementById('import-btn');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
   try {
     walletPath = await invoke('get_wallet_path');
     const info = await invoke('import_wallet', { secretKey: key, savePath: walletPath });
@@ -356,10 +541,15 @@ async function doImportWallet() {
     hideImportModal();
     showMiningScreen();
     appendLog({ timestamp: now(), message: 'Wallet imported: ' + walletAddress, level: 'success' });
+    showToast('Wallet imported successfully!', 'success');
+    await activateWallet();
     await refreshBalance();
   } catch (e) {
-    alert('Import failed: ' + e);
+    errEl.textContent = 'Import failed: ' + e;
+    errEl.style.display = 'block';
   }
+  btn.disabled = false;
+  btn.textContent = 'Import';
 }
 
 function showMiningScreen() {
@@ -370,35 +560,60 @@ function showMiningScreen() {
 
 async function refreshBalance() {
   if (!walletAddress) return;
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
   try {
     const rpc = document.getElementById('rpc-url').value;
     const data = await invoke('get_balance', { rpcUrl: rpc, address: walletAddress });
     const bal = (data.balance || 0) / 1e9;
     document.getElementById('wallet-balance').textContent = bal.toFixed(3);
+    // Show locked balance if present
+    const locked = data.locked_balance || 0;
+    const lockedRow = document.getElementById('locked-balance-row');
+    if (locked > 0) {
+      document.getElementById('locked-balance').textContent = (locked / 1e9).toFixed(3);
+      lockedRow.style.display = 'block';
+    } else {
+      lockedRow.style.display = 'none';
+    }
   } catch (e) {
     console.error('Balance fetch error:', e);
   }
+  btn.disabled = false;
+  btn.textContent = 'Refresh';
 }
 
 async function doFaucet() {
+  const btn = document.getElementById('faucet-btn');
+  btn.disabled = true;
+  btn.textContent = 'Claiming...';
   try {
     const rpc = document.getElementById('rpc-url').value;
     const result = await invoke('claim_faucet', { rpcUrl: rpc, address: walletAddress });
     if (result.success) {
-      appendLog({ timestamp: now(), message: 'Faucet claimed! +' + (result.amount / 1e9).toFixed(3) + ' PI', level: 'success' });
+      const amt = (result.amount / 1e9).toFixed(3);
+      appendLog({ timestamp: now(), message: 'Faucet claimed! +' + amt + ' PI', level: 'success' });
+      showToast('+' + amt + ' PI from faucet!', 'success');
       await refreshBalance();
     } else {
-      appendLog({ timestamp: now(), message: 'Faucet: ' + (result.error || 'failed'), level: 'error' });
+      const msg = result.error || 'Failed to claim';
+      appendLog({ timestamp: now(), message: 'Faucet: ' + msg, level: 'error' });
+      showToast('Faucet: ' + msg, 'error');
     }
   } catch (e) {
     appendLog({ timestamp: now(), message: 'Faucet error: ' + e, level: 'error' });
+    showToast('Cannot reach faucet. Is the node running?', 'error');
   }
+  btn.disabled = false;
+  btn.textContent = 'Faucet (Free PI)';
 }
 
 function copyAddress() {
   navigator.clipboard.writeText(walletAddress);
   const btn = document.querySelector('.copy-btn');
   btn.textContent = '\u2713';
+  showToast('Address copied!', 'success');
   setTimeout(() => btn.innerHTML = '&#x1f4cb;', 1500);
 }
 
@@ -414,10 +629,39 @@ function updateProfileWarning() {
   }
 }
 
+function setControlsLocked(locked) {
+  document.getElementById('rpc-url').disabled = locked;
+  document.getElementById('profile').disabled = locked;
+  document.getElementById('chain-id').disabled = locked;
+}
+
 async function toggleMining() {
   if (isMining) {
     await stopMining();
   } else {
+    // Pre-flight: check RPC is reachable before showing CPU warning
+    const rpc = document.getElementById('rpc-url').value.trim();
+    if (!rpc) {
+      showInfoModal('Missing RPC URL', 'Please enter a PIChain node RPC endpoint (e.g. https://pichain.net).');
+      return;
+    }
+
+    const btn = document.getElementById('mine-btn');
+    btn.disabled = true;
+    btn.textContent = 'Checking node...';
+    try {
+      const status = await invoke('get_mining_status', { rpcUrl: rpc });
+      if (status) {
+        appendLog({ timestamp: now(), message: 'Node connected (frontier: ' + (status.frontier_position || 0).toLocaleString() + ')', level: 'info' });
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.innerHTML = '&#x25B6; Start Mining';
+      showInfoModal('Cannot Reach Node', 'Failed to connect to ' + rpc + '. Make sure the PIChain node is running and the RPC URL is correct.\n\nError: ' + e);
+      return;
+    }
+    btn.disabled = false;
+    btn.innerHTML = '&#x25B6; Start Mining';
     showMiningWarning();
   }
 }
@@ -425,10 +669,10 @@ async function toggleMining() {
 function showMiningWarning() {
   const profile = document.getElementById('profile').value;
   const profileDesc = {
-    'laptop': 'Laptop — uses 2 CPU threads (minimal impact)',
-    'desktop': 'Desktop — uses half your CPU cores (moderate impact)',
-    'server': 'Server — uses ALL CPU cores (heavy impact)',
-    'max': 'Max — uses ALL CPU cores with large batches (maximum impact)',
+    'laptop': 'Laptop \u2014 uses 2 CPU threads (minimal impact)',
+    'desktop': 'Desktop \u2014 uses half your CPU cores (moderate impact)',
+    'server': 'Server \u2014 uses ALL CPU cores (heavy impact)',
+    'max': 'Max \u2014 uses ALL CPU cores with large batches (maximum impact)',
   };
   document.getElementById('cpu-warning-profile').innerHTML =
     '<strong>Selected profile:</strong> ' + (profileDesc[profile] || profile);
@@ -461,6 +705,8 @@ async function startMining() {
   const profile = document.getElementById('profile').value;
   const chainId = parseInt(document.getElementById('chain-id').value) || 31415;
 
+  saveSettings();
+
   try {
     await invoke('start_mining', {
       rpcUrl: rpc,
@@ -471,8 +717,10 @@ async function startMining() {
     isMining = true;
     estimatedEarned = 0;
     updateMineButton();
+    setControlsLocked(true);
   } catch (e) {
     appendLog({ timestamp: now(), message: 'Start failed: ' + e, level: 'error' });
+    showToast('Failed to start mining', 'error');
   }
 }
 
@@ -483,11 +731,14 @@ async function stopMining() {
     await invoke('stop_mining');
     isMining = false;
     updateMineButton();
+    setControlsLocked(false);
+    showToast('Mining stopped', 'warn');
     await refreshBalance();
   } catch (e) {
     appendLog({ timestamp: now(), message: 'Stop error: ' + e, level: 'error' });
   }
   document.getElementById('mine-btn').disabled = false;
+  // Summary is emitted by the Rust backend as a mining-log event
 }
 
 function updateMineButton() {
@@ -503,10 +754,21 @@ function updateMineButton() {
 
 // ---------- Stats & Log ----------
 
+function formatUptime(secs) {
+  if (secs < 60) return '0:' + String(secs).padStart(2, '0');
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m < 60) return m + ':' + String(s).padStart(2, '0');
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return h + ':' + String(rm).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
 function updateStats(s) {
   document.getElementById('stat-digits').textContent = s.digits_computed.toLocaleString();
   document.getElementById('stat-proofs').textContent = s.proofs_confirmed + ' / ' + s.proofs_submitted;
   document.getElementById('stat-rate').textContent = s.digits_per_sec.toFixed(0);
+  document.getElementById('stat-uptime').textContent = formatUptime(s.uptime_secs || 0);
 
   // Estimate earned from reward_per_digit
   if (s.reward_per_digit > 0) lastRewardPerDigit = s.reward_per_digit;
@@ -525,7 +787,7 @@ function updateStats(s) {
   const txt = document.getElementById('status-text');
   const stateMap = {
     'idle': ['idle', 'Idle'],
-    'fetching': ['mining', 'Fetching status...'],
+    'fetching': ['mining', 'Connecting to node...'],
     'computing': ['mining', 'Computing digits...'],
     'submitting': ['mining', 'Submitting proof...'],
     'waiting': ['mining', 'Waiting for next round'],
@@ -538,6 +800,7 @@ function updateStats(s) {
   if (s.state === 'idle' && isMining) {
     isMining = false;
     updateMineButton();
+    setControlsLocked(false);
   }
 }
 
@@ -566,7 +829,54 @@ function now() {
   return d.toTimeString().split(' ')[0];
 }
 
-// ---------- Periodic balance refresh ----------
+// ---------- Wallet management ----------
+
+async function doExportKey() {
+  try {
+    const key = await invoke('export_wallet_key');
+    document.getElementById('backup-secret-key').textContent = key;
+    document.getElementById('backup-wallet-path').textContent = walletPath;
+    document.getElementById('backup-ack').checked = false;
+    document.getElementById('backup-proceed').disabled = true;
+    document.getElementById('backup-modal').classList.add('active');
+  } catch (e) {
+    showToast('Export failed: ' + e, 'error');
+  }
+}
+
+async function doResetWallet() {
+  if (isMining) {
+    showInfoModal('Stop Mining First', 'Please stop mining before resetting your wallet.');
+    return;
+  }
+  // Show confirmation
+  if (!confirm('Are you sure you want to reset your wallet? Make sure you have exported your secret key!')) return;
+  try {
+    await invoke('reset_wallet');
+    walletAddress = '';
+    walletPath = '';
+    document.getElementById('mining-screen').style.display = 'none';
+    document.getElementById('setup-screen').style.display = 'flex';
+    showToast('Wallet removed. Create or import a new one.', 'warn');
+  } catch (e) {
+    showToast('Reset failed: ' + e, 'error');
+  }
+}
+
+// ---------- Periodic balance refresh + connection check ----------
+async function checkConnection() {
+  const rpc = document.getElementById('rpc-url').value;
+  if (!rpc) return;
+  try {
+    await invoke('get_mining_status', { rpcUrl: rpc });
+    document.getElementById('conn-dot').className = 'status-dot mining';
+    document.getElementById('conn-text').textContent = 'Connected';
+  } catch (e) {
+    document.getElementById('conn-dot').className = 'status-dot error';
+    document.getElementById('conn-text').textContent = 'Offline';
+  }
+}
+setInterval(checkConnection, 15000);
 setInterval(async () => {
   if (walletAddress && isMining) {
     await refreshBalance();
