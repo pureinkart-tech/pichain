@@ -35,6 +35,8 @@ pub enum BridgeChain {
     Base,
     /// Solana.
     Solana,
+    /// Bitcoin.
+    Bitcoin,
     /// Generic chain identified by ID.
     Other(u64),
 }
@@ -48,6 +50,7 @@ impl BridgeChain {
             BridgeChain::Arbitrum => 42161,
             BridgeChain::Base => 8453,
             BridgeChain::Solana => 1399811149, // Wormhole convention
+            BridgeChain::Bitcoin => 0,          // Bitcoin has no EVM chain ID
             BridgeChain::Other(id) => *id,
         }
     }
@@ -153,6 +156,81 @@ pub struct BridgeTokenPair {
 /// Default cap on pending (unconfirmed) bridge transfers to prevent memory exhaustion.
 const DEFAULT_MAX_PENDING_TRANSFERS: usize = 10_000;
 
+/// Default maximum volume per hour (in base units). 1B PI = 1e18 base units.
+/// At ~11,460 blocks/hour (314ms blocks), this is ~87,260 PI per block.
+const DEFAULT_MAX_HOURLY_VOLUME: u128 = 1_000_000_000_000_000_000;
+
+/// Number of blocks in one hour (~314ms per block).
+const BLOCKS_PER_HOUR: u64 = 11_465;
+
+/// Circuit breaker state — automatically pauses bridge when volume exceeds thresholds.
+#[derive(Clone, Debug)]
+pub struct CircuitBreaker {
+    /// Maximum volume allowed per rolling hour window.
+    pub max_hourly_volume: u128,
+    /// Volume entries: (block_height, amount).
+    volume_window: Vec<(u64, u128)>,
+    /// Whether the circuit breaker has tripped (bridge is paused).
+    pub paused: bool,
+    /// Block height when the pause was triggered.
+    pub paused_at: Option<u64>,
+    /// Manual override — admin can force-pause/resume.
+    pub admin_paused: bool,
+}
+
+impl CircuitBreaker {
+    pub fn new(max_hourly_volume: u128) -> Self {
+        Self {
+            max_hourly_volume,
+            volume_window: Vec::new(),
+            paused: false,
+            paused_at: None,
+            admin_paused: false,
+        }
+    }
+
+    /// Record a transfer volume and check if we should trip.
+    pub fn record_volume(&mut self, height: u64, amount: u128) -> bool {
+        self.volume_window.push((height, amount));
+        self.prune_old_entries(height);
+
+        let total = self.rolling_volume(height);
+        if total > self.max_hourly_volume {
+            self.paused = true;
+            self.paused_at = Some(height);
+            true // tripped
+        } else {
+            false
+        }
+    }
+
+    /// Get rolling volume for the last hour of blocks.
+    pub fn rolling_volume(&self, current_height: u64) -> u128 {
+        let cutoff = current_height.saturating_sub(BLOCKS_PER_HOUR);
+        self.volume_window.iter()
+            .filter(|(h, _)| *h > cutoff)
+            .map(|(_, amt)| *amt)
+            .fold(0u128, |acc, v| acc.saturating_add(v))
+    }
+
+    /// Remove entries older than the rolling window.
+    fn prune_old_entries(&mut self, current_height: u64) {
+        let cutoff = current_height.saturating_sub(BLOCKS_PER_HOUR);
+        self.volume_window.retain(|(h, _)| *h > cutoff);
+    }
+
+    /// Check if the bridge is paused (either by circuit breaker or admin).
+    pub fn is_paused(&self) -> bool {
+        self.paused || self.admin_paused
+    }
+
+    /// Reset the circuit breaker (admin action after investigation).
+    pub fn reset(&mut self) {
+        self.paused = false;
+        self.paused_at = None;
+    }
+}
+
 /// The bridge manager — coordinates cross-chain transfers.
 pub struct BridgeManager {
     /// Active bridge transfers, keyed by transfer ID.
@@ -174,6 +252,8 @@ pub struct BridgeManager {
     /// Maximum pending (unconfirmed) transfers allowed (Fix NET-226).
     /// Prevents unbounded memory growth from spam or sustained attack.
     max_pending_transfers: usize,
+    /// Circuit breaker for automatic volume-based pausing.
+    pub circuit_breaker: CircuitBreaker,
 }
 
 impl BridgeManager {
@@ -192,6 +272,7 @@ impl BridgeManager {
             next_nonce: 0,
             current_height: 0,
             max_pending_transfers: DEFAULT_MAX_PENDING_TRANSFERS,
+            circuit_breaker: CircuitBreaker::new(DEFAULT_MAX_HOURLY_VOLUME),
         }
     }
 
@@ -241,6 +322,11 @@ impl BridgeManager {
     ) -> Result<Hash, BridgeError> {
         if amount == 0 {
             return Err(BridgeError::ZeroAmount);
+        }
+
+        // Circuit breaker — reject transfers when bridge is paused
+        if self.circuit_breaker.is_paused() {
+            return Err(BridgeError::BridgePaused);
         }
 
         // Reject new transfers when pending count is at capacity (Fix NET-226).
@@ -297,6 +383,9 @@ impl BridgeManager {
         self.total_value_locked = self.total_value_locked.saturating_add(amount);
         self.transfers.insert(transfer_id, transfer);
         self.attestations.insert(transfer_id, Vec::new());
+
+        // Record volume for circuit breaker
+        self.circuit_breaker.record_volume(self.current_height, amount);
 
         Ok(transfer_id)
     }
@@ -527,6 +616,8 @@ pub enum BridgeError {
     NoActiveRelayers,
     #[error("too many pending transfers: {current}/{max}")]
     TooManyPendingTransfers { current: usize, max: usize },
+    #[error("bridge is paused (circuit breaker tripped or admin pause)")]
+    BridgePaused,
 }
 
 #[cfg(test)]
@@ -796,5 +887,63 @@ mod tests {
 
         // Verify count didn't increase
         assert_eq!(mgr.pending_count(), 3);
+    }
+
+    #[test]
+    fn circuit_breaker_trips_on_excess_volume() {
+        let (mut mgr, _) = setup_bridge();
+        // Set a very low hourly limit for testing
+        mgr.circuit_breaker.max_hourly_volume = 10_000_000_000; // 10 PI
+
+        mgr.set_height(100);
+
+        // First transfer: 5 PI — should work
+        mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
+        ).unwrap();
+        assert!(!mgr.circuit_breaker.is_paused());
+
+        // Second transfer: 6 PI — total 11 PI > 10 PI limit, trips breaker
+        mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![21u8; 20], 6_000_000_000,
+        ).unwrap();
+        assert!(mgr.circuit_breaker.is_paused());
+
+        // Third transfer should be rejected
+        let result = mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![22u8; 20], 1_000_000_000,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn circuit_breaker_rolling_window() {
+        let mut cb = CircuitBreaker::new(100);
+        cb.record_volume(1000, 50);
+        assert_eq!(cb.rolling_volume(1000), 50);
+
+        // After BLOCKS_PER_HOUR, the old entry falls off
+        cb.record_volume(1000 + BLOCKS_PER_HOUR + 1, 30);
+        assert_eq!(cb.rolling_volume(1000 + BLOCKS_PER_HOUR + 1), 30);
+    }
+
+    #[test]
+    fn circuit_breaker_admin_pause() {
+        let (mut mgr, _) = setup_bridge();
+        mgr.circuit_breaker.admin_paused = true;
+        let result = mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn circuit_breaker_reset() {
+        let mut cb = CircuitBreaker::new(100);
+        cb.record_volume(100, 200); // trips
+        assert!(cb.paused);
+        cb.reset();
+        assert!(!cb.paused);
+        assert!(!cb.is_paused());
     }
 }

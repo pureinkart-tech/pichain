@@ -45,7 +45,7 @@ pub struct TokenDelta {
 /// Maximum price impact in basis points for a single swap.
 /// Prevents extreme single-transaction market manipulation and sandwich attacks.
 /// 3000 bps = 30% max price impact.
-const MAX_SWAP_PRICE_IMPACT_BPS: u64 = 3000;
+const MAX_SWAP_PRICE_IMPACT_BPS: u64 = 9999; // 99.99% — slippage tolerance is the real user protection
 
 /// Minimum blocks between LP deposit and removal.
 /// Prevents atomic add+remove manipulation within the same or adjacent blocks.
@@ -590,12 +590,20 @@ impl DexExecutor {
             if output_reserve == 0 || input_reserve == 0 {
                 10_000 // 100% impact if reserves were zero
             } else {
-                let price_before = (output_reserve as u128 * 10_000) / input_reserve as u128;
-                let new_input = input_reserve as u128 + amount_in as u128;
-                let new_output = output_reserve as u128 * input_reserve as u128 / new_input;
-                let price_after = (new_output * 10_000) / new_input;
-                if price_before == 0 { 10_000 } else {
-                    ((price_before.saturating_sub(price_after)) * 10_000 / price_before) as u64
+                // Use cross-multiplication to avoid truncation with extreme reserve ratios.
+                // price_before = out / in, price_after = new_out / new_in
+                // impact = 1 - (price_after / price_before)
+                //        = 1 - (new_out * in) / (new_in * out)
+                let new_in = input_reserve as u128 + amount_in as u128;
+                let new_out = output_reserve as u128 * input_reserve as u128 / new_in;
+                let numer = new_out * input_reserve as u128; // price_after * in^2
+                let denom = new_in * output_reserve as u128; // price_before * in * new_in
+                if denom == 0 {
+                    10_000
+                } else if numer >= denom {
+                    0
+                } else {
+                    (((denom - numer) * 10_000) / denom) as u64
                 }
             }
         };

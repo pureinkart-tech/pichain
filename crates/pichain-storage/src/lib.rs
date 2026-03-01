@@ -6,15 +6,18 @@
 pub mod contract_store;
 pub mod db;
 pub mod dex_store;
+pub mod evm_store;
 pub mod jmt;
 pub mod jmt_db;
 pub mod launchpad_store;
+pub mod migration;
 pub mod nft_store;
 pub mod state;
 pub mod token_store;
 
 pub use contract_store::ContractStorageStore;
 pub use db::PiChainDB;
+pub use evm_store::EvmStore;
 pub use dex_store::DexStore;
 pub use jmt::{JellyfishMerkleTree, StateProof, ProofSibling};
 pub use jmt_db::DbJellyfishMerkleTree;

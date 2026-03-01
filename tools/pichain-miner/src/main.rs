@@ -173,6 +173,8 @@ struct MiningStatus {
     difficulty_target_hex: String,
     #[serde(default)]
     anchor_block_hash: String,
+    #[serde(default)]
+    unique_miners: u64,
 }
 
 fn default_max_batch() -> u64 {
@@ -195,13 +197,6 @@ struct AccountResponse {
     found: bool,
 }
 
-/// Faucet claim response.
-#[derive(Deserialize, Debug)]
-struct FaucetResponse {
-    success: bool,
-    amount: u64,
-    error: Option<String>,
-}
 
 fn load_keypair(path: &PathBuf) -> anyhow::Result<Keypair> {
     let contents = std::fs::read_to_string(path)?;
@@ -250,51 +245,6 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Attempt to claim from the devnet faucet if balance is 0.
-async fn auto_faucet(client: &reqwest::Client, rpc_url: &str, address_hex: &str) {
-    // Check current balance
-    let account_url = format!("{}/api/v1/account/{}", rpc_url, address_hex);
-    match client.get(&account_url).send().await {
-        Ok(resp) => match resp.json::<AccountResponse>().await {
-            Ok(acct) if acct.found && acct.balance > 0 => {
-                info!(
-                    balance = acct.balance,
-                    balance_pi = format!("{:.3}", acct.balance as f64 / 1e9),
-                    "Wallet has balance, no faucet needed"
-                );
-                return;
-            }
-            _ => {}
-        },
-        Err(e) => {
-            warn!("Could not check balance: {e}");
-        }
-    }
-
-    info!("Zero balance detected, claiming from devnet faucet...");
-    let faucet_body = serde_json::json!({ "address": address_hex });
-    match client
-        .post(format!("{}/api/v1/faucet", rpc_url))
-        .json(&faucet_body)
-        .send()
-        .await
-    {
-        Ok(resp) => match resp.json::<FaucetResponse>().await {
-            Ok(result) if result.success => {
-                info!(
-                    amount = result.amount,
-                    pi = format!("{:.3}", result.amount as f64 / 1e9),
-                    "Faucet claim successful"
-                );
-            }
-            Ok(result) => {
-                warn!(error = ?result.error, "Faucet claim failed");
-            }
-            Err(e) => warn!("Failed to parse faucet response: {e}"),
-        },
-        Err(e) => warn!("Failed to reach faucet: {e}"),
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -324,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .unwrap_or_default();
     let mut local_nonce: Option<u64> = None;
+    let mut local_position: Option<u64> = None;
 
     // Graceful shutdown via Ctrl+C
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -382,9 +333,6 @@ async fn main() -> anyhow::Result<()> {
         profile_name,
     );
 
-    // Auto-claim from faucet if needed (devnet only)
-    auto_faucet(&client, &args.rpc_url, &address_hex).await;
-
     // Mining stats
     let session_start = std::time::Instant::now();
     let mut total_digits_computed: u64 = 0;
@@ -427,9 +375,30 @@ async fn main() -> anyhow::Result<()> {
             // Manual override: mine sequentially from a fixed starting point
             let pos = start.saturating_add(loop_count.saturating_mul(batch_size as u64));
             (pos, batch_size)
+        } else if let Some(local_pos) = local_position {
+            // Local position tracking: use the position we advanced to after
+            // the last successful round. Take the max of local and server to
+            // handle cases where another miner advanced past us.
+            let pos = local_pos.max(mining_status.next_position);
+            (pos, batch_size)
         } else {
-            // Auto position: frontier + offset to avoid collisions with other miners
-            let offset = (args.position_offset as u64).saturating_mul(batch_size as u64);
+            // First round or after error: use server-provided position + offset.
+            // Auto-offset spreads miners across different slots based on their
+            // address to avoid computing the same range as other miners.
+            let stride = batch_size as u64 * batch_count as u64;
+            let offset = if args.position_offset > 0 {
+                // Explicit offset: use as-is (in batch_size units)
+                (args.position_offset as u64).saturating_mul(batch_size as u64)
+            } else if stride > 0 {
+                // Auto-offset from miner address: spread across 8 slots
+                let addr_seed = u32::from_le_bytes([
+                    address.0[0], address.0[1], address.0[2], address.0[3],
+                ]);
+                let slot = (addr_seed as u64) % 8;
+                slot.saturating_mul(stride)
+            } else {
+                0
+            };
             let pos = mining_status.next_position.saturating_add(offset);
             // Cap batch size to available gap
             let max_gap = mining_status.max_batch_at_position;
@@ -672,18 +641,21 @@ async fn main() -> anyhow::Result<()> {
                                 "Mining proof rejected"
                             );
                             local_nonce = None;
+                            local_position = None;
                             break;
                         }
                     }
                     Err(e) => {
                         error!("Failed to parse submit response: {e}");
                         local_nonce = None;
+                        local_position = None;
                         break;
                     }
                 },
                 Err(e) => {
                     error!("Failed to submit transaction: {e}");
                     local_nonce = None;
+                    local_position = None;
                     break;
                 }
             }
@@ -692,6 +664,14 @@ async fn main() -> anyhow::Result<()> {
         // Update local nonce if all batches succeeded
         if local_nonce.is_some() || current_nonce > nonce {
             local_nonce = Some(current_nonce);
+        }
+
+        // Advance local position past the batches we just submitted.
+        // This prevents re-computing the same ranges on the next round
+        // before the server has registered our proofs.
+        if current_nonce > nonce {
+            let total_digits_this_round = effective_batch_count as u64 * effective_batch_size as u64;
+            local_position = Some(position.saturating_add(total_digits_this_round));
         }
 
         loop_count += 1;

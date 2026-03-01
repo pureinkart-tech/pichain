@@ -282,6 +282,14 @@ impl StateStore {
         &self.jmt
     }
 
+    /// Generate a JMT inclusion/exclusion proof for an account.
+    /// Returns the serialized proof bytes, or None if JMT is empty.
+    pub fn get_account_proof(&self, address: &Address) -> Option<Vec<u8>> {
+        let jmt_key = account_jmt_key(address);
+        let proof = self.jmt.generate_proof(&jmt_key);
+        serde_json::to_vec(&proof).ok()
+    }
+
     /// Rebuild the in-memory JMT from all persisted account and object state.
     /// Must be called on startup after resume_from_storage() to restore
     /// correct state roots. Without this, the JMT starts empty and produces
@@ -477,13 +485,29 @@ impl StateStore {
         Ok(self.db.get_state(&key)?.is_some())
     }
 
-    /// Mark an address as activated.
+    /// Mark an address as activated and increment the global counter.
     pub fn mark_wallet_activated(&mut self, address: &Address) -> Result<(), StorageError> {
         let key = activation_key(address);
         self.db.put_state(&key, &[1])?;
+        // Increment global activation counter
+        let count = self.activation_count()?.saturating_add(1);
+        self.db.put_state(ACTIVATION_COUNT_KEY, &count.to_le_bytes())?;
         Ok(())
     }
+
+    /// Get the total number of activated wallets.
+    pub fn activation_count(&self) -> Result<u64, StorageError> {
+        match self.db.get_state(ACTIVATION_COUNT_KEY)? {
+            Some(bytes) if bytes.len() == 8 => {
+                Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
+            }
+            _ => Ok(0),
+        }
+    }
 }
+
+/// RocksDB key for the global wallet activation counter.
+const ACTIVATION_COUNT_KEY: &[u8] = b"wcount";
 
 /// Create a RocksDB key for wallet activation tracking.
 /// Prefix 'w' + 20-byte address.

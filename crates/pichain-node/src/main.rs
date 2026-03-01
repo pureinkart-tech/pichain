@@ -303,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
             // --- 1. Initialize Storage ---
             info!("Opening database at {data_dir}");
             let db = pichain_storage::PiChainDB::open(&data_dir)?;
+            pichain_storage::migration::migrate_to_latest(&db)?;
             let state_store = pichain_storage::StateStore::new(db);
 
             // --- 2. Initialize Execution Engine ---
@@ -319,14 +320,31 @@ async fn main() -> anyhow::Result<()> {
             info!("Transaction mempool initialized (capacity: {})", cfg.max_mempool_size);
 
             // --- 5. Create Shared Node State ---
-            let node_state = Arc::new(NodeState::new(
+            let mut node_state = NodeState::new(
                 state_store,
                 executor.clone(),
                 mempool.clone(),
                 chain_id,
-            ));
+            );
+            // Enable mempool WAL for crash recovery (replays pending txs from previous run)
+            node_state.enable_mempool_wal(&data_dir);
+            let node_state = Arc::new(node_state);
 
             // --- 6. Apply Genesis (if first run) ---
+            let network_mode = pichain_types::NetworkMode::from_chain_id(chain_id);
+            if network_mode.is_mainnet() {
+                // Mainnet safety: require at least 4 validators for BFT safety (3f+1)
+                if cfg.genesis_validators.len() < 3 {
+                    anyhow::bail!(
+                        "mainnet requires at least 4 validators (self + 3 genesis_validators) \
+                         for BFT safety. Got {} genesis_validators.",
+                        cfg.genesis_validators.len()
+                    );
+                }
+                info!("MAINNET mode — strict validation enabled");
+            } else {
+                info!(mode = ?network_mode, "network mode");
+            }
             let genesis = if chain_id == 314159 {
                 pichain_types::GenesisConfig::pichain_mainnet()
             } else {
@@ -340,6 +358,10 @@ async fn main() -> anyhow::Result<()> {
 
             // --- 7. Resume From Last Block ---
             node_state.resume_from_storage()?;
+
+            // --- 7b. Bootstrap bridge wrapped tokens + liquidity pools (idempotent) ---
+            node_state.bootstrap_bridge_tokens()?;
+
             let current_height = node_state.height();
             let last_hash = node_state.last_hash();
             let current_base_fee = node_state.get_base_fee();
@@ -1569,12 +1591,14 @@ async fn main() -> anyhow::Result<()> {
                     if supply_ok { "PASS" } else { "FAIL" },
                     total, expected);
 
-                // Check for zero addresses
+                // Check for zero addresses (virtual pools are allowed to use Address::ZERO)
                 let mut zero_count = 0;
                 for alloc in &genesis.allocations {
-                    if alloc.address == pichain_crypto::ed25519::Address::ZERO {
+                    if alloc.address == pichain_crypto::ed25519::Address::ZERO && !alloc.virtual_pool {
                         zero_count += 1;
-                        println!("  WARNING: {} has Address::ZERO (placeholder)", alloc.label);
+                        println!("  WARNING: {} has Address::ZERO (placeholder — must be replaced)", alloc.label);
+                    } else if alloc.virtual_pool {
+                        println!("  OK: {} is virtual (minted over time)", alloc.label);
                     }
                 }
 
@@ -1660,12 +1684,6 @@ async fn main() -> anyhow::Result<()> {
                 println!("  Timestamp:   {}", last.header.timestamp_ms);
             }
 
-            // Check devnet faucet balance
-            let faucet_addr = pichain_types::GenesisConfig::devnet_faucet_address();
-            if let Some(account) = state_store.get_account(&faucet_addr)? {
-                let pi = account.state.balance / pichain_types::BASE_UNITS_PER_PI;
-                println!("Faucet balance: {} PI", pi);
-            }
         }
     }
 

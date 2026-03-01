@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain NFTs</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+@media(max-width:768px){.nav-links{display:none;}}
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+.tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;width:fit-content;}
+.tab{background:transparent;border:none;color:var(--muted);padding:10px 20px;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:500;transition:all 0.2s;}
+.tab.active{background:var(--accent);color:white;}
+.tab:hover:not(.active){color:var(--text);background:rgba(255,255,255,0.05);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-bottom:32px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color 0.2s,transform 0.2s;}
+.card:hover{border-color:var(--accent);transform:translateY(-2px);}
+.card-img{width:100%;aspect-ratio:1;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:48px;color:var(--dim);}
+.card-body{padding:16px;}
+.card-title{font-size:15px;font-weight:700;margin-bottom:4px;}
+.card-sub{font-size:12px;color:var(--muted);}
+.card-price{margin-top:8px;font-size:14px;font-weight:700;color:var(--gold);}
+.card-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.15);color:var(--accent-light);margin-top:8px;}
+/* Collection header */
+.collection-header{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;display:none;}
+.collection-header h2{font-size:22px;font-weight:800;margin-bottom:8px;}
+.collection-stats{display:flex;gap:24px;margin-top:12px;}
+.collection-stat{font-size:13px;}
+.collection-stat .label{color:var(--dim);font-size:11px;text-transform:uppercase;}
+.collection-stat .value{font-size:18px;font-weight:700;color:var(--cyan);}
+/* My NFTs section */
+.search-bar{display:flex;gap:12px;margin-bottom:24px;}
+.search-bar input{flex:1;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:monospace;}
+.search-bar input:focus{outline:none;border-color:var(--accent);}
+.search-bar button{padding:10px 20px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:white;font-weight:600;cursor:pointer;font-size:14px;}
+.panel{display:none;}
+.panel.active{display:block;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/nfts" class="active">NFTs</a>
+      <a href="/trade">Trade</a>
+      <a href="/launch">Launchpad</a>
+      <a href="/bridge">Bridge</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title">NFT Marketplace</h1>
+  <p class="page-desc">Browse collections, view NFTs, and manage your digital assets.</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('collections')">Collections</button>
+    <button class="tab" onclick="switchTab('my-nfts')">My NFTs</button>
+    <button class="tab" onclick="switchTab('marketplace')">Marketplace</button>
+  </div>
+
+  <!-- Collections Panel -->
+  <div id="panel-collections" class="panel active">
+    <div class="grid" id="collections-grid">
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">Loading collections...</div>
+    </div>
+  </div>
+
+  <!-- Collection Detail -->
+  <div class="collection-header" id="collection-detail">
+    <button onclick="backToCollections()" style="background:none;border:none;color:var(--accent-light);cursor:pointer;margin-bottom:12px;font-size:14px;">&larr; Back to collections</button>
+    <h2 id="col-name">-</h2>
+    <div class="collection-stats">
+      <div class="collection-stat"><div class="label">Items</div><div class="value" id="col-items">-</div></div>
+      <div class="collection-stat"><div class="label">Creator</div><div class="value" id="col-creator" style="font-size:13px;font-family:monospace;">-</div></div>
+      <div class="collection-stat"><div class="label">Max Supply</div><div class="value" id="col-max">-</div></div>
+    </div>
+  </div>
+  <div class="grid" id="items-grid" style="display:none;"></div>
+
+  <!-- My NFTs Panel -->
+  <div id="panel-my-nfts" class="panel">
+    <div class="search-bar">
+      <input type="text" id="owner-addr" placeholder="Enter your address (40-char hex)">
+      <button onclick="loadMyNfts()">Search</button>
+    </div>
+    <div class="grid" id="my-nfts-grid">
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">Enter address above</div>
+    </div>
+  </div>
+
+  <!-- Marketplace Panel -->
+  <div id="panel-marketplace" class="panel">
+    <div class="grid" id="marketplace-grid">
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">Marketplace listings will appear here when NFTs are listed for sale.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const tabs = ['collections','my-nfts','marketplace'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  // Hide collection detail when switching tabs
+  document.getElementById('collection-detail').style.display = 'none';
+  document.getElementById('items-grid').style.display = 'none';
+  document.getElementById('panel-collections').style.display = name === 'collections' ? 'block' : 'none';
+}
+
+function nftCard(nft, showPrice) {
+  const name = nft.name || nft.metadata?.name || `#${nft.id||'?'}`;
+  const img = nft.metadata?.image || '';
+  const imgHtml = img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.textContent='NFT'">` : 'NFT';
+  const price = showPrice && nft.list_price ? `<div class="card-price">${(nft.list_price/1e9).toFixed(4)} PI</div>` : '';
+  return `<div class="card">
+    <div class="card-img">${imgHtml}</div>
+    <div class="card-body">
+      <div class="card-title">${name}</div>
+      <div class="card-sub">Owner: ${(nft.owner||'').substring(0,12)}...</div>
+      ${price}
+    </div>
+  </div>`;
+}
+
+async function loadCollections() {
+  try {
+    const r = await fetch(API+'/api/v1/nft/collections');
+    const d = await r.json();
+    const cols = d.collections || [];
+    const grid = document.getElementById('collections-grid');
+    if (!cols.length) { grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">No collections yet</div>'; return; }
+    grid.innerHTML = cols.map(c => `<div class="card" onclick="showCollection('${c.id}')">
+      <div class="card-img" style="font-size:32px;">${c.name ? c.name.charAt(0).toUpperCase() : 'C'}</div>
+      <div class="card-body">
+        <div class="card-title">${c.name||'Unnamed'}</div>
+        <div class="card-sub">${c.symbol||''}</div>
+        <div class="card-badge">${c.minted||0} / ${c.max_supply||'?'} items</div>
+      </div>
+    </div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function showCollection(id) {
+  document.getElementById('panel-collections').style.display = 'none';
+  document.getElementById('collection-detail').style.display = 'block';
+  document.getElementById('items-grid').style.display = 'grid';
+
+  try {
+    const r = await fetch(API+'/api/v1/nft/collection/'+id+'/items');
+    const d = await r.json();
+    const items = d.items || [];
+    document.getElementById('col-name').textContent = d.name || 'Collection';
+    document.getElementById('col-items').textContent = items.length;
+    document.getElementById('col-creator').textContent = d.creator || '-';
+    document.getElementById('col-max').textContent = d.max_supply || '-';
+    document.getElementById('items-grid').innerHTML = items.length ?
+      items.map(n => nftCard(n, true)).join('') :
+      '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">No items in this collection</div>';
+  } catch(e) { console.error(e); }
+}
+
+function backToCollections() {
+  document.getElementById('collection-detail').style.display = 'none';
+  document.getElementById('items-grid').style.display = 'none';
+  document.getElementById('panel-collections').style.display = 'block';
+}
+
+async function loadMyNfts() {
+  const addr = document.getElementById('owner-addr').value.trim().replace(/^0x/,'');
+  if (addr.length !== 40) { alert('Address must be 40 hex chars'); return; }
+  try {
+    const r = await fetch(API+'/api/v1/nft/owner/'+addr);
+    const d = await r.json();
+    const nfts = d.nfts || [];
+    document.getElementById('my-nfts-grid').innerHTML = nfts.length ?
+      nfts.map(n => nftCard(n, false)).join('') :
+      '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">No NFTs found for this address</div>';
+  } catch(e) { console.error(e); }
+}
+
+loadCollections();
+</script>
+</body>
+</html>

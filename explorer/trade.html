@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain — Trade</title>
+<meta name="description" content="Swap tokens on PiChain DEX. Trade PI and tokens with instant AMM swaps.">
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0c1018;
+  --surface: #111827; --surface-2: #1a2236;
+  --border: #1e293b; --border-light: #2d3a52;
+  --text: #e8ecf4; --muted: #8896b0; --dim: #5e6b82;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --cyan: #22d3ee; --green: #34d399; --gold: #fbbf24; --rose: #fb7185;
+  --radius: 16px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; line-height: 1.6; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navbar */
+.navbar { background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(30, 41, 59, 0.5); position: sticky; top: 0; z-index: 100; }
+.navbar-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); letter-spacing: -0.5px; }
+.pi-sym { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); font-size: 20px; font-weight: 900; color: white; }
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s; }
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-links a.active { color: var(--text); background: rgba(99,102,241,0.12); }
+
+/* Layout */
+.container { max-width: 520px; margin: 0 auto; padding: 32px 24px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+.page-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+.page-title span { color: var(--accent-light); }
+
+/* Wallet bar */
+.wallet-bar { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 16px; }
+.wallet-bar .addr { font-family: 'SF Mono', monospace; font-size: 13px; color: var(--cyan); }
+.wallet-bar .bal { font-size: 13px; font-weight: 700; color: var(--green); }
+.btn { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; border: none; border-radius: 10px; padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.3); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-outline { background: transparent; border: 1px solid var(--border-light); color: var(--text); }
+.btn-outline:hover { border-color: var(--accent); background: rgba(99,102,241,0.08); box-shadow: none; }
+.btn-green { background: linear-gradient(135deg, #059669, #34d399); }
+.btn-rose { background: linear-gradient(135deg, #e11d48, #fb7185); }
+.btn-quick { flex:1; padding:8px 4px; font-size:13px; font-weight:600; border:1px solid var(--border-light); border-radius:6px; background:var(--bg-2); color:var(--text); cursor:pointer; transition:background .15s,border-color .15s; }
+.btn-quick:hover { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.tab { padding: 10px 20px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Swap panel */
+.swap-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+.swap-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+.token-box { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 8px; }
+.token-box label { display: block; font-size: 12px; font-weight: 600; color: var(--dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.token-row { display: flex; align-items: center; gap: 12px; }
+.token-selector { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border-light); border-radius: 10px; padding: 8px 12px; cursor: pointer; transition: all 0.2s; min-width: 140px; flex-shrink: 0; }
+.token-selector:hover { border-color: var(--accent); }
+.token-selector .symbol { font-weight: 700; font-size: 15px; }
+.token-selector .arrow { color: var(--dim); font-size: 12px; margin-left: auto; }
+.amount-input { flex: 1; background: transparent; border: none; color: var(--text); font-size: 24px; font-weight: 700; text-align: right; outline: none; min-width: 0; }
+.amount-input::placeholder { color: var(--dim); }
+.token-balance { font-size: 12px; color: var(--dim); margin-top: 8px; display: flex; justify-content: space-between; }
+.token-balance .max-btn { color: var(--accent-light); cursor: pointer; font-weight: 600; }
+.token-balance .max-btn:hover { text-decoration: underline; }
+
+/* Flip button */
+.flip-row { display: flex; justify-content: center; margin: -4px 0; position: relative; z-index: 2; }
+.flip-btn { width: 36px; height: 36px; border-radius: 10px; background: var(--surface-2); border: 3px solid var(--bg); color: var(--muted); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.flip-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* Swap details */
+.swap-details { margin-top: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+.detail-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 4px 0; }
+.detail-row .val { color: var(--text); font-weight: 600; }
+.detail-row .impact-low { color: var(--green); }
+.detail-row .impact-med { color: var(--gold); }
+.detail-row .impact-high { color: var(--rose); }
+
+/* Slippage setting */
+.slippage-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.slippage-row input { width: 60px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 13px; text-align: center; }
+.slippage-row input:focus { outline: none; border-color: var(--accent); }
+.slippage-presets { display: flex; gap: 4px; }
+.slippage-preset { padding: 3px 10px; font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; color: var(--muted); transition: all 0.2s; }
+.slippage-preset:hover, .slippage-preset.active { border-color: var(--accent); color: var(--accent-light); background: rgba(99,102,241,0.1); }
+
+/* Token select modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 150; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 440px; width: 90%; max-height: 80vh; overflow-y: auto; }
+.modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+.token-search { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 14px; margin-bottom: 16px; }
+.token-search:focus { outline: none; border-color: var(--accent); }
+.token-search::placeholder { color: var(--dim); }
+.token-list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s; }
+.token-list-item:hover { background: rgba(99,102,241,0.08); }
+.token-list-item .t-symbol { font-weight: 700; font-size: 15px; }
+.token-list-item .t-name { font-size: 13px; color: var(--muted); }
+.token-list-item .t-right { margin-left: auto; text-align: right; }
+.token-list-item .t-balance { font-size: 13px; font-weight: 600; }
+.token-list-item .t-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.token-list-item .t-icon.pi-icon { background: linear-gradient(135deg, var(--accent), #8b5cf6); color: white; }
+
+/* Pool list */
+.pool-grid { display: grid; gap: 12px; }
+.pool-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.2s; }
+.pool-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.pool-pair { font-weight: 700; font-size: 15px; }
+.pool-pair .sep { color: var(--dim); margin: 0 4px; }
+.pool-stats { display: flex; gap: 20px; font-size: 13px; color: var(--muted); }
+.pool-stat-val { font-weight: 600; color: var(--text); }
+
+/* Bridge */
+.bridge-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+.chain-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px; }
+.chain-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; transition: all 0.2s; }
+.chain-btn:hover { border-color: var(--accent); }
+.chain-btn.active { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+.chain-btn .chain-icon { font-size: 24px; }
+.chain-btn .chain-name { font-size: 12px; font-weight: 600; color: var(--muted); }
+.chain-btn.active .chain-name { color: var(--accent-light); }
+.bridge-direction { display: flex; gap: 8px; margin-bottom: 20px; }
+.bridge-dir-btn { flex: 1; padding: 10px; text-align: center; font-size: 13px; font-weight: 600; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.2s; color: var(--muted); }
+.bridge-dir-btn.active { border-color: var(--accent); color: var(--accent-light); background: rgba(99,102,241,0.08); }
+.deposit-info { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+.deposit-addr { font-family: 'SF Mono', monospace; font-size: 13px; color: var(--cyan); word-break: break-all; background: var(--bg-2); border: 1px solid var(--border-light); padding: 12px; border-radius: 8px; margin: 12px 0; cursor: pointer; }
+.deposit-addr:hover { border-color: var(--cyan); }
+.bridge-info-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 6px 0; }
+.bridge-info-row .val { color: var(--text); font-weight: 600; }
+.bridge-note { font-size: 12px; color: var(--dim); margin-top: 16px; line-height: 1.5; padding: 12px; background: rgba(251,191,36,0.06); border: 1px solid rgba(251,191,36,0.15); border-radius: 8px; }
+
+/* Toast */
+.toast { position: fixed; top: 80px; right: 24px; padding: 14px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; z-index: 200; transition: all 0.3s; transform: translateX(400px); opacity: 0; }
+.toast.show { transform: translateX(0); opacity: 1; }
+.toast-success { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+.toast-error { background: rgba(251,113,133,0.15); border: 1px solid rgba(251,113,133,0.3); color: var(--rose); }
+.toast-info { background: rgba(34,211,238,0.15); border: 1px solid rgba(34,211,238,0.3); color: var(--cyan); }
+
+/* Form inputs */
+.form-row { margin-bottom: 16px; }
+.form-row label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+
+/* Footer */
+.footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 64px; padding: 24px; border-top: 1px solid var(--border); }
+
+/* Empty state */
+.empty { text-align: center; padding: 40px 24px; color: var(--dim); }
+.empty h3 { font-size: 18px; margin-bottom: 8px; color: var(--muted); }
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .container { padding: 16px; max-width: 100%; }
+  .chain-selector { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine">Mine</a>
+      <a href="/launch">Launch</a>
+      <a href="/trade" class="active">Trade</a>
+      <a href="/bridge">Bridge</a>
+      <a href="/download">Download</a>
+    </div>
+  </div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<!-- Token Select Modal -->
+<div class="modal-overlay" id="tokenModal">
+  <div class="modal">
+    <h3>Select a token</h3>
+    <input type="text" class="token-search" id="tokenSearchInput" placeholder="Search by name or symbol..." oninput="filterTokenList()">
+    <div id="tokenListContainer"></div>
+  </div>
+</div>
+
+<!-- Wallet Modal -->
+<div class="modal-overlay" id="walletModal">
+  <div class="modal" id="walletModalContent">
+    <div id="walletStep1">
+      <h3>Connect Wallet</h3>
+      <div class="form-row">
+        <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWalletStep1()">Create New Wallet</button>
+      </div>
+      <div class="form-row">
+        <label>Or import private key (64 hex chars)</label>
+        <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex private key..." maxlength="64" spellcheck="false" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;">
+      </div>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
+      <div style="margin-top:16px;text-align:center;">
+        <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
+      </div>
+    </div>
+    <div id="walletStep2" style="display:none;">
+      <h3 style="color:var(--gold);">Save Your Private Key</h3>
+      <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px;margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:6px;">This is the ONLY way to recover your wallet.</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">If you lose this key, your funds are gone forever. Copy it now and store it somewhere safe.</div>
+      </div>
+      <div class="form-row">
+        <label>Your Private Key</label>
+        <div style="position:relative;">
+          <input type="text" id="newWalletSeed" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:12px;padding:12px 70px 12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);user-select:all;">
+          <button class="btn btn-sm" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);" id="copyKeyBtn">Copy</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Your Address</label>
+        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--cyan);">
+      </div>
+      <div class="form-row" style="margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text);font-size:13px;">
+          <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked;" style="width:16px;height:16px;accent-color:var(--accent);">
+          I have saved my private key in a safe place
+        </label>
+      </div>
+      <button class="btn" style="width:100%;padding:14px;margin-top:8px;" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Continue</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
+    </div>
+    <!-- Step 3: PoW Captcha verification -->
+    <div id="walletStep3" style="display:none;">
+      <h3>Verifying Wallet</h3>
+      <div style="text-align:center;padding:24px 0;">
+        <div id="captchaSpinner" style="display:inline-block;width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
+        <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+        <div id="captchaStatus" style="color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
+        <div style="color:var(--dim);font-size:12px;margin-top:8px;">This verifies you're human and grants 3.14 PI for gas fees</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="header-row">
+    <h1 class="page-title"><span>Trade</span></h1>
+    <div class="wallet-bar" id="walletBar">
+      <span id="walletStatus">No wallet</span>
+      <button class="btn btn-sm" id="walletBtn" onclick="showWalletModal()">Connect</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('swap')">Swap</button>
+    <button class="tab" onclick="switchTab('pools')">Pools</button>
+    <button class="tab" onclick="switchTab('bridge')">Bridge</button>
+    <button class="tab" onclick="switchTab('send')">Send</button>
+  </div>
+
+  <!-- SWAP TAB -->
+  <div class="tab-content active" id="tab-swap">
+    <div class="swap-card">
+      <h3>Swap <span style="font-size:12px;color:var(--dim);font-weight:400;">Powered by PiChain DEX</span></h3>
+
+      <!-- From token -->
+      <div class="token-box" id="fromBox">
+        <label>From</label>
+        <div class="token-row">
+          <div class="token-selector" onclick="openTokenModal('from')">
+            <div class="t-icon pi-icon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" id="fromIcon">&pi;</div>
+            <span class="symbol" id="fromSymbol">PI</span>
+            <span class="arrow">&#9662;</span>
+          </div>
+          <input type="number" class="amount-input" id="fromAmount" placeholder="0.0" step="any" min="0" oninput="onFromAmountChange()">
+        </div>
+        <div class="token-balance">
+          <span>Balance: <span id="fromBalance">0.0000</span></span>
+          <span class="max-btn" onclick="setMaxFrom()">MAX</span>
+        </div>
+      </div>
+
+      <!-- Flip -->
+      <div class="flip-row">
+        <button class="flip-btn" onclick="flipTokens()">&#8645;</button>
+      </div>
+
+      <!-- To token -->
+      <div class="token-box" id="toBox">
+        <label>To</label>
+        <div class="token-row">
+          <div class="token-selector" onclick="openTokenModal('to')">
+            <div class="t-icon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;" id="toIcon">?</div>
+            <span class="symbol" id="toSymbol">Select</span>
+            <span class="arrow">&#9662;</span>
+          </div>
+          <input type="number" class="amount-input" id="toAmount" placeholder="0.0" readonly tabindex="-1" style="color:var(--muted);">
+        </div>
+        <div class="token-balance">
+          <span>Balance: <span id="toBalance">0.0000</span></span>
+          <span></span>
+        </div>
+      </div>
+
+      <!-- Swap details -->
+      <div class="swap-details" id="swapDetails" style="display:none;">
+        <div class="detail-row"><span>Rate</span><span class="val" id="swapRate">--</span></div>
+        <div class="detail-row"><span>Price Impact</span><span class="val" id="swapImpact">--</span></div>
+        <div class="detail-row"><span>Min. Received</span><span class="val" id="swapMinReceived">--</span></div>
+        <div class="detail-row"><span>Fee</span><span class="val" id="swapFee">--</span></div>
+      </div>
+
+      <!-- Slippage -->
+      <div class="slippage-row">
+        <span>Slippage:</span>
+        <div class="slippage-presets">
+          <button class="slippage-preset" onclick="setSlippage(0.5)">0.5%</button>
+          <button class="slippage-preset active" onclick="setSlippage(1)">1%</button>
+          <button class="slippage-preset" onclick="setSlippage(3)">3%</button>
+        </div>
+        <input type="number" id="slippageInput" value="1" step="0.1" min="0.1" max="50" onchange="updateSlippageUI()">
+        <span>%</span>
+      </div>
+
+      <!-- Swap button -->
+      <button class="btn" style="width:100%;padding:16px;margin-top:16px;font-size:16px;" id="swapBtn" onclick="doSwap()">
+        Select a token
+      </button>
+    </div>
+  </div>
+
+  <!-- POOLS TAB -->
+  <div class="tab-content" id="tab-pools">
+    <div id="poolList" class="pool-grid">
+      <div class="empty"><h3>Loading pools...</h3></div>
+    </div>
+  </div>
+
+  <!-- BRIDGE TAB -->
+  <div class="tab-content" id="tab-bridge">
+    <div class="bridge-card">
+      <h3 style="font-size:18px;font-weight:700;margin-bottom:20px;">Cross-Chain Bridge</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Bridge assets between PiChain and other blockchains.</p>
+
+      <!-- Chain select -->
+      <div class="chain-selector">
+        <div class="chain-btn active" onclick="selectChain('eth')">
+          <span class="chain-icon">&#9830;</span>
+          <span class="chain-name">Ethereum</span>
+        </div>
+        <div class="chain-btn" onclick="selectChain('sol')">
+          <span class="chain-icon">&#9788;</span>
+          <span class="chain-name">Solana</span>
+        </div>
+        <div class="chain-btn" onclick="selectChain('btc')">
+          <span class="chain-icon">&#8383;</span>
+          <span class="chain-name">Bitcoin</span>
+        </div>
+        <div class="chain-btn" onclick="selectChain('usdt')">
+          <span class="chain-icon">$</span>
+          <span class="chain-name">USDT</span>
+        </div>
+      </div>
+
+      <!-- Direction -->
+      <div class="bridge-direction">
+        <div class="bridge-dir-btn active" onclick="setBridgeDir('deposit')">Deposit to PiChain</div>
+        <div class="bridge-dir-btn" onclick="setBridgeDir('withdraw')">Withdraw from PiChain</div>
+      </div>
+
+      <!-- Deposit info -->
+      <div id="bridgeContent">
+        <div class="deposit-info">
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Send <span id="bridgeChainLabel">ETH</span> to this address:</div>
+          <div class="deposit-addr" id="depositAddr" onclick="copyDepositAddr()">Loading...</div>
+          <div style="font-size:12px;color:var(--dim);">Click to copy</div>
+
+          <div style="margin-top:16px;">
+            <div class="bridge-info-row"><span>You will receive</span><span class="val" id="bridgeReceive">wETH on PiChain</span></div>
+            <div class="bridge-info-row"><span>Bridge fee</span><span class="val" id="bridgeFee">0.1%</span></div>
+            <div class="bridge-info-row"><span>Est. time</span><span class="val" id="bridgeTime">~15 min</span></div>
+            <div class="bridge-info-row"><span>Confirmations</span><span class="val" id="bridgeConfs">12 blocks</span></div>
+          </div>
+
+          <!-- Deposit intent registration -->
+          <div id="depositIntentSection" style="margin-top:16px;padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Register Deposit Intent (Optional)</div>
+            <div style="font-size:12px;color:var(--dim);margin-bottom:8px;">If you can't include your PiChain address in the transaction memo/calldata, register your external address here first.</div>
+            <input type="text" id="depositIntentAddr" placeholder="Your external chain address..." style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:8px;">
+            <button class="btn" style="width:100%;padding:10px;font-size:13px;" onclick="registerDepositIntent()">Register Intent</button>
+          </div>
+
+          <div class="bridge-note">
+            The bridge relayer monitors external chains and automatically mints wrapped tokens after sufficient confirmations. Include your PiChain address as calldata (ETH), memo (SOL), or OP_RETURN (BTC).
+          </div>
+        </div>
+      </div>
+
+      <!-- Bridge status -->
+      <div id="bridgeStatusSection" style="margin-top:20px;">
+        <h4 style="font-size:15px;font-weight:600;margin-bottom:12px;">Bridge Status</h4>
+        <div id="bridgeTVL" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+        <div id="bridgeTransferCount" style="font-size:12px;color:var(--dim);margin-top:8px;"></div>
+      </div>
+
+      <!-- Recent transfers -->
+      <div style="margin-top:20px;">
+        <h4 style="font-size:15px;font-weight:600;margin-bottom:12px;">Recent Bridge Transfers</h4>
+        <div id="bridgeTransfers" style="max-height:200px;overflow-y:auto;">
+          <div style="font-size:13px;color:var(--dim);text-align:center;padding:20px;">No transfers yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEND TAB -->
+  <div class="tab-content" id="tab-send">
+    <div class="swap-card">
+      <h3>Send PI <span style="font-size:12px;color:var(--dim);font-weight:400;">Transfer PI to any wallet</span></h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px;">
+        <span style="font-size:13px;color:var(--muted);">Your balance</span>
+        <span style="font-size:13px;font-weight:600;color:var(--green);" id="sendBalance">0 PI</span>
+      </div>
+      <div class="input-group" style="margin-bottom:12px;">
+        <label style="font-size:13px;color:var(--muted);margin-bottom:4px;display:block;">Recipient address</label>
+        <input type="text" id="sendRecipient" placeholder="Pi314..." spellcheck="false" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--cyan);font-family:'SF Mono',monospace;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div class="input-group" style="margin-bottom:8px;">
+        <label style="font-size:13px;color:var(--muted);margin-bottom:4px;display:block;">Amount (PI)</label>
+        <input type="number" id="sendAmount" placeholder="0.0" step="0.001" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button class="btn-quick" onclick="setSendAmount(0.1)">0.1</button>
+        <button class="btn-quick" onclick="setSendAmount(0.25)">0.25</button>
+        <button class="btn-quick" onclick="setSendAmount(0.5)">0.5</button>
+        <button class="btn-quick" onclick="setSendAmount(1)">1</button>
+        <button class="btn-quick" onclick="setSendMax()">MAX</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:16px;">Gas fee: ~0.000021 PI</div>
+      <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;" onclick="doSend()" id="sendBtn">Send PI</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">PiChain &mdash; Computing the Infinite</div>
+
+<!-- TweetNaCl for Ed25519 signing -->
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+
+<script>
+// =====================================================================
+// BLAKE3 (pure JS, matches Rust blake3::hash exactly)
+// =====================================================================
+const BLAKE3 = (() => {
+  const IV = new Uint32Array([0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]);
+  const MSG_PERM = [2,6,3,10,7,0,4,13,1,11,12,5,9,14,15,8];
+  const CHUNK_START=1, CHUNK_END=2, ROOT=8;
+  function rotR(x,n){return(x>>>n)|(x<<(32-n));}
+  function g(s,a,b,c,d,mx,my){
+    s[a]=(s[a]+s[b]+mx)|0; s[d]=rotR(s[d]^s[a],16);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],12);
+    s[a]=(s[a]+s[b]+my)|0; s[d]=rotR(s[d]^s[a],8);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],7);
+  }
+  function round(s,m){
+    g(s,0,4,8,12,m[0],m[1]);g(s,1,5,9,13,m[2],m[3]);
+    g(s,2,6,10,14,m[4],m[5]);g(s,3,7,11,15,m[6],m[7]);
+    g(s,0,5,10,15,m[8],m[9]);g(s,1,6,11,12,m[10],m[11]);
+    g(s,2,7,8,13,m[12],m[13]);g(s,3,4,9,14,m[14],m[15]);
+  }
+  function compress(cv,block,counter,blockLen,flags){
+    const s=new Uint32Array([cv[0],cv[1],cv[2],cv[3],cv[4],cv[5],cv[6],cv[7],
+      IV[0],IV[1],IV[2],IV[3],counter&0xFFFFFFFF,(counter/0x100000000)>>>0,blockLen,flags]);
+    const m=new Uint32Array(16);
+    for(let i=0;i<16;i++) m[i]=block[i*4]|(block[i*4+1]<<8)|(block[i*4+2]<<16)|(block[i*4+3]<<24);
+    for(let i=0;i<7;i++){round(s,m);const t=new Uint32Array(16);for(let j=0;j<16;j++)t[j]=m[MSG_PERM[j]];m.set(t);}
+    for(let i=0;i<8;i++){s[i]^=s[i+8];s[i+8]^=cv[i];}
+    return s;
+  }
+  function hash(input){
+    if(!(input instanceof Uint8Array))input=new Uint8Array(input);
+    let cv=new Uint32Array(IV);
+    const nBlocks=Math.max(1,Math.ceil(input.length/64));
+    for(let i=0;i<nBlocks;i++){
+      const start=i*64, block=new Uint8Array(64);
+      const end=Math.min(start+64,input.length);
+      block.set(input.subarray(start,end));
+      let fl=0;
+      if(i===0)fl|=CHUNK_START;
+      if(i===nBlocks-1)fl|=CHUNK_END|ROOT;
+      const out=compress(cv,block,0,end-start,fl);
+      if(i===nBlocks-1){
+        const r=new Uint8Array(32);
+        for(let j=0;j<8;j++){r[j*4]=out[j]&0xFF;r[j*4+1]=(out[j]>>8)&0xFF;r[j*4+2]=(out[j]>>16)&0xFF;r[j*4+3]=(out[j]>>24)&0xFF;}
+        return r;
+      }
+      cv=new Uint32Array(out.subarray(0,8));
+    }
+  }
+  return {hash};
+})();
+
+// =====================================================================
+// UTILITIES
+// =====================================================================
+function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
+function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<8;i++)buf[i]=Number((big>>BigInt(i*8))&0xFFn);return buf;}
+function u32LE(n){const buf=new Uint8Array(4);buf[0]=n&0xFF;buf[1]=(n>>8)&0xFF;buf[2]=(n>>16)&0xFF;buf[3]=(n>>24)&0xFF;return buf;}
+function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;const r=new Uint8Array(total);let off=0;for(const a of arrays){r.set(a,off);off+=a.length;}return r;}
+function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
+function formatPI(base){return (Number(base)/1e9).toFixed(4);}
+function formatTokens(amount,decimals){return (Number(amount)/Math.pow(10,decimals||9)).toLocaleString(undefined,{maximumFractionDigits:4});}
+function shortAddr(hex){return 'Pi314'+hex.slice(0,6)+'...'+hex.slice(-4);}
+function stripAddrPrefix(s){return s.replace(/^(Pi314|pi314|0x|0X)/,'');}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+const API = window.location.origin;
+const CHAIN_ID = 31415;
+const NATIVE_PI_MINT = '0'.repeat(64);
+
+// =====================================================================
+// WALLET
+// =====================================================================
+let walletKeypair = null;
+let walletAddress = null;
+let walletAddressHex = '';
+let walletSeedHex = '';
+let accountNonce = 0;
+let piBalance = 0;
+let currentBaseFee = 1000;
+let pendingNewSeed = null;
+
+function initWallet(seed, skipModalClose) {
+  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  walletAddress = deriveAddress(walletKeypair.publicKey);
+  walletAddressHex = hexEncode(walletAddress);
+  walletSeedHex = hexEncode(seed);
+  localStorage.setItem('pichain_seed', walletSeedHex);
+  updateWalletUI();
+  updateBalance();
+  if(!skipModalClose){
+    document.getElementById('walletModal').classList.remove('show');
+    resetWalletModal();
+  }
+  updateSwapBtn();
+  loadTokenBalances();
+}
+
+function createWalletStep1() {
+  pendingNewSeed = nacl.randomBytes(32);
+  const seedHex = hexEncode(pendingNewSeed);
+  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  const addr = deriveAddress(kp.publicKey);
+  document.getElementById('newWalletSeed').value = seedHex;
+  document.getElementById('newWalletAddr').value = hexEncode(addr);
+  document.getElementById('savedKeyCheck').checked = false;
+  document.getElementById('confirmWalletBtn').disabled = true;
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'block';
+}
+
+function confirmNewWallet() {
+  if (!pendingNewSeed) return;
+  initWallet(pendingNewSeed, true);
+  pendingNewSeed = null;
+  showCaptchaStep();
+}
+
+function showCaptchaStep() {
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'block';
+  document.getElementById('walletModal').classList.add('show');
+  activateWallet();
+}
+
+function cancelNewWallet() {
+  pendingNewSeed = null;
+  resetWalletModal();
+}
+
+function resetWalletModal() {
+  document.getElementById('walletStep1').style.display = 'block';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'none';
+  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
+  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
+  document.getElementById('newWalletSeed').value = '';
+  document.getElementById('newWalletAddr').value = '';
+  document.getElementById('savedKeyCheck').checked = false;
+}
+
+function copyNewKey() {
+  const input = document.getElementById('newWalletSeed');
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copyKeyBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+
+function importWallet() {
+  const seed = document.getElementById('importSeedInput').value.trim();
+  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
+  initWallet(hexDecode(seed), true);
+  showCaptchaStep();
+}
+
+async function activateWallet(){
+  if(!walletAddressHex)return;
+  const statusEl=document.getElementById('captchaStatus');
+  const spinnerEl=document.getElementById('captchaSpinner');
+  try{
+    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const cd=await cr.json();
+    if(!cd.success){
+      if(cd.error&&cd.error.includes('already activated')){
+        if(statusEl){statusEl.textContent='Wallet already activated!';statusEl.style.color='var(--green)';}
+        if(spinnerEl)spinnerEl.style.display='none';
+        setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},1500);
+        showToast('Wallet ready!','success');
+      }
+      return;
+    }
+    if(statusEl)statusEl.textContent='Solving proof-of-work challenge...';
+    const challengeBytes=hexDecode(cd.challenge);
+    const diffBits=cd.difficulty_bits||20;
+    const nonce=await solveActivationPoW(challengeBytes,diffBits);
+    if(statusEl)statusEl.textContent='Activating wallet...';
+    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
+    const d=await r.json();
+    if(d.success){
+      if(statusEl){statusEl.textContent='Wallet activated! +'+d.locked_amount_pi+' PI for gas fees';statusEl.style.color='var(--green)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
+      updateBalance();
+      setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},2000);
+    }else{
+      if(statusEl){statusEl.textContent=d.error||'Activation failed';statusEl.style.color='var(--rose)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},3000);
+    }
+  }catch(e){
+    if(statusEl){statusEl.textContent='Could not reach node';statusEl.style.color='var(--rose)';}
+    if(spinnerEl)spinnerEl.style.display='none';
+    setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},3000);
+  }
+}
+
+async function solveActivationPoW(challenge,diffBits){
+  // Solve PoW using SHA-256 via Web Crypto API — no external dependencies needed.
+  const fullBytes=(diffBits/8)|0;
+  const remBits=diffBits%8;
+  const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
+  const batchSize=2000;
+  for(let batch=0;batch<1000000;batch++){
+    const base=batch*batchSize;
+    const promises=[];
+    for(let i=0;i<batchSize;i++){
+      const nonce=base+i;
+      const buf=new Uint8Array(challenge.length+8);
+      buf.set(challenge);
+      let n=nonce;
+      for(let j=0;j<8;j++){buf[challenge.length+j]=n&0xFF;n=Math.floor(n/256);}
+      promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));
+    }
+    const results=await Promise.all(promises);
+    for(const{nonce,hash}of results){
+      let ok=true;
+      for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}
+      if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;
+      if(ok)return nonce;
+    }
+  }
+  throw new Error('PoW solution not found');
+}
+
+function loadWallet() {
+  const saved = localStorage.getItem('pichain_seed');
+  if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
+}
+
+function showWalletModal() {
+  resetWalletModal();
+  document.getElementById('walletModal').classList.add('show');
+}
+
+function updateWalletUI() {
+  const bar = document.getElementById('walletBar');
+  if(walletKeypair) {
+    bar.innerHTML = `
+      <span class="addr">${shortAddr(walletAddressHex)}</span>
+      <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
+      <button class="btn btn-sm btn-outline" onclick="showPrivateKey()">Key</button>
+      <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
+    `;
+  } else {
+    bar.innerHTML = `
+      <span id="walletStatus">No wallet</span>
+      <button class="btn btn-sm" onclick="showWalletModal()">Connect</button>
+    `;
+  }
+  updateFromBalance();
+  updateToBalance();
+}
+
+function showPrivateKey() {
+  const key = walletSeedHex;
+  const modal = document.getElementById('walletModalContent');
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'none';
+  let keyView = document.getElementById('walletKeyView');
+  if (!keyView) {
+    keyView = document.createElement('div');
+    keyView.id = 'walletKeyView';
+    modal.appendChild(keyView);
+  }
+  keyView.style.display = 'block';
+  keyView.innerHTML = `
+    <h3>Your Private Key</h3>
+    <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:12px;margin-bottom:16px;">
+      <div style="font-size:12px;color:var(--gold);line-height:1.5;">Never share this key with anyone.</div>
+    </div>
+    <div class="form-row">
+      <label>Private Key</label>
+      <div style="position:relative;">
+        <input type="text" value="${key}" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:12px;padding:12px 70px 12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);user-select:all;">
+        <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${key}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Address</label>
+      <input type="text" value="Pi314${walletAddressHex}" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--cyan);">
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:12px;" onclick="document.getElementById('walletKeyView').style.display='none';document.getElementById('walletModal').classList.remove('show');resetWalletModal();">Close</button>
+  `;
+  document.getElementById('walletModal').classList.add('show');
+}
+
+function disconnectWallet() {
+  localStorage.removeItem('pichain_seed');
+  walletKeypair = null; walletAddress = null; walletAddressHex = '';
+  piBalance = 0; accountNonce = 0;
+  tokenBalances = {};
+  updateWalletUI();
+  updateSwapBtn();
+}
+
+async function updateBalance() {
+  if(!walletAddressHex) return;
+  try {
+    const res = await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const data = await res.json();
+    if(data.found) {
+      piBalance = data.balance;
+      accountNonce = data.nonce;
+    }
+    const el = document.getElementById('walletBal');
+    if(el) el.textContent = formatPI(piBalance)+' PI';
+    updateFromBalance();
+  } catch(e){}
+  try {
+    const res = await fetch(API+'/api/v1/info');
+    const info = await res.json();
+    currentBaseFee = info.base_fee || 1000;
+  } catch(e){}
+}
+
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast toast-'+type+' show';
+  setTimeout(()=>{ el.classList.remove('show'); }, 4000);
+}
+
+// =====================================================================
+// TAB SWITCHING
+// =====================================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['swap','pools','bridge','send'][i]===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='pools') loadPools();
+  if(name==='bridge') { fetchBridgeStatus(); fetchBridgeTransfers(); fetchDepositAddress(); }
+  if(name==='send') updateSendBalance();
+}
+
+// =====================================================================
+// TOKEN DATA
+// =====================================================================
+let allTokens = [];
+let allPools = [];
+let tokenBalances = {};
+let tokenSelectSide = 'from'; // 'from' or 'to'
+
+// Selected tokens
+let fromToken = { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain', decimals: 9, isNative: true };
+let toToken = null;
+
+async function loadTokens() {
+  try {
+    const res = await fetch(API+'/api/v1/tokens');
+    const data = await res.json();
+    allTokens = data.tokens || [];
+  } catch(e){}
+}
+
+async function loadPools() {
+  try {
+    const res = await fetch(API+'/api/v1/pools');
+    const data = await res.json();
+    allPools = data.pools || [];
+    renderPools();
+  } catch(e){}
+}
+
+async function loadTokenBalances() {
+  if(!walletAddressHex) return;
+  try {
+    const res = await fetch(API+'/api/v1/portfolio/'+walletAddressHex);
+    const data = await res.json();
+    tokenBalances = {};
+    if(data.tokens) {
+      for(const t of data.tokens) {
+        tokenBalances[t.mint_id] = t.balance;
+      }
+    }
+    updateFromBalance();
+    updateToBalance();
+  } catch(e){}
+}
+
+function getTokenBalance(mintId) {
+  if(mintId === NATIVE_PI_MINT) return piBalance;
+  return tokenBalances[mintId] || 0;
+}
+
+function renderPools() {
+  const container = document.getElementById('poolList');
+  if(allPools.length === 0) {
+    container.innerHTML = '<div class="empty"><h3>No pools yet</h3><p>Liquidity pools are created when launched tokens graduate to the DEX.</p></div>';
+    return;
+  }
+
+  container.innerHTML = allPools.map(p => {
+    const tokenA = findToken(p.mint_a);
+    const tokenB = findToken(p.mint_b);
+    const symA = p.mint_a === NATIVE_PI_MINT ? 'PI' : (tokenA ? tokenA.symbol : p.mint_a.slice(0,8)+'...');
+    const symB = p.mint_b === NATIVE_PI_MINT ? 'PI' : (tokenB ? tokenB.symbol : p.mint_b.slice(0,8)+'...');
+    const decA = p.mint_a === NATIVE_PI_MINT ? 9 : (tokenA ? tokenA.decimals : 9);
+    const decB = p.mint_b === NATIVE_PI_MINT ? 9 : (tokenB ? tokenB.decimals : 9);
+    return `
+    <div class="pool-card" onclick="selectPoolForSwap('${p.mint_a}','${p.mint_b}')">
+      <div>
+        <div class="pool-pair">${escHtml(symA)} <span class="sep">/</span> ${escHtml(symB)}</div>
+        <div style="font-size:12px;color:var(--dim);margin-top:2px;">Fee: ${(p.fee_bps/100).toFixed(2)}%</div>
+      </div>
+      <div class="pool-stats">
+        <div><div class="pool-stat-val">${formatTokens(p.reserve_a, decA)}</div><div style="font-size:11px;color:var(--dim);">${escHtml(symA)}</div></div>
+        <div><div class="pool-stat-val">${formatTokens(p.reserve_b, decB)}</div><div style="font-size:11px;color:var(--dim);">${escHtml(symB)}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function findToken(mintId) {
+  if(mintId === NATIVE_PI_MINT) return { symbol: 'PI', name: 'PiChain', decimals: 9 };
+  return allTokens.find(t => t.mint_id === mintId);
+}
+
+function selectPoolForSwap(mintA, mintB) {
+  // Set from=PI, to=other token
+  const piSide = mintA === NATIVE_PI_MINT ? 'a' : mintB === NATIVE_PI_MINT ? 'b' : null;
+  if(piSide === 'a') {
+    fromToken = { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain', decimals: 9, isNative: true };
+    const tok = findToken(mintB);
+    toToken = { mint: mintB, symbol: tok ? tok.symbol : mintB.slice(0,8), name: tok ? tok.name : '', decimals: tok ? tok.decimals : 9 };
+  } else if(piSide === 'b') {
+    fromToken = { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain', decimals: 9, isNative: true };
+    const tok = findToken(mintA);
+    toToken = { mint: mintA, symbol: tok ? tok.symbol : mintA.slice(0,8), name: tok ? tok.name : '', decimals: tok ? tok.decimals : 9 };
+  } else {
+    const tokA = findToken(mintA);
+    const tokB = findToken(mintB);
+    fromToken = { mint: mintA, symbol: tokA ? tokA.symbol : mintA.slice(0,8), name: tokA ? tokA.name : '', decimals: tokA ? tokA.decimals : 9 };
+    toToken = { mint: mintB, symbol: tokB ? tokB.symbol : mintB.slice(0,8), name: tokB ? tokB.name : '', decimals: tokB ? tokB.decimals : 9 };
+  }
+  updateTokenUI();
+  switchTab('swap');
+}
+
+// =====================================================================
+// TOKEN SELECTOR MODAL
+// =====================================================================
+function openTokenModal(side) {
+  tokenSelectSide = side;
+  document.getElementById('tokenSearchInput').value = '';
+  renderTokenList();
+  document.getElementById('tokenModal').classList.add('show');
+}
+
+function filterTokenList() {
+  renderTokenList();
+}
+
+function renderTokenList() {
+  const search = (document.getElementById('tokenSearchInput').value || '').toLowerCase();
+  const container = document.getElementById('tokenListContainer');
+
+  // Build list: PI native + all tokens
+  let items = [
+    { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain (Native)', decimals: 9, isNative: true }
+  ];
+  for(const t of allTokens) {
+    if(t.active !== false) {
+      items.push({ mint: t.mint_id, symbol: t.symbol, name: t.name, decimals: t.decimals });
+    }
+  }
+
+  if(search) {
+    items = items.filter(t => (t.symbol + t.name).toLowerCase().includes(search));
+  }
+
+  if(items.length === 0) {
+    container.innerHTML = '<div class="empty"><p>No tokens found</p></div>';
+    return;
+  }
+
+  container.innerHTML = items.map(t => {
+    const bal = getTokenBalance(t.mint);
+    const isNative = t.mint === NATIVE_PI_MINT;
+    return `
+    <div class="token-list-item" onclick="selectToken('${t.mint}')">
+      <div class="t-icon ${isNative ? 'pi-icon' : ''}">${isNative ? '&pi;' : escHtml(t.symbol.slice(0,2))}</div>
+      <div>
+        <div class="t-symbol">${escHtml(t.symbol)}</div>
+        <div class="t-name">${escHtml(t.name)}</div>
+      </div>
+      <div class="t-right">
+        <div class="t-balance">${formatTokens(bal, t.decimals)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectToken(mintId) {
+  const isNative = mintId === NATIVE_PI_MINT;
+  const tok = findToken(mintId);
+  const tokenObj = {
+    mint: mintId,
+    symbol: isNative ? 'PI' : (tok ? tok.symbol : mintId.slice(0,8)),
+    name: isNative ? 'PiChain' : (tok ? tok.name : ''),
+    decimals: isNative ? 9 : (tok ? tok.decimals : 9),
+    isNative: isNative
+  };
+
+  if(tokenSelectSide === 'from') {
+    // If selecting same as 'to', swap them
+    if(toToken && toToken.mint === mintId) {
+      toToken = fromToken;
+    }
+    fromToken = tokenObj;
+  } else {
+    if(fromToken && fromToken.mint === mintId) {
+      fromToken = toToken || { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain', decimals: 9, isNative: true };
+    }
+    toToken = tokenObj;
+  }
+
+  document.getElementById('tokenModal').classList.remove('show');
+  updateTokenUI();
+  // Re-quote
+  onFromAmountChange();
+}
+
+function updateTokenUI() {
+  // From
+  document.getElementById('fromSymbol').textContent = fromToken.symbol;
+  const fromIconEl = document.getElementById('fromIcon');
+  if(fromToken.isNative) {
+    fromIconEl.className = 't-icon pi-icon';
+    fromIconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:linear-gradient(135deg,var(--accent),#8b5cf6);color:white;';
+    fromIconEl.innerHTML = '&pi;';
+  } else {
+    fromIconEl.className = 't-icon';
+    fromIconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--bg-2);color:var(--text);';
+    fromIconEl.textContent = fromToken.symbol.slice(0,2);
+  }
+
+  // To
+  if(toToken) {
+    document.getElementById('toSymbol').textContent = toToken.symbol;
+    const toIconEl = document.getElementById('toIcon');
+    if(toToken.isNative) {
+      toIconEl.className = 't-icon pi-icon';
+      toIconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:linear-gradient(135deg,var(--accent),#8b5cf6);color:white;';
+      toIconEl.innerHTML = '&pi;';
+    } else {
+      toIconEl.className = 't-icon';
+      toIconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--bg-2);color:var(--text);';
+      toIconEl.textContent = toToken.symbol.slice(0,2);
+    }
+  } else {
+    document.getElementById('toSymbol').textContent = 'Select';
+    const toIconEl = document.getElementById('toIcon');
+    toIconEl.className = 't-icon';
+    toIconEl.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--bg-2);color:var(--dim);';
+    toIconEl.textContent = '?';
+  }
+
+  updateFromBalance();
+  updateToBalance();
+  updateSwapBtn();
+}
+
+function updateFromBalance() {
+  const bal = getTokenBalance(fromToken.mint);
+  document.getElementById('fromBalance').textContent = formatTokens(bal, fromToken.decimals);
+}
+
+function updateToBalance() {
+  if(!toToken) { document.getElementById('toBalance').textContent = '0.0000'; return; }
+  const bal = getTokenBalance(toToken.mint);
+  document.getElementById('toBalance').textContent = formatTokens(bal, toToken.decimals);
+}
+
+function flipTokens() {
+  const tmp = fromToken;
+  fromToken = toToken || { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain', decimals: 9, isNative: true };
+  toToken = tmp;
+  // Swap amounts too
+  const fromAmt = document.getElementById('fromAmount').value;
+  const toAmt = document.getElementById('toAmount').value;
+  document.getElementById('fromAmount').value = toAmt;
+  document.getElementById('toAmount').value = '';
+  updateTokenUI();
+  onFromAmountChange();
+}
+
+function setMaxFrom() {
+  const bal = getTokenBalance(fromToken.mint);
+  document.getElementById('fromAmount').value = (Number(bal) / Math.pow(10, fromToken.decimals)).toFixed(4);
+  onFromAmountChange();
+}
+
+// =====================================================================
+// SWAP QUOTE
+// =====================================================================
+let quoteTimeout = null;
+
+function onFromAmountChange() {
+  clearTimeout(quoteTimeout);
+  quoteTimeout = setTimeout(fetchQuote, 300);
+  updateSwapBtn();
+}
+
+async function fetchQuote() {
+  const amountIn = parseFloat(document.getElementById('fromAmount').value) || 0;
+  const details = document.getElementById('swapDetails');
+
+  if(amountIn <= 0 || !toToken) {
+    document.getElementById('toAmount').value = '';
+    details.style.display = 'none';
+    return;
+  }
+
+  const amountBase = Math.floor(amountIn * Math.pow(10, fromToken.decimals));
+
+  try {
+    const res = await fetch(`${API}/api/v1/swap/quote/${fromToken.mint}/${toToken.mint}/${amountBase}`);
+    const q = await res.json();
+
+    if(q.found) {
+      const outFloat = Number(q.amount_out) / Math.pow(10, toToken.decimals);
+      document.getElementById('toAmount').value = outFloat.toFixed(4);
+
+      // Rate
+      const rate = amountIn > 0 ? (outFloat / amountIn).toFixed(6) : '--';
+      document.getElementById('swapRate').textContent = `1 ${fromToken.symbol} = ${rate} ${toToken.symbol}`;
+
+      // Impact
+      const impactPct = (q.price_impact_bps / 100).toFixed(2);
+      const impactEl = document.getElementById('swapImpact');
+      impactEl.textContent = impactPct + '%';
+      impactEl.className = 'val ' + (q.price_impact_bps < 100 ? 'impact-low' : q.price_impact_bps < 500 ? 'impact-med' : 'impact-high');
+
+      // Min received
+      const slippage = parseFloat(document.getElementById('slippageInput').value) || 1;
+      const minOut = outFloat * (1 - slippage / 100);
+      document.getElementById('swapMinReceived').textContent = minOut.toFixed(4) + ' ' + toToken.symbol;
+
+      // Fee
+      document.getElementById('swapFee').textContent = formatTokens(q.fee, fromToken.decimals) + ' ' + fromToken.symbol;
+
+      details.style.display = 'block';
+    } else {
+      document.getElementById('toAmount').value = '';
+      details.style.display = 'none';
+      showToast('No liquidity pool for this pair', 'info');
+    }
+  } catch(e) {
+    document.getElementById('toAmount').value = '';
+    details.style.display = 'none';
+  }
+}
+
+// =====================================================================
+// SLIPPAGE
+// =====================================================================
+function setSlippage(val) {
+  document.getElementById('slippageInput').value = val;
+  document.querySelectorAll('.slippage-preset').forEach(b => {
+    b.classList.toggle('active', parseFloat(b.textContent) === val);
+  });
+  fetchQuote();
+}
+
+function updateSlippageUI() {
+  const val = parseFloat(document.getElementById('slippageInput').value) || 1;
+  document.querySelectorAll('.slippage-preset').forEach(b => {
+    b.classList.toggle('active', parseFloat(b.textContent) === val);
+  });
+  fetchQuote();
+}
+
+// =====================================================================
+// SWAP EXECUTION
+// =====================================================================
+function updateSwapBtn() {
+  const btn = document.getElementById('swapBtn');
+  if(!walletKeypair) {
+    btn.textContent = 'Connect Wallet';
+    btn.disabled = false;
+    return;
+  }
+  if(!toToken) {
+    btn.textContent = 'Select a token';
+    btn.disabled = true;
+    return;
+  }
+  const amountIn = parseFloat(document.getElementById('fromAmount').value) || 0;
+  if(amountIn <= 0) {
+    btn.textContent = 'Enter an amount';
+    btn.disabled = true;
+    return;
+  }
+  const bal = getTokenBalance(fromToken.mint);
+  const amountBase = Math.floor(amountIn * Math.pow(10, fromToken.decimals));
+  if(amountBase > bal) {
+    btn.textContent = 'Insufficient ' + fromToken.symbol + ' balance';
+    btn.disabled = true;
+    return;
+  }
+  btn.textContent = 'Swap';
+  btn.disabled = false;
+}
+
+// Canonical bytes builders (must match Rust exactly)
+function buildTxHeader(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,chainId) {
+  return concatBytes([sender,u64LE(nonce),u64LE(gasLimit),u64LE(maxBaseFee),u64LE(maxPriorityFee),u64LE(chainId)]);
+}
+
+// Tag 17: Swap
+function buildSwapCanonical(sender,nonce,mintIn,mintOut,amountIn,minAmountOut) {
+  const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([17]),mintIn,mintOut,u64LE(amountIn),u64LE(minAmountOut)]);
+}
+
+function buildSignedTxJson(kindName, kindData, nonce, signature, gasLimit) {
+  const signedTx = {
+    data: {
+      sender: Array.from(walletAddress),
+      nonce: nonce,
+      kind: { [kindName]: kindData },
+      gas_limit: gasLimit,
+      max_base_fee: currentBaseFee,
+      max_priority_fee: 100,
+      chain_id: CHAIN_ID
+    },
+    signature: hexEncode(signature),
+    public_key: Array.from(walletKeypair.publicKey)
+  };
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(signedTx));
+  return hexEncode(jsonBytes);
+}
+
+async function submitTx(hexStr) {
+  const res = await fetch(API+'/api/v1/tx/submit', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({signed_tx_hex: hexStr})
+  });
+  return await res.json();
+}
+
+async function doSwap() {
+  if(!walletKeypair) { showWalletModal(); return; }
+  if(!toToken) return;
+
+  const amountIn = parseFloat(document.getElementById('fromAmount').value) || 0;
+  if(amountIn <= 0) { showToast('Enter an amount', 'error'); return; }
+
+  const slippage = parseFloat(document.getElementById('slippageInput').value) || 1;
+  const amountBase = Math.floor(amountIn * Math.pow(10, fromToken.decimals));
+
+  const mintInBytes = hexDecode(fromToken.mint);
+  const mintOutBytes = hexDecode(toToken.mint);
+
+  const btn = document.getElementById('swapBtn');
+  btn.disabled = true;
+  btn.textContent = 'Swapping...';
+
+  try {
+    // Get quote for min_amount_out
+    const qRes = await fetch(`${API}/api/v1/swap/quote/${fromToken.mint}/${toToken.mint}/${amountBase}`);
+    const q = await qRes.json();
+    if(!q.found) { showToast('No liquidity pool found', 'error'); updateSwapBtn(); return; }
+
+    const minOut = Math.floor(q.amount_out * (1 - slippage/100));
+
+    await updateBalance();
+    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Swap', {
+      mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
+      amount_in: amountBase, min_amount_out: minOut
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showToast('Swap submitted! Tx: ' + result.tx_hash.slice(0,16) + '...', 'success');
+      document.getElementById('fromAmount').value = '';
+      document.getElementById('toAmount').value = '';
+      document.getElementById('swapDetails').style.display = 'none';
+      setTimeout(() => { updateBalance(); loadTokenBalances(); }, 3000);
+    } else {
+      showToast('Failed: ' + (result.error || 'unknown'), 'error');
+    }
+  } catch(e) {
+    showToast(e.message, 'error');
+  }
+  updateSwapBtn();
+}
+
+// =====================================================================
+// SEND PI
+// =====================================================================
+function updateSendBalance() {
+  const el = document.getElementById('sendBalance');
+  if(el) el.textContent = formatPI(piBalance) + ' PI';
+}
+
+function setSendAmount(val) {
+  document.getElementById('sendAmount').value = val;
+}
+
+function setSendMax() {
+  // Reserve gas (21000 gas * base_fee)
+  const gasCost = 21000 * currentBaseFee;
+  const maxSend = Math.max(0, piBalance - gasCost);
+  document.getElementById('sendAmount').value = (maxSend / 1e9).toFixed(9).replace(/\.?0+$/,'');
+}
+
+// Tag 0: Transfer
+function buildTransferCanonical(sender, nonce, recipient, amount) {
+  const h = buildTxHeader(sender, nonce, 21000, currentBaseFee, 100, CHAIN_ID);
+  return concatBytes([h, new Uint8Array([0]), recipient, u64LE(amount)]);
+}
+
+async function doSend() {
+  if(!walletKeypair) { showWalletModal(); return; }
+
+  const recipientHex = stripAddrPrefix(document.getElementById('sendRecipient').value.trim());
+  if(!/^[0-9a-fA-F]{40}$/.test(recipientHex)) {
+    showToast('Invalid address — must be 40 hex characters', 'error');
+    return;
+  }
+
+  const amount = parseFloat(document.getElementById('sendAmount').value) || 0;
+  if(amount <= 0) { showToast('Enter an amount', 'error'); return; }
+
+  const amountBase = Math.floor(amount * 1e9);
+  if(amountBase > piBalance) {
+    showToast('Insufficient balance', 'error');
+    return;
+  }
+
+  const recipientAddr = hexDecode(recipientHex);
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    await updateBalance();
+    const canonical = buildTransferCanonical(walletAddress, accountNonce, recipientAddr, amountBase);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Transfer', {
+      recipient: Array.from(recipientAddr),
+      amount: amountBase
+    }, accountNonce, sig, 21000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      showToast('Transfer submitted! TX: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
+      document.getElementById('sendAmount').value = '';
+      document.getElementById('sendRecipient').value = '';
+      setTimeout(()=>{ updateBalance(); updateSendBalance(); }, 3000);
+    } else {
+      showToast('Failed: ' + (result.error||'unknown'), 'error');
+    }
+  } catch(e) {
+    showToast(e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Send PI';
+}
+
+// =====================================================================
+// BRIDGE
+// =====================================================================
+let selectedChain = 'eth';
+let bridgeDirection = 'deposit';
+
+const CHAIN_INFO = {
+  eth: { label: 'ETH', name: 'Ethereum', wrapped: 'wETH', fee: '0.1%', time: '~15 min', confs: '12 blocks', depositAddr: '' },
+  sol: { label: 'SOL', name: 'Solana', wrapped: 'wSOL', fee: '0.1%', time: '~2 min', confs: '32 slots', depositAddr: '' },
+  btc: { label: 'BTC', name: 'Bitcoin', wrapped: 'wBTC', fee: '0.1%', time: '~60 min', confs: '6 blocks', depositAddr: '' },
+  usdt: { label: 'USDT', name: 'Tether', wrapped: 'wUSDT', fee: '0.1%', time: '~15 min', confs: '12 blocks (ERC-20)', depositAddr: '' },
+};
+
+function selectChain(chain) {
+  selectedChain = chain;
+  document.querySelectorAll('.chain-btn').forEach((b,i) => {
+    b.classList.toggle('active', ['eth','sol','btc','usdt'][i] === chain);
+  });
+  updateBridgeUI();
+  fetchDepositAddress();
+}
+
+function setBridgeDir(dir) {
+  bridgeDirection = dir;
+  document.querySelectorAll('.bridge-dir-btn').forEach((b,i) => {
+    b.classList.toggle('active', ['deposit','withdraw'][i] === dir);
+  });
+  updateBridgeUI();
+}
+
+function updateBridgeUI() {
+  const info = CHAIN_INFO[selectedChain];
+  const content = document.getElementById('bridgeContent');
+
+  if(bridgeDirection === 'deposit') {
+    document.getElementById('bridgeChainLabel').textContent = info.label;
+    document.getElementById('bridgeReceive').textContent = info.wrapped + ' on PiChain';
+    document.getElementById('bridgeFee').textContent = info.fee;
+    document.getElementById('bridgeTime').textContent = info.time;
+    document.getElementById('bridgeConfs').textContent = info.confs;
+    content.querySelector('.deposit-info').style.display = '';
+  } else {
+    content.innerHTML = `
+      <div class="deposit-info">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px;">Withdraw ${info.wrapped} to ${info.name}</div>
+        <div class="form-row">
+          <label>${info.name} Address</label>
+          <input type="text" id="withdrawAddr" placeholder="Enter your ${info.name} address..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;">
+        </div>
+        <div class="form-row">
+          <label>Amount (${info.wrapped})</label>
+          <input type="number" id="withdrawAmount" placeholder="0.0" step="any" min="0" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;">
+        </div>
+        <div style="margin-top:12px;">
+          <div class="bridge-info-row"><span>You will receive</span><span class="val">${info.label} on ${info.name}</span></div>
+          <div class="bridge-info-row"><span>Bridge fee</span><span class="val">${info.fee}</span></div>
+          <div class="bridge-info-row"><span>Est. time</span><span class="val">${info.time}</span></div>
+        </div>
+        <button class="btn" style="width:100%;padding:14px;margin-top:16px;" onclick="requestWithdraw()">Withdraw</button>
+        <div class="bridge-note">
+          Withdrawal burns your ${info.wrapped} on PiChain and sends native ${info.label} to your address on ${info.name}. Processing may take up to 30 minutes.
+        </div>
+      </div>`;
+  }
+}
+
+async function fetchDepositAddress() {
+  if(!walletAddressHex) {
+    document.getElementById('depositAddr').textContent = 'Connect wallet first';
+    return;
+  }
+  try {
+    const res = await fetch(API + '/api/v1/bridge/deposit-address', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chain: selectedChain, pichain_address: walletAddressHex })
+    });
+    const data = await res.json();
+    if(data.address) {
+      document.getElementById('depositAddr').textContent = data.address;
+      CHAIN_INFO[selectedChain].depositAddr = data.address;
+    } else {
+      document.getElementById('depositAddr').textContent = data.error || 'Bridge not available yet';
+    }
+  } catch(e) {
+    document.getElementById('depositAddr').textContent = 'Bridge coming soon';
+  }
+}
+
+function copyDepositAddr() {
+  const addr = document.getElementById('depositAddr').textContent;
+  if(addr && !addr.includes('Connect') && !addr.includes('coming')) {
+    navigator.clipboard.writeText(addr).then(() => showToast('Address copied!', 'success'));
+  }
+}
+
+async function registerDepositIntent() {
+  const extAddr = document.getElementById('depositIntentAddr').value.trim();
+  if(!extAddr) { showToast('Enter your external chain address', 'error'); return; }
+  if(!walletAddressHex) { showToast('Connect wallet first', 'error'); return; }
+  try {
+    const res = await fetch(API + '/api/v1/bridge/deposit-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chain: selectedChain,
+        external_address: extAddr,
+        pichain_address: walletAddressHex,
+      })
+    });
+    const data = await res.json();
+    if(data.success) {
+      showToast('Deposit intent registered! You can now send from ' + extAddr, 'success');
+      document.getElementById('depositIntentAddr').value = '';
+    } else {
+      showToast(data.error || 'Failed to register intent', 'error');
+    }
+  } catch(e) {
+    showToast('Failed to register deposit intent', 'error');
+  }
+}
+
+async function requestWithdraw() {
+  const destAddr = document.getElementById('withdrawAddr').value.trim();
+  const amountStr = document.getElementById('withdrawAmount').value.trim();
+  if(!destAddr) { showToast('Enter destination address', 'error'); return; }
+  if(!amountStr || parseFloat(amountStr) <= 0) { showToast('Enter a valid amount', 'error'); return; }
+  if(!walletAddressHex) { showToast('Connect wallet first', 'error'); return; }
+  const info = CHAIN_INFO[selectedChain];
+  try {
+    const res = await fetch(API + '/api/v1/bridge/withdraw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: info.wrapped,
+        amount: Math.floor(parseFloat(amountStr) * 1e9),
+        destination_chain: selectedChain,
+        destination_address: destAddr,
+        pichain_address: walletAddressHex,
+      })
+    });
+    const data = await res.json();
+    if(data.success) {
+      showToast('Withdrawal queued! ' + info.label + ' will be sent to ' + destAddr, 'success');
+      document.getElementById('withdrawAddr').value = '';
+      document.getElementById('withdrawAmount').value = '';
+    } else {
+      showToast(data.error || 'Withdrawal failed', 'error');
+    }
+  } catch(e) {
+    showToast('Withdrawal request failed', 'error');
+  }
+}
+
+async function fetchBridgeStatus() {
+  try {
+    const res = await fetch(API + '/api/v1/bridge/status');
+    const data = await res.json();
+    const tvlDiv = document.getElementById('bridgeTVL');
+    if(data.tokens && data.tokens.length > 0) {
+      tvlDiv.innerHTML = data.tokens.map(t => {
+        const amt = (t.total_supply / 1e9).toFixed(4);
+        return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+          <div style="font-size:12px;color:var(--dim);">${t.symbol}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);">${amt}</div>
+        </div>`;
+      }).join('');
+    }
+    const countDiv = document.getElementById('bridgeTransferCount');
+    countDiv.textContent = data.total_transfers > 0 ? data.total_transfers + ' total bridge transfers' : '';
+  } catch(e) { /* silent */ }
+}
+
+async function fetchBridgeTransfers() {
+  try {
+    const res = await fetch(API + '/api/v1/bridge/transfers?limit=20');
+    const data = await res.json();
+    const div = document.getElementById('bridgeTransfers');
+    if(data.transfers && data.transfers.length > 0) {
+      div.innerHTML = data.transfers.map(t => {
+        const amt = (t.amount / 1e9).toFixed(6);
+        const time = new Date(t.timestamp * 1000).toLocaleString();
+        const shortRecip = t.recipient.slice(0,8) + '...' + t.recipient.slice(-6);
+        const shortTx = t.tx_hash.slice(0,10) + '...';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <div><span style="color:var(--cyan);font-weight:600;">${t.symbol}</span> <span style="color:var(--muted);">${t.chain}</span></div>
+          <div style="color:var(--text);font-weight:600;">${amt}</div>
+          <div style="color:var(--dim);" title="${t.recipient}">${shortRecip}</div>
+          <div style="color:var(--dim);" title="${t.tx_hash}">${shortTx}</div>
+        </div>`;
+      }).join('');
+    }
+  } catch(e) { /* silent */ }
+}
+
+// Poll bridge status periodically
+setInterval(() => { fetchBridgeStatus(); fetchBridgeTransfers(); }, 30000);
+
+// =====================================================================
+// INIT
+// =====================================================================
+loadWallet();
+loadTokens();
+loadPools();
+setInterval(updateBalance, 15000);
+setInterval(loadTokens, 30000);
+
+// Close modals on overlay click
+document.getElementById('tokenModal').addEventListener('click', function(e) {
+  if(e.target === this) this.classList.remove('show');
+});
+document.getElementById('walletModal').addEventListener('click', function(e) {
+  if(e.target === this) this.classList.remove('show');
+});
+</script>
+</body>
+</html>

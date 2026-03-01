@@ -1010,6 +1010,11 @@ impl StakingManager {
             .collect()
     }
 
+    /// Get all validators (including inactive/jailed).
+    pub fn all_validators(&self) -> Vec<&StakeEntry> {
+        self.validators.values().collect()
+    }
+
     /// Get a specific validator's stake info.
     pub fn get_validator(&self, address: &Address) -> Option<&StakeEntry> {
         self.validators.get(address)
@@ -1018,6 +1023,14 @@ impl StakingManager {
     /// Get a delegation.
     pub fn get_delegation(&self, delegator: &Address, validator: &Address) -> Option<&Delegation> {
         self.delegations.get(&(*delegator, *validator))
+    }
+
+    /// Get all delegations for a given delegator address.
+    pub fn delegations_for(&self, delegator: &Address) -> Vec<&Delegation> {
+        self.delegations.iter()
+            .filter(|((d, _), _)| d == delegator)
+            .map(|(_, v)| v)
+            .collect()
     }
 
     /// Get total staked.

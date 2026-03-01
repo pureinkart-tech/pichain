@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain Blocks</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+@media(max-width:768px){.nav-links{display:none;}}
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:14px;}
+th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
+tr:hover{background:rgba(99,102,241,0.04);}
+tr.clickable{cursor:pointer;}
+.mono{font-family:'SF Mono',Monaco,monospace;font-size:13px;}
+.hash{color:var(--cyan);}
+.height-link{color:var(--accent-light);font-weight:700;cursor:pointer;}
+.pager{display:flex;justify-content:center;gap:12px;margin-top:24px;}
+.pager button{padding:8px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);cursor:pointer;font-size:14px;}
+.pager button:hover{background:var(--surface-2);}
+.pager button:disabled{opacity:0.4;cursor:default;}
+.pager span{padding:8px;color:var(--muted);font-size:14px;}
+/* Block detail modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;justify-content:center;align-items:start;padding:100px 24px;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:900px;width:100%;max-height:80vh;overflow-y:auto;}
+.modal h2{font-size:20px;margin-bottom:16px;}
+.modal-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;}
+.detail-row{display:flex;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px;}
+.detail-label{width:160px;color:var(--muted);flex-shrink:0;}
+.detail-value{flex:1;word-break:break-all;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/blocks" class="active">Blocks</a>
+      <a href="/staking">Staking</a>
+      <a href="/mining">Mining</a>
+      <a href="/trade">Trade</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title">Blocks</h1>
+  <p class="page-desc">Browse the PIChain block history.</p>
+
+  <table>
+    <thead><tr><th>Height</th><th>Hash</th><th>Txs</th><th>Proposer</th><th>Gas Used</th><th>Time</th></tr></thead>
+    <tbody id="blocks-body"><tr><td colspan="6" style="color:var(--muted);text-align:center;">Loading...</td></tr></tbody>
+  </table>
+  <div class="pager">
+    <button id="btn-newer" onclick="loadPage(1)" disabled>&larr; Newer</button>
+    <span id="page-info">-</span>
+    <button id="btn-older" onclick="loadPage(-1)">Older &rarr;</button>
+  </div>
+</div>
+
+<!-- Block detail modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h2>Block Detail</h2>
+    <div id="block-detail"></div>
+    <h3 style="margin-top:20px;font-size:16px;">Transactions</h3>
+    <table style="margin-top:8px;">
+      <thead><tr><th>Hash</th><th>Type</th><th>From</th><th>Status</th></tr></thead>
+      <tbody id="block-txs"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentHeight = null;
+let latestHeight = 0;
+const PAGE_SIZE = 20;
+
+async function init() {
+  try {
+    const r = await fetch(API+'/api/v1/info');
+    const d = await r.json();
+    latestHeight = d.height || 0;
+    currentHeight = latestHeight;
+    loadBlocks();
+  } catch(e) { console.error(e); }
+}
+
+async function loadBlocks() {
+  const tbody = document.getElementById('blocks-body');
+  tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">Loading...</td></tr>';
+  const rows = [];
+  const start = currentHeight;
+  const end = Math.max(start - PAGE_SIZE + 1, 0);
+  for (let h = start; h >= end; h--) {
+    try {
+      const r = await fetch(API+'/api/v1/block/'+h);
+      if (!r.ok) continue;
+      const b = await r.json();
+      const hash = b.hash || '-';
+      const txCount = b.transactions ? b.transactions.length : 0;
+      const proposer = b.proposer || b.header?.proposer || '-';
+      const gas = b.gas_used || 0;
+      const time = b.timestamp_ms ? new Date(b.timestamp_ms).toLocaleTimeString() : '-';
+      rows.push(`<tr class="clickable" onclick="showBlock(${h})">
+        <td><span class="height-link">${h}</span></td>
+        <td class="mono hash">${hash.substring(0,16)}...</td>
+        <td>${txCount}</td>
+        <td class="mono">${typeof proposer === 'string' ? proposer.substring(0,12)+'...' : '-'}</td>
+        <td>${gas.toLocaleString()}</td>
+        <td>${time}</td>
+      </tr>`);
+    } catch(e) {}
+  }
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="6" style="color:var(--muted);text-align:center;">No blocks found</td></tr>';
+  document.getElementById('page-info').textContent = `${end} - ${start} of ${latestHeight}`;
+  document.getElementById('btn-newer').disabled = currentHeight >= latestHeight;
+  document.getElementById('btn-older').disabled = end <= 0;
+}
+
+function loadPage(dir) {
+  if (dir === 1) currentHeight = Math.min(currentHeight + PAGE_SIZE, latestHeight);
+  else currentHeight = Math.max(currentHeight - PAGE_SIZE, PAGE_SIZE - 1);
+  loadBlocks();
+}
+
+async function showBlock(h) {
+  try {
+    const r = await fetch(API+'/api/v1/block/'+h);
+    const b = await r.json();
+    document.getElementById('block-detail').innerHTML = `
+      <div class="detail-row"><div class="detail-label">Height</div><div class="detail-value">${h}</div></div>
+      <div class="detail-row"><div class="detail-label">Hash</div><div class="detail-value mono hash">${b.hash||'-'}</div></div>
+      <div class="detail-row"><div class="detail-label">State Root</div><div class="detail-value mono">${b.state_root||b.header?.state_root||'-'}</div></div>
+      <div class="detail-row"><div class="detail-label">Transactions</div><div class="detail-value">${b.transactions?b.transactions.length:0}</div></div>
+      <div class="detail-row"><div class="detail-label">Gas Used</div><div class="detail-value">${(b.gas_used||0).toLocaleString()}</div></div>
+    `;
+    const txBody = document.getElementById('block-txs');
+    const txs = b.transactions || [];
+    txBody.innerHTML = txs.length ? txs.map(tx => {
+      const h = tx.hash || '-';
+      const kind = tx.kind_name || tx.kind || '-';
+      const from = tx.sender || tx.data?.sender || '-';
+      const st = tx.status || '-';
+      return `<tr><td class="mono hash">${h.substring(0,16)}...</td><td>${kind}</td><td class="mono">${typeof from === 'string' ? from.substring(0,12)+'...' : '-'}</td><td>${st}</td></tr>`;
+    }).join('') : '<tr><td colspan="4" style="color:var(--muted);text-align:center;">No transactions</td></tr>';
+    document.getElementById('modal').classList.add('open');
+  } catch(e) { console.error(e); }
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+
+init();
+</script>
+</body>
+</html>

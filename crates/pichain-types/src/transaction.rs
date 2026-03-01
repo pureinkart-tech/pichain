@@ -221,6 +221,14 @@ pub enum TransactionKind {
         pi_amount: u64,
     },
 
+    /// Sell tokens back to the bonding curve for PI.
+    SellFromLaunch {
+        /// Token mint ID.
+        mint: crate::MintId,
+        /// Token amount to sell (in base units).
+        token_amount: u64,
+    },
+
     /// Finalize a token launch (create AMM pool).
     FinalizeLaunch {
         /// Token mint ID.
@@ -283,6 +291,40 @@ pub enum TransactionKind {
     DelistNft {
         /// NFT ID.
         nft_id: crate::NftId,
+    },
+
+    // --- Multi-Signature ---
+
+    /// Create a new multi-signature wallet.
+    CreateMultisig {
+        /// Authorized signer addresses.
+        signers: Vec<Address>,
+        /// Required number of signatures (M-of-N).
+        threshold: u8,
+    },
+
+    /// Execute a transaction from a multisig wallet.
+    ExecuteMultisig {
+        /// The multisig wallet address.
+        multisig_address: Address,
+        /// Serialized inner transaction to execute.
+        inner_tx_data: Vec<u8>,
+        /// Signatures from authorized signers.
+        signatures: Vec<(Address, Vec<u8>)>,
+    },
+
+    // --- Bridge ---
+
+    /// Burn wrapped tokens for cross-chain withdrawal.
+    BridgeWithdraw {
+        /// Wrapped token mint ID to burn.
+        mint: crate::MintId,
+        /// Amount to burn (in token base units).
+        amount: u64,
+        /// Destination chain identifier.
+        dest_chain: String,
+        /// Destination address on the target chain.
+        dest_address: String,
     },
 }
 
@@ -453,6 +495,11 @@ impl TransactionData {
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&pi_amount.to_le_bytes());
             }
+            TransactionKind::SellFromLaunch { mint, token_amount } => {
+                buf.push(30);
+                buf.extend_from_slice(&mint.0);
+                buf.extend_from_slice(&token_amount.to_le_bytes());
+            }
             TransactionKind::FinalizeLaunch { mint } => {
                 buf.push(20);
                 buf.extend_from_slice(&mint.0);
@@ -508,6 +555,37 @@ impl TransactionData {
             TransactionKind::DelistNft { nft_id } => {
                 buf.push(26);
                 buf.extend_from_slice(&nft_id.0);
+            }
+            TransactionKind::CreateMultisig { signers, threshold } => {
+                buf.push(27);
+                buf.push(*threshold);
+                buf.extend_from_slice(&(signers.len() as u32).to_le_bytes());
+                for signer in signers {
+                    buf.extend_from_slice(&signer.0);
+                }
+            }
+            TransactionKind::ExecuteMultisig { multisig_address, inner_tx_data, signatures } => {
+                buf.push(28);
+                buf.extend_from_slice(&multisig_address.0);
+                buf.extend_from_slice(&(inner_tx_data.len() as u32).to_le_bytes());
+                buf.extend_from_slice(inner_tx_data);
+                buf.extend_from_slice(&(signatures.len() as u32).to_le_bytes());
+                for (addr, sig) in signatures {
+                    buf.extend_from_slice(&addr.0);
+                    buf.extend_from_slice(&(sig.len() as u32).to_le_bytes());
+                    buf.extend_from_slice(sig);
+                }
+            }
+            TransactionKind::BridgeWithdraw { mint, amount, dest_chain, dest_address } => {
+                buf.push(29);
+                buf.extend_from_slice(&mint.0);
+                buf.extend_from_slice(&amount.to_le_bytes());
+                let chain_b = dest_chain.as_bytes();
+                buf.extend_from_slice(&(chain_b.len() as u32).to_le_bytes());
+                buf.extend_from_slice(chain_b);
+                let addr_b = dest_address.as_bytes();
+                buf.extend_from_slice(&(addr_b.len() as u32).to_le_bytes());
+                buf.extend_from_slice(addr_b);
             }
         }
 
@@ -569,14 +647,11 @@ impl SignedTransaction {
             }
             TransactionKind::Stake { .. } => 25_000,
             TransactionKind::Unstake { .. } => 25_000,
-            TransactionKind::MiningProof { digits, proof, .. } => {
-                // Low base gas: mining proofs contribute value to the network by
-                // computing PI digits. Must be profitable even at small batch sizes
-                // (10 digits) for browser miners. At base_fee=1000 and reward_per_digit
-                // ~1,669,750: 10 digits earns ~0.017 PI, gas must be < that.
-                10_000u64
-                    .saturating_add((digits.len() as Gas).saturating_mul(100))
-                    .saturating_add((proof.len() as Gas).saturating_mul(50))
+            TransactionKind::MiningProof { digits, .. } => {
+                // Gas scales with digit count so small miners stay profitable.
+                // At base_fee=1000: 10 digits → 550 gas → 0.00055 PI fee (3.3% of reward)
+                // 2000 digits → 10,500 gas → 0.0105 PI fee (0.3% of reward)
+                500u64.saturating_add((digits.len() as Gas).saturating_mul(5))
             }
             // Token operations
             TransactionKind::CreateToken { .. } => 50_000,
@@ -595,6 +670,7 @@ impl SignedTransaction {
             // Launchpad operations
             TransactionKind::CreateLaunch { .. } => 75_000,
             TransactionKind::ParticipateInLaunch { .. } => 50_000,
+            TransactionKind::SellFromLaunch { .. } => 50_000,
             TransactionKind::FinalizeLaunch { .. } => 100_000,
             // NFT operations
             TransactionKind::CreateNftCollection { .. } => 50_000,
@@ -603,6 +679,11 @@ impl SignedTransaction {
             TransactionKind::ListNft { .. } => 25_000,
             TransactionKind::BuyNft { .. } => 60_000,
             TransactionKind::DelistNft { .. } => 25_000,
+            TransactionKind::CreateMultisig { .. } => 50_000,
+            TransactionKind::ExecuteMultisig { inner_tx_data, .. } => {
+                75_000u64.saturating_add((inner_tx_data.len() as Gas).saturating_mul(16))
+            }
+            TransactionKind::BridgeWithdraw { .. } => 50_000,
         }
     }
 }
@@ -619,6 +700,21 @@ pub struct AccountAccess {
 }
 
 impl TransactionKind {
+    /// Return the primary recipient address of this transaction, if any.
+    /// Used for tx history indexing (index both sender and recipient).
+    pub fn recipient_address(&self) -> Option<Address> {
+        match self {
+            TransactionKind::Transfer { recipient, .. } => Some(*recipient),
+            TransactionKind::ContractCall { contract, .. } => Some(*contract),
+            TransactionKind::Stake { validator, .. } => Some(*validator),
+            TransactionKind::Unstake { validator, .. } => Some(*validator),
+            TransactionKind::MintToken { recipient, .. } => Some(*recipient),
+            TransactionKind::TransferToken { recipient, .. } => Some(*recipient),
+            TransactionKind::TransferNft { recipient, .. } => Some(*recipient),
+            _ => None,
+        }
+    }
+
     /// Declare which accounts this transaction will access.
     /// Used by the parallel scheduler to detect conflicts without executing.
     pub fn account_accesses(&self, sender: &Address) -> Vec<AccountAccess> {
@@ -740,6 +836,7 @@ impl TransactionKind {
                 });
             }
             TransactionKind::ParticipateInLaunch { mint, .. }
+            | TransactionKind::SellFromLaunch { mint, .. }
             | TransactionKind::CreateLaunch { mint, .. } => {
                 // Launchpad operations touch shared launch state keyed by mint.
                 let mut vaddr = [0u8; 20];
@@ -828,6 +925,23 @@ impl TransactionKind {
                         writable: true,
                     });
                 }
+            }
+            TransactionKind::CreateMultisig { .. } => {
+                // Only touches sender state (creates new multisig wallet).
+            }
+            TransactionKind::ExecuteMultisig { multisig_address, .. } => {
+                accesses.push(AccountAccess {
+                    address: *multisig_address,
+                    writable: true,
+                });
+            }
+            TransactionKind::BridgeWithdraw { mint, .. } => {
+                let mut vaddr = [0u8; 20];
+                vaddr.copy_from_slice(&mint.0[..20]);
+                accesses.push(AccountAccess {
+                    address: Address(vaddr),
+                    writable: true,
+                });
             }
             TransactionKind::BuyNft { nft_id } => {
                 // BuyNft touches shared NFT state. Derive a virtual writable

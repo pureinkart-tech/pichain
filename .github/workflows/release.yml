@@ -134,8 +134,12 @@ jobs:
               codesign --sign - --force "$BINARY"
             fi
 
-            # Recreate DMG with the fixed .app (Tauri's DMG has the old signed version)
-            hdiutil create -volname "PIChain Miner" -srcfolder "$APP_PATH" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
+            # Create DMG staging folder with .app + Applications symlink for drag-and-drop install
+            DMG_STAGING=$(mktemp -d)
+            cp -R "$APP_PATH" "$DMG_STAGING/"
+            ln -s /Applications "$DMG_STAGING/Applications"
+            hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
+            rm -rf "$DMG_STAGING"
           else
             # Fallback: copy Tauri's DMG
             cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true

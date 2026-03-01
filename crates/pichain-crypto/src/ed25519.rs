@@ -112,13 +112,13 @@ impl Address {
 
 impl std::fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{}", hex::encode(self.0))
+        write!(f, "Pi314{}", hex::encode(self.0))
     }
 }
 
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{}", hex::encode(self.0))
+        write!(f, "Pi314{}", hex::encode(self.0))
     }
 }
 

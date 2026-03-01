@@ -175,7 +175,6 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
       </div>
       <div class="wallet-actions">
         <button class="btn btn-secondary btn-sm" id="refresh-btn" onclick="refreshBalance()">Refresh</button>
-        <button class="btn btn-secondary btn-sm" id="faucet-btn" onclick="doFaucet()">Faucet (Free PI)</button>
         <button class="btn btn-secondary btn-sm" onclick="doExportKey()">Export Key</button>
         <button class="btn btn-danger btn-sm" onclick="doResetWallet()">Reset Wallet</button>
       </div>
@@ -300,6 +299,18 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
   </div>
 </div>
 
+<!-- Confirm modal (replaces confirm()) -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <h3 id="confirm-modal-title" style="color:var(--rose);">Confirm</h3>
+    <p id="confirm-modal-message"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="resolveConfirm(false)">Cancel</button>
+      <button class="btn btn-danger" id="confirm-modal-ok" onclick="resolveConfirm(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- CPU usage warning modal -->
 <div class="modal-overlay" id="cpu-warning-modal">
   <div class="modal">
@@ -374,12 +385,26 @@ function showToast(msg, type) {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
-// ---------- Modal helpers (replaces alert()) ----------
+// ---------- Modal helpers (replaces alert() / confirm()) ----------
 
 function showInfoModal(title, message) {
   document.getElementById('info-modal-title').textContent = title;
   document.getElementById('info-modal-message').textContent = message;
   document.getElementById('info-modal').classList.add('active');
+}
+
+let _confirmResolve = null;
+function showConfirmModal(title, message) {
+  return new Promise((resolve) => {
+    _confirmResolve = resolve;
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-message').textContent = message;
+    document.getElementById('confirm-modal').classList.add('active');
+  });
+}
+function resolveConfirm(value) {
+  document.getElementById('confirm-modal').classList.remove('active');
+  if (_confirmResolve) { _confirmResolve(value); _confirmResolve = null; }
 }
 
 // ---------- Initialization ----------
@@ -582,31 +607,6 @@ async function refreshBalance() {
   }
   btn.disabled = false;
   btn.textContent = 'Refresh';
-}
-
-async function doFaucet() {
-  const btn = document.getElementById('faucet-btn');
-  btn.disabled = true;
-  btn.textContent = 'Claiming...';
-  try {
-    const rpc = document.getElementById('rpc-url').value;
-    const result = await invoke('claim_faucet', { rpcUrl: rpc, address: walletAddress });
-    if (result.success) {
-      const amt = (result.amount / 1e9).toFixed(3);
-      appendLog({ timestamp: now(), message: 'Faucet claimed! +' + amt + ' PI', level: 'success' });
-      showToast('+' + amt + ' PI from faucet!', 'success');
-      await refreshBalance();
-    } else {
-      const msg = result.error || 'Failed to claim';
-      appendLog({ timestamp: now(), message: 'Faucet: ' + msg, level: 'error' });
-      showToast('Faucet: ' + msg, 'error');
-    }
-  } catch (e) {
-    appendLog({ timestamp: now(), message: 'Faucet error: ' + e, level: 'error' });
-    showToast('Cannot reach faucet. Is the node running?', 'error');
-  }
-  btn.disabled = false;
-  btn.textContent = 'Faucet (Free PI)';
 }
 
 function copyAddress() {
@@ -849,8 +849,11 @@ async function doResetWallet() {
     showInfoModal('Stop Mining First', 'Please stop mining before resetting your wallet.');
     return;
   }
-  // Show confirmation
-  if (!confirm('Are you sure you want to reset your wallet? Make sure you have exported your secret key!')) return;
+  const ok = await showConfirmModal(
+    'Reset Wallet',
+    'Are you sure you want to reset your wallet? This will delete the wallet file from this computer. Make sure you have exported and saved your secret key!'
+  );
+  if (!ok) return;
   try {
     await invoke('reset_wallet');
     walletAddress = '';

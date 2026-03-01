@@ -1,13 +1,16 @@
 //! PIChain REST API Server
 //!
 //! Provides REST API endpoints for querying blockchain state, submitting
-//! transactions, and interacting with tokens, DEX, mining, and faucet.
+//! transactions, and interacting with tokens, DEX, and mining.
 //! Includes WebSocket subscriptions for real-time block and transaction events.
 
 pub mod server;
 pub mod ws;
 
-pub use server::{MiningStatusData, RpcServer, StateProvider, SwapQuote};
+pub use server::{
+    BridgeAddressesInfo, BridgeStatusInfo, BridgeTokenStatus, BridgeTransferInfo,
+    DelegationInfo, MiningStatusData, RpcServer, StateProvider, SwapQuote, ValidatorInfo,
+};
 pub use ws::{WsBroadcaster, WsEvent};
 
 #[derive(Debug, thiserror::Error)]

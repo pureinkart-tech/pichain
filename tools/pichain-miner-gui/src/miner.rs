@@ -25,6 +25,8 @@ pub struct MiningStatus {
     pub difficulty_target_hex: String,
     #[serde(default)]
     pub anchor_block_hash: String,
+    #[serde(default)]
+    pub unique_miners: u64,
 }
 
 fn default_max_batch() -> u64 {
@@ -44,13 +46,6 @@ pub struct AccountResponse {
 pub struct SubmitResponse {
     pub tx_hash: String,
     pub status: String,
-    pub error: Option<String>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct FaucetResponse {
-    pub success: bool,
-    pub amount: u64,
     pub error: Option<String>,
 }
 
@@ -119,30 +114,7 @@ impl MiningConfig {
 }
 
 fn now_ts() -> String {
-    // Use chrono-free local time: get UTC seconds and apply system offset
-    #[cfg(unix)]
-    {
-        use std::mem::MaybeUninit;
-        unsafe {
-            let epoch = libc::time(std::ptr::null_mut());
-            let mut tm = MaybeUninit::<libc::tm>::uninit();
-            libc::localtime_r(&epoch, tm.as_mut_ptr());
-            let tm = tm.assume_init();
-            format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        // Fallback: UTC time (Windows Tauri builds can add chrono later)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let secs = now.as_secs() % 86400;
-        let h = secs / 3600;
-        let m = (secs % 3600) / 60;
-        let s = secs % 60;
-        format!("{h:02}:{m:02}:{s:02}")
-    }
+    chrono::Local::now().format("%H:%M:%S").to_string()
 }
 
 fn emit_log(app: &AppHandle, message: &str, level: &str) {
@@ -179,6 +151,7 @@ pub async fn mining_loop(
         .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
     let mut local_nonce: Option<u64> = None;
+    let mut local_position: Option<u64> = None;
     let mut total_digits: u64 = 0;
     let mut proofs_submitted: u64 = 0;
     let mut proofs_confirmed: u64 = 0;
@@ -271,26 +244,42 @@ pub async fn mining_loop(
             }
         };
 
-        let position = mining_status.next_position;
-
-        // Cap batch size to the available gap to avoid overlap with existing ranges
-        let max_gap = mining_status.max_batch_at_position;
-        let effective_batch_size = if max_gap < config.digits_per_batch as u64 && max_gap >= 10 {
-            emit_log(
-                &app,
-                &format!(
-                    "Capping batch to {} digits (gap size)",
-                    max_gap
-                ),
-                "info",
-            );
-            max_gap as u32
-        } else if max_gap < 10 {
-            emit_log(&app, "Gap too small (< 10 digits), waiting...", "warn");
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            continue;
+        // Calculate position with collision avoidance:
+        // - If we have a local_position from last round, use it (prevents self-collision)
+        // - Otherwise, use server's next_position + auto-offset (prevents inter-miner collision)
+        let (position, effective_batch_size) = if let Some(local_pos) = local_position {
+            let pos = local_pos.max(mining_status.next_position);
+            (pos, config.digits_per_batch)
         } else {
-            config.digits_per_batch
+            // Auto-offset from miner address to avoid collisions with other miners
+            let stride = config.digits_per_batch as u64 * config.concurrent_batches as u64;
+            let offset = if stride > 0 {
+                let addr_seed = u32::from_le_bytes([
+                    address.0[0], address.0[1], address.0[2], address.0[3],
+                ]);
+                let slot = (addr_seed as u64) % 8;
+                slot.saturating_mul(stride)
+            } else {
+                0
+            };
+            let pos = mining_status.next_position.saturating_add(offset);
+            // Cap batch size to available gap
+            let max_gap = mining_status.max_batch_at_position;
+            let effective = if max_gap < config.digits_per_batch as u64 && max_gap >= 10 {
+                emit_log(
+                    &app,
+                    &format!("Capping batch to {} digits (gap size)", max_gap),
+                    "info",
+                );
+                max_gap as u32
+            } else if max_gap < 10 {
+                emit_log(&app, "Gap too small (< 10 digits), waiting...", "warn");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                continue;
+            } else {
+                config.digits_per_batch
+            };
+            (pos, effective)
         };
 
         // Parse difficulty
@@ -540,18 +529,21 @@ pub async fn mining_loop(
                                 "error",
                             );
                             local_nonce = None;
+                            local_position = None;
                             break;
                         }
                     }
                     Err(e) => {
                         emit_log(&app, &format!("Bad response: {e}"), "error");
                         local_nonce = None;
+                        local_position = None;
                         break;
                     }
                 },
                 Err(e) => {
                     emit_log(&app, &format!("Submit failed: {e}"), "error");
                     local_nonce = None;
+                    local_position = None;
                     break;
                 }
             }
@@ -559,6 +551,12 @@ pub async fn mining_loop(
 
         if local_nonce.is_some() || current_nonce > nonce {
             local_nonce = Some(current_nonce);
+        }
+
+        // Advance local position past submitted batches to prevent self-collision
+        if current_nonce > nonce {
+            let total_digits_this_round = effective_batch_count as u64 * effective_batch_size as u64;
+            local_position = Some(position.saturating_add(total_digits_this_round));
         }
 
         consecutive_errors = 0; // Reset backoff on successful round

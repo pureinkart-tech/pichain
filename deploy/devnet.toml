@@ -1,0 +1,10 @@
+# PIChain Devnet Configuration
+# Chain ID 31415 — development/testing network
+
+data_dir = "./pichain-data"
+rpc_addr = "127.0.0.1:8314"
+p2p_addr = "/ip4/0.0.0.0/tcp/9314"
+chain_id = 31415
+max_mempool_size = 100000
+validator_stake_pi = 100000
+log_level = "debug"

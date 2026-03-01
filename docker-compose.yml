@@ -80,6 +80,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  node4:
+    build: .
+    container_name: pichain-node4
+    command:
+      - run
+      - --data-dir=/data
+      - --config=/config/node4.toml
+    ports:
+      - "8317:8314"
+      - "9317:9314"
+    volumes:
+      - node4-data:/data
+      - ./devnet-config/node4.toml:/config/node4.toml:ro
+      - ./devnet-config/keys/node4:/data/keys:ro
+    networks:
+      - pichain-net
+    depends_on:
+      node1:
+        condition: service_healthy
+    restart: unless-stopped
+
   # --- Miner ---
 
   miner:
@@ -121,6 +142,7 @@ volumes:
   node1-data:
   node2-data:
   node3-data:
+  node4-data:
   miner-data:
 
 networks:

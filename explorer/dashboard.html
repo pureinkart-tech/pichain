@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PIChain Mining Dashboard</title>
-<meta name="description" content="Real-time PIChain mining monitor. Track frontier progress, mining rewards, and network stats.">
+<title>PiChain Mining Dashboard</title>
+<meta name="description" content="Real-time PiChain mining monitor. Track frontier progress, mining rewards, and network stats.">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -128,14 +128,15 @@ a{color:var(--accent-light);text-decoration:none;}
 
 <nav class="navbar" id="navbar">
   <div class="navbar-inner">
-    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
       <a href="/dashboard" class="active">Dashboard</a>
       <a href="/mining">Mining</a>
-      <a href="/faucet">Faucet</a>
       <a href="/launch">Launch</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge">Bridge</a>
       <a href="/download">Download</a>
       <a href="/mine" class="nav-cta">Start Mining</a>
     </div>
@@ -218,7 +219,7 @@ a{color:var(--accent-light);text-decoration:none;}
     <div class="card">
       <div class="section-title">&#x1f4ca; Your Miner</div>
       <div class="tracker-input">
-        <input type="text" id="track-addr" placeholder="Enter your wallet address (0x...)" spellcheck="false">
+        <input type="text" id="track-addr" placeholder="Enter your wallet address (Pi314...)" spellcheck="false">
         <button onclick="trackMiner()">Track</button>
       </div>
       <div class="tracker-stats">
@@ -366,9 +367,11 @@ async function refreshDashboard(){
 function trackMiner(){
   let addr=document.getElementById('track-addr').value.trim();
   if(!addr)return;
-  if(addr.startsWith('0x'))addr=addr.slice(2);
+  if(addr.startsWith('Pi314'))addr=addr.slice(5);
+  else if(addr.startsWith('pi314'))addr=addr.slice(5);
+  else if(addr.startsWith('0x')||addr.startsWith('0X'))addr=addr.slice(2);
   trackedAddress=addr;
-  addFeedItem('TRACK','badge-tx','Tracking address 0x'+addr.slice(0,8)+'...');
+  addFeedItem('TRACK','badge-tx','Tracking address Pi314'+addr.slice(0,6)+'...');
   refreshDashboard();
   // Save to localStorage
   try{localStorage.setItem('pichain-track-addr',addr);}catch(e){}
@@ -379,7 +382,7 @@ try{
   const saved=localStorage.getItem('pichain-track-addr');
   if(saved){
     trackedAddress=saved;
-    document.getElementById('track-addr').value='0x'+saved;
+    document.getElementById('track-addr').value='Pi314'+saved;
   }
 }catch(e){}
 
@@ -406,7 +409,7 @@ setInterval(checkNewBlocks,5000);
 // Page title with live stats
 setInterval(()=>{
   const f=document.getElementById('d-frontier').textContent;
-  if(f!=='--')document.title='Frontier: '+f+' | PIChain Dashboard';
+  if(f!=='--')document.title='Frontier: '+f+' | PiChain Dashboard';
 },5000);
 </script>
 </body>

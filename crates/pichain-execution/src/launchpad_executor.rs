@@ -29,6 +29,8 @@ pub struct LaunchpadResult {
     pub tokens_received: u64,
     /// PI refunded to the participant (set by participate()).
     pub refund: u64,
+    /// PI returned to seller (set by sell()).
+    pub pi_returned: u64,
 }
 
 /// Request to create an AMM pool when a launch finalizes.
@@ -123,9 +125,7 @@ impl LaunchpadExecutor {
         if target_pi == 0 {
             return launchpad_error("target_pi must be > 0");
         }
-        if max_per_address == 0 {
-            return launchpad_error("max_per_address must be > 0");
-        }
+        // max_per_address == 0 means no per-address limit
 
         let launch_id = LaunchId::from_mint(&mint);
 
@@ -173,6 +173,7 @@ impl LaunchpadExecutor {
             finalization: None,
             tokens_received: 0,
             refund: 0,
+            pi_returned: 0,
         }
     }
 
@@ -231,7 +232,8 @@ impl LaunchpadExecutor {
             Some(v) => v,
             None => return launchpad_error("contribution overflow"),
         };
-        if new_contribution > launch.max_per_address {
+        // max_per_address == 0 means no per-address limit
+        if launch.max_per_address > 0 && new_contribution > launch.max_per_address {
             return launchpad_error(&format!(
                 "exceeds max contribution per address: current {}, adding {}, max {}",
                 current_contribution, actual_cost, launch.max_per_address
@@ -251,11 +253,25 @@ impl LaunchpadExecutor {
         // limits and refund calculations are based on real expenditure.
         *launch.contributions.entry(sender).or_insert(0) = new_contribution;
 
-        // Check if target reached
+        // Check if target reached — auto-graduate to DEX immediately
+        let mut finalization = None;
         if launch.pi_raised >= launch.target_pi
             || launch.tokens_sold >= launch.tokens_for_sale
         {
-            launch.state = LaunchState::TargetReached;
+            // Skip TargetReached, go straight to Finalized
+            launch.state = LaunchState::Finalized;
+
+            let (pi_for_pool, tokens_for_pool) = launch.finalization_amounts();
+            if pi_for_pool > 0 && tokens_for_pool > 0 {
+                let creator_pi = launch.pi_raised.saturating_sub(pi_for_pool);
+                finalization = Some(PoolSeedRequest {
+                    mint,
+                    pi_amount: pi_for_pool,
+                    token_amount: tokens_for_pool,
+                    creator: launch.creator,
+                    creator_pi,
+                });
+            }
         }
 
         let launch = launch.clone();
@@ -278,9 +294,10 @@ impl LaunchpadExecutor {
                 .unwrap_or_default(),
             }],
             launch_changes,
-            finalization: None,
+            finalization,
             tokens_received: tokens,
             refund,
+            pi_returned: 0,
         }
     }
 
@@ -300,10 +317,8 @@ impl LaunchpadExecutor {
         };
         let launch = launch_ref.value_mut();
 
-        // Only creator can finalize
-        if launch.creator != sender {
-            return launchpad_error("only the launch creator can finalize");
-        }
+        // Anyone can finalize a launch that has reached its target — this prevents
+        // the creator from holding graduation hostage.
 
         // SECURITY: Only allow finalization when target has been reached.
         // Previously accepted Active state, which allowed creators to finalize
@@ -323,14 +338,10 @@ impl LaunchpadExecutor {
         // Calculate pool seeding amounts
         let (pi_for_pool, tokens_for_pool) = launch.finalization_amounts();
 
-        // M17-FIX: If all tokens were sold, tokens_for_pool will be 0 (no unsold tokens
-        // to seed the pool with). Proceeding would create an empty-sided AMM pool, which
-        // breaks the constant-product invariant and allows infinite-price manipulation.
+        // Safety: tokens_for_pool should never be 0 after finalization_amounts
+        // (it mints new tokens when all are sold), but guard against edge cases.
         if tokens_for_pool == 0 {
-            return launchpad_error(
-                "cannot finalize: no tokens available for pool seeding \
-                 (all tokens were sold)"
-            );
+            return launchpad_error("cannot finalize: pool token calculation returned 0");
         }
 
         let creator_pi = match launch.pi_raised.checked_sub(pi_for_pool) {
@@ -350,6 +361,7 @@ impl LaunchpadExecutor {
         }
 
         launch.state = LaunchState::Finalized;
+        let actual_creator = launch.creator;
 
         let launch = launch.clone();
         drop(launch_ref); // Release shard lock before building result
@@ -375,11 +387,116 @@ impl LaunchpadExecutor {
                 mint,
                 pi_amount: pi_for_pool,
                 token_amount: tokens_for_pool,
-                creator: sender,
+                creator: actual_creator,
                 creator_pi,
             }),
             tokens_received: 0,
             refund: 0,
+            pi_returned: 0,
+        }
+    }
+
+    /// Sell tokens back to an active launch (reverse bonding curve).
+    pub fn sell(
+        &self,
+        sender: Address,
+        mint: MintId,
+        token_amount: u64,
+    ) -> LaunchpadResult {
+        if token_amount == 0 {
+            return launchpad_error("sell amount must be > 0");
+        }
+
+        let launch_id = LaunchId::from_mint(&mint);
+
+        let mut launch_ref = match self.launches.get_mut(&launch_id) {
+            Some(l) => l,
+            None => return launchpad_error("launch not found"),
+        };
+        let launch = launch_ref.value_mut();
+
+        if launch.state != LaunchState::Active {
+            return launchpad_error("can only sell on active launches");
+        }
+
+        if token_amount > launch.tokens_sold {
+            return launchpad_error("sell amount exceeds total tokens sold on curve");
+        }
+
+        // Calculate PI to return using reverse bonding curve
+        let pi_return = match launch.calculate_sell_return(token_amount) {
+            Some(v) => v,
+            None => return launchpad_error("sell return calculation failed"),
+        };
+
+        if pi_return == 0 {
+            return launchpad_error("sell amount too small to receive any PI");
+        }
+
+        // Cap at pi_raised to handle rounding dust from multiple buys
+        let pi_return = std::cmp::min(pi_return, launch.pi_raised);
+
+        // Update launch state
+        launch.tokens_sold = launch.tokens_sold.saturating_sub(token_amount);
+        launch.pi_raised = launch.pi_raised.saturating_sub(pi_return);
+
+        // Update contribution tracking
+        if let Some(contrib) = launch.contributions.get_mut(&sender) {
+            *contrib = contrib.saturating_sub(pi_return);
+            if *contrib == 0 {
+                launch.contributions.remove(&sender);
+            }
+        }
+
+        // Revert TargetReached if we're now below target
+        if launch.state == LaunchState::TargetReached {
+            if launch.pi_raised < launch.target_pi
+                && launch.tokens_sold < launch.tokens_for_sale
+            {
+                launch.state = LaunchState::Active;
+            }
+        }
+
+        let launch = launch.clone();
+        drop(launch_ref);
+
+        let mut launch_changes = HashMap::new();
+        launch_changes.insert(launch_id, launch);
+
+        LaunchpadResult {
+            status: TransactionStatus::Success,
+            events: vec![TransactionEvent {
+                emitter: sender,
+                event_type: "SellFromLaunch".to_string(),
+                data: serde_json::to_vec(&serde_json::json!({
+                    "launch_id": launch_id.to_string(),
+                    "tokens_sold": token_amount,
+                    "pi_returned": pi_return,
+                }))
+                .unwrap_or_default(),
+            }],
+            launch_changes,
+            finalization: None,
+            tokens_received: 0,
+            refund: 0,
+            pi_returned: pi_return,
+        }
+    }
+
+    /// Rollback a sell — re-add tokens and PI to the launch.
+    /// Called when post-sell operations (token burn, PI credit) fail.
+    pub fn rollback_sell(&self, mint: &MintId, sender: &Address, tokens: u64, pi_return: u64) {
+        let launch_id = LaunchId::from_mint(mint);
+        if let Some(mut launch_ref) = self.launches.get_mut(&launch_id) {
+            launch_ref.tokens_sold = launch_ref.tokens_sold.saturating_add(tokens);
+            launch_ref.pi_raised = launch_ref.pi_raised.saturating_add(pi_return);
+            *launch_ref.contributions.entry(*sender).or_insert(0) += pi_return;
+            // Re-check target reached
+            if launch_ref.pi_raised >= launch_ref.target_pi
+                || launch_ref.tokens_sold >= launch_ref.tokens_for_sale
+            {
+                launch_ref.state = LaunchState::TargetReached;
+            }
         }
     }
 
@@ -436,6 +553,7 @@ fn launchpad_error(msg: &str) -> LaunchpadResult {
         finalization: None,
         tokens_received: 0,
         refund: 0,
+        pi_returned: 0,
     }
 }
 
@@ -575,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_launch() {
+    fn auto_graduate_on_participate() {
         let (executor, creator, mint) = setup_fair();
         executor.create_launch(
             creator,
@@ -590,31 +708,25 @@ mod tests {
             0,
         );
 
-        // Participate enough to reach target
+        // Participate enough to reach target — should auto-finalize
         let buyer = Address([2u8; 20]);
-        executor.participate(buyer, mint, 500_000);
-
-        // Should be target reached
-        let launch = executor.get_launch_by_mint(&mint).unwrap();
-        assert_eq!(launch.state, LaunchState::TargetReached);
-
-        // Finalize
-        let result = executor.finalize(creator, mint);
+        let result = executor.participate(buyer, mint, 500_000);
         assert_eq!(result.status, TransactionStatus::Success);
-        assert!(result.finalization.is_some());
 
+        // Should be auto-finalized (skips TargetReached)
+        let launch = executor.get_launch_by_mint(&mint).unwrap();
+        assert_eq!(launch.state, LaunchState::Finalized);
+
+        // Result should include finalization data for pool seeding
+        assert!(result.finalization.is_some());
         let pool_seed = result.finalization.unwrap();
         assert!(pool_seed.pi_amount > 0);
         assert!(pool_seed.token_amount > 0);
         assert_eq!(pool_seed.creator, creator);
-
-        // Verify launch is finalized
-        let launch = executor.get_launch_by_mint(&mint).unwrap();
-        assert_eq!(launch.state, LaunchState::Finalized);
     }
 
     #[test]
-    fn non_creator_cannot_finalize() {
+    fn anyone_can_finalize() {
         let (executor, creator, mint) = setup_fair();
         executor.create_launch(
             creator,
@@ -629,9 +741,15 @@ mod tests {
             0,
         );
 
+        // Participate just under target so it doesn't auto-finalize
         let buyer = Address([2u8; 20]);
-        executor.participate(buyer, mint, 500_000);
+        executor.participate(buyer, mint, 90_000);
 
+        // Should still be active
+        let launch = executor.get_launch_by_mint(&mint).unwrap();
+        assert_eq!(launch.state, LaunchState::Active);
+
+        // Cannot finalize yet — not at target
         let imposter = Address([99u8; 20]);
         let r = executor.finalize(imposter, mint);
         assert!(matches!(r.status, TransactionStatus::Reverted(_)));

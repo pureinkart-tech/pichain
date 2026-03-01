@@ -1,0 +1,38 @@
+# PIChain Bridge Relayer Configuration
+# Copy this file and fill in your custodial wallet addresses.
+# Run: ./target/release/pichain-bridge --config bridge-config.toml
+
+[general]
+# PIChain node RPC endpoint
+pichain_rpc = "http://127.0.0.1:8314"
+# How often to poll external chains for deposits (seconds)
+poll_interval_secs = 15
+# Directory for bridge data (deposit store, logs)
+data_dir = "./bridge-data"
+
+[ethereum]
+enabled = true
+# Sepolia testnet RPC (free, no API key needed)
+rpc_url = "https://rpc.sepolia.org"
+# Your Ethereum custodial wallet address (receives deposits)
+custodial_address = "0x4b50151161f0dace017765ccd2c21112148f4d97"
+# Required block confirmations before minting
+confirmations = 12
+
+[solana]
+enabled = true
+# Solana Devnet RPC (free, no API key needed)
+rpc_url = "https://api.devnet.solana.com"
+# Your Solana custodial wallet address (receives deposits)
+custodial_address = "AP2nRd8LPFx8y3om6PEEg3uhhEWKUaCvWjhtiXinrWGS"
+# Required slot confirmations before minting
+confirmations = 32
+
+[bitcoin]
+enabled = true
+# Blockstream Testnet API (free, no API key needed)
+api_url = "https://blockstream.info/testnet/api"
+# Your Bitcoin testnet custodial address (receives deposits)
+custodial_address = "tb1q90wt88jz8ep8p6tsn07s"
+# Required block confirmations before minting
+confirmations = 6

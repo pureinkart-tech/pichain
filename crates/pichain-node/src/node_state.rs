@@ -16,11 +16,13 @@ use pichain_rpc::StateProvider;
 use pichain_storage::StateStore;
 use pichain_types::account::Account;
 use pichain_types::genesis::GenesisConfig;
-use pichain_types::{Block, PiAmount};
+use pichain_types::{Block, PiAmount, SignedTransaction};
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Shared node state accessible from all subsystems.
 pub struct NodeState {
@@ -51,6 +53,35 @@ pub struct NodeState {
     /// arriving concurrently could both see the same height and attempt to apply
     /// at the same slot, causing state corruption or duplicate block insertion.
     peer_block_mutex: tokio::sync::Mutex<()>,
+    /// Bridge: registered custodial addresses (set by bridge relayer).
+    bridge_addresses: RwLock<BridgeAddresses>,
+    /// Bridge: recent transfer records (mint events).
+    bridge_transfers: RwLock<Vec<BridgeTransferRecord>>,
+    /// Bridge: deposit intents mapping "chain:external_addr" → pichain_addr.
+    deposit_intents: RwLock<HashMap<String, String>>,
+    /// Mempool WAL (write-ahead log) path for crash recovery.
+    /// Pending transactions are written here so they survive node restarts.
+    mempool_wal_path: Option<PathBuf>,
+}
+
+/// Registered custodial addresses from the bridge relayer.
+#[derive(Clone, Default)]
+pub struct BridgeAddresses {
+    pub eth: String,
+    pub sol: String,
+    pub btc: String,
+    pub usdt: String,
+}
+
+/// Record of a bridge mint event.
+#[derive(Clone)]
+pub struct BridgeTransferRecord {
+    pub chain: String,
+    pub tx_hash: String,
+    pub symbol: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub timestamp: i64,
 }
 
 impl NodeState {
@@ -74,6 +105,85 @@ impl NodeState {
             total_minted: AtomicU64::new(0),
             last_block_timestamp_ms: AtomicU64::new(0),
             peer_block_mutex: tokio::sync::Mutex::new(()),
+            bridge_addresses: RwLock::new(BridgeAddresses::default()),
+            bridge_transfers: RwLock::new(Vec::new()),
+            deposit_intents: RwLock::new(HashMap::new()),
+            mempool_wal_path: None,
+        }
+    }
+
+    /// Set the mempool WAL path and replay any pending transactions from a previous run.
+    pub fn enable_mempool_wal(&mut self, data_dir: &str) {
+        let path = PathBuf::from(data_dir).join("mempool-wal.ndjson");
+        // Replay pending transactions from previous run
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(contents) => {
+                    let mut replayed = 0u32;
+                    let mut failed = 0u32;
+                    for line in contents.lines() {
+                        if line.is_empty() { continue; }
+                        match serde_json::from_str::<SignedTransaction>(line) {
+                            Ok(tx) => {
+                                let sender = tx.data.sender;
+                                // Load account state for nonce validation
+                                if let Ok(Some(account)) = self.store.read().get_account(&sender) {
+                                    if self.executor.get_account(&sender).is_none() {
+                                        self.executor.set_account(sender, account.state.clone());
+                                    }
+                                    self.mempool.set_sender_nonce(sender, account.state.nonce);
+                                    // Skip txs with nonces already confirmed on-chain
+                                    if tx.data.nonce < account.state.nonce {
+                                        continue;
+                                    }
+                                }
+                                match self.mempool.insert(tx) {
+                                    Ok(_) => replayed += 1,
+                                    Err(_) => failed += 1,
+                                }
+                            }
+                            Err(_) => failed += 1,
+                        }
+                    }
+                    if replayed > 0 || failed > 0 {
+                        info!(replayed, failed, "mempool WAL: replayed pending transactions");
+                    }
+                }
+                Err(e) => warn!(error = %e, "failed to read mempool WAL"),
+            }
+            // Clear the WAL after replay (will be rebuilt from current mempool)
+            let _ = std::fs::write(&path, "");
+        }
+        self.mempool_wal_path = Some(path);
+    }
+
+    /// Append a transaction to the mempool WAL.
+    fn wal_append(&self, tx: &SignedTransaction) {
+        if let Some(path) = &self.mempool_wal_path {
+            if let Ok(json) = serde_json::to_string(tx) {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    let _ = writeln!(f, "{}", json);
+                }
+            }
+        }
+    }
+
+    /// Rewrite the WAL with only the currently pending mempool transactions.
+    /// Called after each block is persisted to remove confirmed txs.
+    pub fn wal_compact(&self) {
+        if let Some(path) = &self.mempool_wal_path {
+            let pending = self.mempool.get_ready_transactions(100_000);
+            let mut contents = String::new();
+            for tx in &pending {
+                if let Ok(json) = serde_json::to_string(tx) {
+                    contents.push_str(&json);
+                    contents.push('\n');
+                }
+            }
+            if let Err(e) = std::fs::write(path, &contents) {
+                warn!(error = %e, "failed to compact mempool WAL");
+            }
         }
     }
 
@@ -376,6 +486,198 @@ impl NodeState {
         Ok(())
     }
 
+    /// Bootstrap wrapped tokens and DEX pools for the cross-chain bridge.
+    /// Creates wETH, wSOL, wBTC, wUSDT mints with the bridge operator as mint_authority,
+    /// then creates PI/wXXX pools seeded with initial liquidity from the 5% reserve.
+    /// Idempotent: skips if the first wrapped mint already exists.
+    pub fn bootstrap_bridge_tokens(&self) -> anyhow::Result<()> {
+        use pichain_types::token::{TokenMint, TokenAccount, MintId, token_account_key};
+        use pichain_types::dex::{LiquidityPool, PoolId, isqrt};
+
+        let bridge_operator = GenesisConfig::devnet_bridge_operator_address();
+        let liquidity_addr = GenesisConfig::devnet_liquidity_address();
+
+        // Deterministic MintIds for wrapped tokens (using bridge operator + sequential nonces)
+        let weth_mint_id = MintId::derive(&bridge_operator, 0);
+        let wsol_mint_id = MintId::derive(&bridge_operator, 1);
+        let wbtc_mint_id = MintId::derive(&bridge_operator, 2);
+        let wusdt_mint_id = MintId::derive(&bridge_operator, 3);
+
+        // Check if already bootstrapped (idempotent)
+        if self.executor.token_executor().get_mint(&weth_mint_id).is_some() {
+            info!("bridge tokens already bootstrapped, skipping");
+            return Ok(());
+        }
+
+        info!("bootstrapping bridge wrapped tokens and liquidity pools...");
+
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+
+        // Define wrapped tokens: (mint_id, name, symbol, decimals, nonce)
+        let tokens = [
+            (weth_mint_id, "Wrapped Ether", "wETH", 9u8, 0u64),
+            (wsol_mint_id, "Wrapped Solana", "wSOL", 9u8, 1u64),
+            (wbtc_mint_id, "Wrapped Bitcoin", "wBTC", 9u8, 2u64),
+            (wusdt_mint_id, "Wrapped Tether", "wUSDT", 9u8, 3u64),
+        ];
+
+        // Pool seeding amounts (in base units, 1 PI = 1_000_000_000):
+        // PI/wETH: 25M PI + 12,500 wETH  (1 wETH = 2,000 PI)
+        // PI/wSOL: 25M PI + 250,000 wSOL  (1 wSOL = 100 PI)
+        // PI/wBTC: 25M PI + 250 wBTC      (1 wBTC = 100,000 PI)
+        // PI/wUSDT: 25M PI + 25M wUSDT    (1 wUSDT = 1 PI)
+        let base = 1_000_000_000u64; // 1 PI in base units
+        let pi_per_pool: u64 = 25_000_000 * base; // 25M PI per pool
+        let pool_configs: [(MintId, u64, u64); 4] = [
+            (weth_mint_id,  pi_per_pool, 12_500 * base),      // wETH
+            (wsol_mint_id,  pi_per_pool, 250_000 * base),     // wSOL
+            (wbtc_mint_id,  pi_per_pool, 250 * base),         // wBTC
+            (wusdt_mint_id, pi_per_pool, 25_000_000 * base),  // wUSDT
+        ];
+        let total_pi_needed: u64 = pi_per_pool * 4; // 100M PI
+
+        let mut store = self.store.write();
+
+        // 1. Try to debit PI from liquidity reserve; if not found, mint directly
+        //    (handles live chains initialized before liquidity reserve was added)
+        if let Some(liq_state) = self.executor.get_account(&liquidity_addr) {
+            if liq_state.balance >= total_pi_needed {
+                let mut liq_acct = Account { address: liquidity_addr, state: liq_state };
+                liq_acct.state.balance -= total_pi_needed;
+                store.put_account(&liq_acct)?;
+                self.executor.set_account(liquidity_addr, liq_acct.state);
+                info!(pi_debited = total_pi_needed / base, "debited PI from liquidity reserve for bridge pools");
+            } else {
+                info!("liquidity reserve insufficient, minting PI for bridge pool seeding");
+            }
+        } else {
+            info!("liquidity reserve not found, minting PI for bridge pool seeding (devnet bootstrap)");
+        }
+
+        // 2. Fund bridge operator with gas PI (10 PI for tx fees)
+        let gas_amount: u64 = 10 * base;
+        let bridge_state = self.executor.get_account(&bridge_operator)
+            .unwrap_or_else(|| pichain_types::account::AccountState::default());
+        let mut bridge_acct = Account { address: bridge_operator, state: bridge_state };
+        bridge_acct.state.balance = bridge_acct.state.balance.checked_add(gas_amount)
+            .ok_or_else(|| anyhow::anyhow!("bridge operator balance overflow"))?;
+        store.put_account(&bridge_acct)?;
+        self.executor.set_account(bridge_operator, bridge_acct.state);
+
+        // Now borrow db for token/pool writes
+        let db = store.db();
+        let token_store = pichain_storage::TokenStore::new(db);
+        let dex_store = pichain_storage::DexStore::new(db);
+
+        // 3. Create token mints
+        for &(mint_id, name, symbol, decimals, _nonce) in &tokens {
+            let mint = TokenMint {
+                id: mint_id,
+                name: name.to_string(),
+                symbol: symbol.to_string(),
+                decimals,
+                total_supply: 0,
+                max_supply: 0, // unlimited — bridge mints on demand
+                creator: bridge_operator,
+                mint_authority: Some(bridge_operator),
+                freeze_authority: None,
+                active: true,
+                created_at_ms: now_ms,
+                metadata_uri: String::new(),
+            };
+            token_store.put_mint(&mint)?;
+            self.executor.token_executor().load_mint(mint);
+            info!(symbol, mint_id = %mint_id, "created wrapped token mint");
+        }
+
+        // Store mint nonce for bridge operator (4 mints created = nonce 4)
+        let nonce_key = [b"mn:".as_slice(), &bridge_operator.0].concat();
+        db.put_metadata(&nonce_key, &4u64.to_le_bytes())?;
+
+        // 4. Create pools + seed liquidity
+        for (wrapped_mint, pi_amount, token_amount) in pool_configs {
+            // Create pool: native PI (MintId::ZERO) vs wrapped token
+            let pool_id = PoolId::derive(&MintId::ZERO, &wrapped_mint);
+            let (mint_a, mint_b) = if MintId::ZERO <= wrapped_mint {
+                (MintId::ZERO, wrapped_mint)
+            } else {
+                (wrapped_mint, MintId::ZERO)
+            };
+
+            // Map amounts to canonical ordering
+            let (amount_a, amount_b) = if mint_a == MintId::ZERO {
+                (pi_amount, token_amount)
+            } else {
+                (token_amount, pi_amount)
+            };
+
+            // Calculate LP tokens: sqrt(amount_a * amount_b) - MINIMUM_LIQUIDITY
+            let product = amount_a as u128 * amount_b as u128;
+            let lp_total = isqrt(product);
+            let lp_minted = (lp_total - LiquidityPool::MINIMUM_LIQUIDITY as u128) as u64;
+
+            // Mint the wrapped token supply for this pool
+            let mut mint = self.executor.token_executor().get_mint(&wrapped_mint)
+                .ok_or_else(|| anyhow::anyhow!("mint not found after creation"))?;
+            mint.total_supply = mint.total_supply.checked_add(token_amount)
+                .ok_or_else(|| anyhow::anyhow!("token supply overflow"))?;
+            token_store.put_mint(&mint)?;
+            self.executor.token_executor().load_mint(mint);
+
+            // Create token account for the pool's wrapped token reserve
+            let pool_token_key = token_account_key(&liquidity_addr, &wrapped_mint);
+            let pool_token_acct = TokenAccount {
+                key: pool_token_key,
+                owner: liquidity_addr,
+                mint: wrapped_mint,
+                balance: token_amount,
+                delegate: None,
+                delegate_amount: 0,
+                frozen: false,
+            };
+            token_store.put_token_account(&pool_token_acct)?;
+            self.executor.token_executor().load_token_account(pool_token_acct);
+
+            // Create the pool with seeded reserves
+            let pool = LiquidityPool {
+                id: pool_id,
+                mint_a,
+                mint_b,
+                reserve_a: amount_a,
+                reserve_b: amount_b,
+                lp_supply: lp_minted,
+                fee_bps: LiquidityPool::DEFAULT_FEE_BPS,
+                creator: liquidity_addr,
+                active: true,
+                created_at_ms: now_ms,
+                cumulative_volume_a: 0,
+                cumulative_volume_b: 0,
+            };
+            dex_store.put_pool(&pool)?;
+            self.executor.dex_executor().load_pool(pool);
+
+            // Assign LP tokens to liquidity address
+            dex_store.put_lp_balance(&pool_id, &liquidity_addr, lp_minted)?;
+            self.executor.dex_executor().load_lp_balance(pool_id, liquidity_addr, lp_minted);
+
+            info!(
+                pool_id = %pool_id,
+                reserve_pi = pi_amount / base,
+                reserve_token = token_amount / base,
+                lp_minted,
+                "created and seeded bridge liquidity pool"
+            );
+        }
+
+        info!(
+            bridge_operator = %bridge_operator,
+            total_pi_used = total_pi_needed / base,
+            "bridge tokens and pools bootstrapped successfully"
+        );
+
+        Ok(())
+    }
+
     /// Rebuild mining state by replaying MiningProof transactions from persisted blocks.
     /// Called on startup to restore the DigitRegistry to its correct state.
     fn rebuild_mining_state(&self, latest_height: u64) -> anyhow::Result<()> {
@@ -587,6 +889,33 @@ impl NodeState {
             db.batch_put_metadata(&mut batch, b"total_burned", &new_total_burned.to_le_bytes());
             db.batch_put_metadata(&mut batch, b"total_minted", &new_total_minted.to_le_bytes());
 
+            // --- Transaction History + Event Indexing ---
+            for (i, tx) in block.transactions.iter().enumerate() {
+                let tx_hash = tx.hash();
+                let tx_idx = i as u16;
+                let sender_bytes = tx.data.sender.0;
+
+                // Index for sender
+                db.batch_index_tx_for_address(&mut batch, &sender_bytes, height, tx_idx, tx_hash.as_bytes());
+
+                // Index for recipient (if applicable)
+                if let Some(recipient) = tx.data.kind.recipient_address() {
+                    if recipient != tx.data.sender {
+                        db.batch_index_tx_for_address(&mut batch, &recipient.0, height, tx_idx, tx_hash.as_bytes());
+                    }
+                }
+
+                // Index events from receipt
+                if let Some(result) = produced.execution_results.get(i) {
+                    for (evt_idx, event) in result.effect.events.iter().enumerate() {
+                        let global_idx = (i * 256 + evt_idx) as u16;
+                        let topic = pichain_crypto::hash(event.event_type.as_bytes());
+                        db.batch_index_event_topic(&mut batch, topic.as_bytes(), height, global_idx, tx_hash.as_bytes());
+                        db.batch_index_event_address(&mut batch, &sender_bytes, height, global_idx, tx_hash.as_bytes());
+                    }
+                }
+            }
+
             // Phase 3: Commit the entire batch atomically with WAL sync.
             // The pending JMT updates are applied to the in-memory tree only
             // after the batch succeeds (Fix STOR-223).
@@ -606,6 +935,12 @@ impl NodeState {
                 minted = produced.total_minted,
                 "block persisted (atomic + sub-executor state)"
             );
+
+            // Compact mempool WAL — remove confirmed transactions
+            if block.header.tx_count > 0 {
+                self.wal_compact();
+            }
+
             computed_state_root
         }; // Release store lock before acquiring staking lock
 
@@ -927,6 +1262,11 @@ impl StateProvider for NodeState {
         self.state_root().to_string()
     }
 
+    fn get_account_proof(&self, address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> {
+        let store = self.store.read();
+        store.get_account_proof(address)
+    }
+
     fn mempool_size(&self) -> usize {
         self.mempool.len()
     }
@@ -964,6 +1304,8 @@ impl StateProvider for NodeState {
             ));
         }
 
+        // Append to WAL before inserting — ensures crash recovery
+        self.wal_append(&tx);
         self.mempool.insert(tx).map(|_| ()).map_err(|e| e.to_string())
     }
 
@@ -1044,80 +1386,15 @@ impl StateProvider for NodeState {
         })
     }
 
-    // WARNING: Faucet claims bypass the block execution pipeline and directly modify storage.
-    // This means: (1) faucet state changes are not included in any block, (2) state root
-    // will diverge from peers in multi-node mode. The faucet should ONLY be used on devnet/testnet.
-    // For mainnet, the faucet must be replaced with a system transaction injected into the mempool.
-    fn faucet_claim(&self, address: &Address) -> Result<u64, String> {
-        // Reject faucet claims on mainnet (chain_id 314159) unconditionally
-        if self.chain_id == 314159 {
-            return Err("faucet is disabled on mainnet".to_string());
-        }
-
-        // Only available on devnet
-        if self.chain_id != 31415 {
-            return Err("faucet only available on devnet".to_string());
-        }
-
-        // Amount: 10 PI
-        let faucet_amount: u64 = 10 * pichain_types::BASE_UNITS_PER_PI;
-
-        // Check if address already has a balance (prevent double-claim)
-        {
-            let store = self.store.read();
-            if let Ok(Some(account)) = store.get_account(address) {
-                if account.state.balance > 0 {
-                    return Err("address already has a balance".to_string());
-                }
-            }
-        }
-
-        // Debit faucet, credit target under write lock
-        let faucet_addr = GenesisConfig::devnet_faucet_address();
-        let mut store = self.store.write();
-
-        // Re-read faucet under write lock to avoid TOCTOU
-        let mut faucet_acct = store
-            .get_account(&faucet_addr)
-            .map_err(|e| format!("storage error: {e}"))?
-            .ok_or("faucet account not found in storage")?;
-
-        if faucet_acct.state.balance < faucet_amount {
-            return Err("faucet depleted".to_string());
-        }
-
-        // Re-read target under write lock
-        if let Ok(Some(existing)) = store.get_account(address) {
-            if existing.state.balance > 0 {
-                return Err("address already has a balance".to_string());
-            }
-        }
-
-        faucet_acct.state.balance = faucet_acct.state.balance.checked_sub(faucet_amount)
-            .ok_or("faucet balance underflow — should be impossible after check")?;
-        let target_account = Account::with_balance(*address, faucet_amount);
-
-        // Atomic write: debit faucet + credit target in a single synced batch
-        // to prevent PI loss if the node crashes between the two writes.
-        store.put_accounts_atomic(&[&faucet_acct, &target_account])
-            .map_err(|e| format!("storage error: {e}"))?;
-
-        // Update executor cache so next block execution sees the new balances
-        self.executor.set_account(*address, target_account.state);
-        self.executor.set_account(faucet_addr, faucet_acct.state);
-
-        info!(
-            %address,
-            amount = faucet_amount,
-            "devnet faucet claim processed"
-        );
-
-        Ok(faucet_amount)
+    fn activation_count(&self) -> u64 {
+        self.store.read().activation_count().unwrap_or(0)
     }
 
     fn activate_wallet(&self, address: &Address) -> Result<u64, String> {
         // 3.14 PI in base units (1 PI = 1_000_000_000)
         let locked_grant: u64 = 3_140_000_000;
+        // Global cap: first 3.14 million wallets
+        const MAX_ACTIVATIONS: u64 = 3_140_000;
 
         // Check if already activated (read lock first for fast path)
         {
@@ -1125,30 +1402,36 @@ impl StateProvider for NodeState {
             if store.is_wallet_activated(address).unwrap_or(false) {
                 return Err("wallet already activated".to_string());
             }
+            if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
+                return Err("wallet activation cap reached (3,140,000 wallets)".to_string());
+            }
         }
 
-        // Write lock for atomic check-and-set
+        // Mint locked PI directly to the target wallet under write lock
         let mut store = self.store.write();
 
         // Re-check under write lock (TOCTOU protection)
         if store.is_wallet_activated(address).unwrap_or(false) {
             return Err("wallet already activated".to_string());
         }
+        if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
+            return Err("wallet activation cap reached (3,140,000 wallets)".to_string());
+        }
 
-        // Load or create account
+        // Load or create target account
         let mut account = store
             .get_account(address)
             .map_err(|e| format!("storage error: {e}"))?
             .unwrap_or_else(|| Account::new(*address));
 
-        // Grant locked balance
+        // Mint locked balance (non-transferable, gas fees only)
         account.state.locked_balance = account
             .state
             .locked_balance
             .checked_add(locked_grant)
             .ok_or("locked balance overflow")?;
 
-        // Persist account + activation flag
+        // Persist account + mark activated
         store
             .put_account(&account)
             .map_err(|e| format!("storage error: {e}"))?;
@@ -1162,7 +1445,7 @@ impl StateProvider for NodeState {
         info!(
             %address,
             locked_amount = locked_grant,
-            "wallet activated with locked PI grant"
+            "wallet activated with minted locked PI grant"
         );
 
         Ok(locked_grant)
@@ -1230,5 +1513,324 @@ impl StateProvider for NodeState {
             .filter(|a| a.owner == *owner && a.balance > 0)
             .map(|a| (a.mint, a))
             .collect()
+    }
+
+    fn bridge_mint(
+        &self,
+        mint_symbol: &str,
+        recipient: &Address,
+        amount: u64,
+    ) -> Result<(), String> {
+        use pichain_types::token::{MintId, TokenAccount, token_account_key};
+
+        let bridge_operator = GenesisConfig::devnet_bridge_operator_address();
+
+        // Map symbol to mint ID
+        let mint_id = match mint_symbol.to_uppercase().as_str() {
+            "WETH" => MintId::derive(&bridge_operator, 0),
+            "WSOL" => MintId::derive(&bridge_operator, 1),
+            "WBTC" => MintId::derive(&bridge_operator, 2),
+            "WUSDT" => MintId::derive(&bridge_operator, 3),
+            _ => return Err(format!("unknown token symbol: {mint_symbol}")),
+        };
+
+        // Verify mint exists and bridge operator is authority
+        let mut mint = self.executor.token_executor().get_mint(&mint_id)
+            .ok_or_else(|| format!("mint {} not found — bridge tokens not bootstrapped", mint_symbol))?;
+        if mint.mint_authority != Some(bridge_operator) {
+            return Err("bridge operator is not mint authority".to_string());
+        }
+        mint.total_supply = mint.total_supply.checked_add(amount)
+            .ok_or("total supply overflow")?;
+
+        // Prepare token account update
+        let key = token_account_key(recipient, &mint_id);
+        let mut acct = self.executor.token_executor().get_token_account(recipient, &mint_id)
+            .unwrap_or_else(|| TokenAccount {
+                key,
+                owner: *recipient,
+                mint: mint_id,
+                balance: 0,
+                delegate: None,
+                delegate_amount: 0,
+                frozen: false,
+            });
+        acct.balance = acct.balance.checked_add(amount)
+            .ok_or("token balance overflow")?;
+
+        // Write to storage
+        let store = self.store.read();
+        let db = store.db();
+        let token_store = pichain_storage::TokenStore::new(db);
+        token_store.put_mint(&mint).map_err(|e| format!("storage error: {e}"))?;
+        token_store.put_token_account(&acct).map_err(|e| format!("storage error: {e}"))?;
+
+        // Update executor caches
+        self.executor.token_executor().load_mint(mint);
+        self.executor.token_executor().load_token_account(acct);
+
+        info!(
+            symbol = %mint_symbol,
+            recipient = %recipient,
+            amount,
+            "bridge minted wrapped tokens"
+        );
+
+        Ok(())
+    }
+
+    fn bridge_register_addresses(
+        &self,
+        eth: &str,
+        sol: &str,
+        btc: &str,
+        usdt: &str,
+    ) -> Result<(), String> {
+        let mut addrs = self.bridge_addresses.write();
+        addrs.eth = eth.to_string();
+        addrs.sol = sol.to_string();
+        addrs.btc = btc.to_string();
+        addrs.usdt = usdt.to_string();
+        Ok(())
+    }
+
+    fn bridge_get_addresses(&self) -> Option<pichain_rpc::BridgeAddressesInfo> {
+        let addrs = self.bridge_addresses.read();
+        if addrs.eth.is_empty() && addrs.sol.is_empty() && addrs.btc.is_empty() {
+            return None;
+        }
+        Some(pichain_rpc::BridgeAddressesInfo {
+            eth: addrs.eth.clone(),
+            sol: addrs.sol.clone(),
+            btc: addrs.btc.clone(),
+            usdt: addrs.usdt.clone(),
+        })
+    }
+
+    fn bridge_status(&self) -> pichain_rpc::BridgeStatusInfo {
+        use pichain_types::token::MintId;
+
+        let bridge_operator = GenesisConfig::devnet_bridge_operator_address();
+        let symbols = [("WETH", 0u64), ("WSOL", 1), ("WBTC", 2), ("WUSDT", 3)];
+
+        let mut tokens = Vec::new();
+        for (sym, nonce) in &symbols {
+            let mint_id = MintId::derive(&bridge_operator, *nonce);
+            if let Some(mint) = self.executor.token_executor().get_mint(&mint_id) {
+                tokens.push(pichain_rpc::BridgeTokenStatus {
+                    symbol: sym.to_string(),
+                    total_supply: mint.total_supply,
+                    decimals: mint.decimals,
+                });
+            }
+        }
+
+        let total_transfers = self.bridge_transfers.read().len();
+
+        pichain_rpc::BridgeStatusInfo {
+            tokens,
+            total_transfers,
+        }
+    }
+
+    fn bridge_get_transfers(
+        &self,
+        chain: Option<&str>,
+        limit: usize,
+    ) -> Vec<pichain_rpc::BridgeTransferInfo> {
+        let transfers = self.bridge_transfers.read();
+        transfers
+            .iter()
+            .rev()
+            .filter(|t| chain.map_or(true, |c| t.chain == c))
+            .take(limit)
+            .map(|t| pichain_rpc::BridgeTransferInfo {
+                chain: t.chain.clone(),
+                tx_hash: t.tx_hash.clone(),
+                symbol: t.symbol.clone(),
+                recipient: t.recipient.clone(),
+                amount: t.amount,
+                timestamp: t.timestamp,
+            })
+            .collect()
+    }
+
+    fn bridge_register_intent(
+        &self,
+        chain: &str,
+        external_address: &str,
+        pichain_address: &str,
+    ) -> Result<(), String> {
+        let key = format!("{}:{}", chain, external_address.to_lowercase());
+        let mut intents = self.deposit_intents.write();
+        intents.insert(key, pichain_address.to_lowercase());
+        Ok(())
+    }
+
+    fn bridge_get_intent(&self, chain: &str, external_address: &str) -> Option<String> {
+        let key = format!("{}:{}", chain, external_address.to_lowercase());
+        let intents = self.deposit_intents.read();
+        intents.get(&key).cloned()
+    }
+
+    fn bridge_record_transfer(
+        &self,
+        chain: &str,
+        tx_hash: &str,
+        symbol: &str,
+        recipient: &str,
+        amount: u64,
+    ) {
+        let record = BridgeTransferRecord {
+            chain: chain.to_string(),
+            tx_hash: tx_hash.to_string(),
+            symbol: symbol.to_string(),
+            recipient: recipient.to_string(),
+            amount,
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        let mut transfers = self.bridge_transfers.write();
+        transfers.push(record);
+        // Keep at most 10000 records in memory
+        let len = transfers.len();
+        if len > 10_000 {
+            transfers.drain(..len - 10_000);
+        }
+    }
+
+    // --- Staking Queries ---
+
+    fn get_validators(&self) -> Vec<pichain_rpc::ValidatorInfo> {
+        let guard = match self.staking.try_read() {
+            Ok(g) => g,
+            Err(_) => return vec![],
+        };
+        guard.all_validators().into_iter().map(|v| {
+            let total_slots = v.blocks_proposed.saturating_add(v.blocks_missed);
+            let uptime_bps = if total_slots > 0 {
+                ((v.blocks_proposed as u128 * 10_000) / total_slots as u128) as u16
+            } else {
+                10_000 // 100% uptime if no slots yet
+            };
+            pichain_rpc::ValidatorInfo {
+                address: v.validator.to_string(),
+                stake: v.self_stake,
+                delegated: v.delegated_stake,
+                commission_bps: v.commission_bps,
+                active: v.active && !v.jailed,
+                uptime_bps,
+                blocks_proposed: v.blocks_proposed,
+            }
+        }).collect()
+    }
+
+    fn get_delegations(&self, address: &Address) -> Vec<pichain_rpc::DelegationInfo> {
+        let guard = match self.staking.try_read() {
+            Ok(g) => g,
+            Err(_) => return vec![],
+        };
+        guard.delegations_for(address).into_iter().map(|d| {
+            pichain_rpc::DelegationInfo {
+                validator: d.validator.to_string(),
+                amount: d.amount,
+                rewards_earned: d.pending_rewards,
+            }
+        }).collect()
+    }
+
+    fn get_staking_rewards(&self, address: &Address) -> u64 {
+        let guard = match self.staking.try_read() {
+            Ok(g) => g,
+            Err(_) => return 0,
+        };
+        // Sum rewards from delegations where this address is the delegator
+        let delegation_rewards: u64 = guard.delegations_for(address)
+            .iter()
+            .map(|d| d.pending_rewards)
+            .sum();
+        // Add any pending rewards from the validator entry itself (if this address is a validator)
+        let validator_rewards: u64 = guard.all_validators()
+            .iter()
+            .filter(|v| v.validator == *address)
+            .map(|v| v.pending_rewards)
+            .sum();
+        delegation_rewards.saturating_add(validator_rewards)
+    }
+
+    // --- NFT Queries ---
+
+    fn scan_all_collections(&self) -> Vec<pichain_types::NftCollection> {
+        let in_mem = self.executor.nft_executor().all_collections();
+        if !in_mem.is_empty() {
+            return in_mem.into_values().collect();
+        }
+        let store = self.store.read();
+        pichain_storage::NftStore::new(store.db())
+            .scan_all_collections()
+            .unwrap_or_default()
+    }
+
+    fn get_collection_items(&self, collection_id: &pichain_types::CollectionId) -> Vec<pichain_types::Nft> {
+        // Try in-memory first
+        let in_mem = self.executor.nft_executor().all_nfts();
+        if !in_mem.is_empty() {
+            return in_mem.into_values()
+                .filter(|n| n.collection == *collection_id)
+                .collect();
+        }
+        // Fall back to storage
+        let store = self.store.read();
+        pichain_storage::NftStore::new(store.db())
+            .scan_all_nfts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.collection == *collection_id)
+            .collect()
+    }
+
+    fn get_nfts_by_owner(&self, owner: &Address) -> Vec<pichain_types::Nft> {
+        // Try in-memory first
+        let in_mem = self.executor.nft_executor().all_nfts();
+        if !in_mem.is_empty() {
+            return in_mem.into_values()
+                .filter(|n| n.owner == *owner)
+                .collect();
+        }
+        // Fall back to storage
+        let store = self.store.read();
+        pichain_storage::NftStore::new(store.db())
+            .scan_all_nfts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.owner == *owner)
+            .collect()
+    }
+
+    // --- Richlist ---
+
+    fn get_richlist(&self, limit: usize) -> Vec<(Address, u64)> {
+        let store = self.store.read();
+        let entries = match store.db().scan_state_prefix(&[b'a']) {
+            Ok(e) => e,
+            Err(_) => return vec![],
+        };
+        let mut accounts: Vec<(Address, u64)> = entries
+            .into_iter()
+            .filter_map(|(key_suffix, value)| {
+                if key_suffix.len() < 20 {
+                    return None;
+                }
+                let mut addr_bytes = [0u8; 20];
+                addr_bytes.copy_from_slice(&key_suffix[..20]);
+                let address = Address(addr_bytes);
+                let state: pichain_types::account::AccountState =
+                    serde_json::from_slice(&value).ok()?;
+                Some((address, state.balance))
+            })
+            .filter(|(_, balance)| *balance > 0)
+            .collect();
+        accounts.sort_by(|a, b| b.1.cmp(&a.1));
+        accounts.truncate(limit);
+        accounts
     }
 }

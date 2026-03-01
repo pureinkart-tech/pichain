@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain Staking</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+@media(max-width:768px){.nav-links{display:none;}}
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;}
+.stat-val{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;}
+.stat-val.accent{color:var(--accent-light);}
+.stat-val.green{color:var(--green);}
+.stat-val.gold{color:var(--gold);}
+.stat-label{font-size:11px;color:var(--dim);margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;}
+.section{margin-bottom:32px;}
+.section-title{font-size:18px;font-weight:700;margin-bottom:16px;}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:14px;}
+th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
+tr:hover{background:rgba(99,102,241,0.04);}
+.addr{font-family:'SF Mono',Monaco,monospace;font-size:13px;color:var(--cyan);}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;}
+.badge-active{background:rgba(52,211,153,0.15);color:var(--green);}
+.badge-inactive{background:rgba(251,113,133,0.15);color:var(--rose);}
+.form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;}
+.form-card h3{font-size:16px;margin-bottom:16px;}
+.form-row{display:flex;gap:12px;margin-bottom:12px;align-items:end;}
+.form-group{flex:1;}
+.form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;}
+.form-group input{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;}
+.form-group input:focus{outline:none;border-color:var(--accent);}
+.btn{padding:10px 20px;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.btn-primary{background:var(--accent);color:white;}
+.btn-primary:hover{background:var(--accent-light);}
+.btn-danger{background:var(--rose);color:white;}
+.btn-danger:hover{opacity:0.9;}
+.my-delegations{margin-top:16px;}
+#status-msg{margin-top:12px;padding:10px;border-radius:var(--radius-sm);font-size:13px;display:none;}
+#status-msg.success{display:block;background:rgba(52,211,153,0.1);color:var(--green);border:1px solid rgba(52,211,153,0.2);}
+#status-msg.error{display:block;background:rgba(251,113,133,0.1);color:var(--rose);border:1px solid rgba(251,113,133,0.2);}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/staking" class="active">Staking</a>
+      <a href="/mining">Mining</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge">Bridge</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title">Staking &amp; Delegation</h1>
+  <p class="page-desc">Stake PI to validators, earn rewards, and help secure the network.</p>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-val accent" id="total-staked">-</div><div class="stat-label">Total Staked</div></div>
+    <div class="stat-card"><div class="stat-val green" id="validator-count">-</div><div class="stat-label">Active Validators</div></div>
+    <div class="stat-card"><div class="stat-val gold" id="avg-apy">-</div><div class="stat-label">Est. APY</div></div>
+    <div class="stat-card"><div class="stat-val" id="epoch">-</div><div class="stat-label">Current Epoch</div></div>
+  </div>
+
+  <!-- Delegate / Undelegate forms -->
+  <div class="form-card">
+    <h3>Delegate to Validator</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Your Address</label>
+        <input type="text" id="my-address" placeholder="40-char hex address">
+      </div>
+      <div class="form-group">
+        <label>Validator Address</label>
+        <input type="text" id="validator-addr" placeholder="40-char hex address">
+      </div>
+      <div class="form-group" style="max-width:200px;">
+        <label>Amount (PI)</label>
+        <input type="number" id="stake-amount" placeholder="1000" min="0">
+      </div>
+      <button class="btn btn-primary" onclick="delegate()">Delegate</button>
+    </div>
+    <div class="form-row">
+      <button class="btn btn-danger" onclick="undelegate()">Undelegate</button>
+    </div>
+    <div id="status-msg"></div>
+  </div>
+
+  <!-- My Delegations -->
+  <div class="section">
+    <div class="section-title">My Delegations</div>
+    <div class="form-row" style="margin-bottom:16px;">
+      <div class="form-group" style="max-width:400px;">
+        <input type="text" id="lookup-addr" placeholder="Enter your address to view delegations">
+      </div>
+      <button class="btn btn-primary" onclick="loadMyDelegations()">Look Up</button>
+    </div>
+    <table>
+      <thead><tr><th>Validator</th><th>Staked</th><th>Rewards</th><th>Since Epoch</th></tr></thead>
+      <tbody id="my-delegations-body"><tr><td colspan="4" style="color:var(--muted);text-align:center;">Enter address above</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Validator Table -->
+  <div class="section">
+    <div class="section-title">Validators</div>
+    <table>
+      <thead><tr><th>#</th><th>Address</th><th>Stake</th><th>Commission</th><th>Delegators</th><th>Status</th></tr></thead>
+      <tbody id="validators-body"><tr><td colspan="6" style="color:var(--muted);text-align:center;">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const fmt = n => {
+  if (n >= 1e12) return (n/1e9).toFixed(2)+' PI';
+  if (n >= 1e9) return (n/1e9).toFixed(4)+' PI';
+  return n.toLocaleString()+' base';
+};
+
+async function loadValidators() {
+  try {
+    const r = await fetch(API+'/api/v1/staking/validators');
+    const d = await r.json();
+    const validators = d.validators || [];
+    const tbody = document.getElementById('validators-body');
+    if (!validators.length) { tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted);text-align:center;">No validators found</td></tr>'; return; }
+    let totalStake = 0;
+    tbody.innerHTML = validators.map((v,i) => {
+      totalStake += v.stake || 0;
+      const badge = v.active !== false ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Inactive</span>';
+      return `<tr>
+        <td>${i+1}</td>
+        <td class="addr">${v.address ? v.address.substring(0,12)+'...' : '-'}</td>
+        <td>${fmt(v.stake||0)}</td>
+        <td>${v.commission||0}%</td>
+        <td>${v.delegators||0}</td>
+        <td>${badge}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('total-staked').textContent = fmt(totalStake);
+    document.getElementById('validator-count').textContent = validators.filter(v=>v.active!==false).length;
+  } catch(e) { console.error('Failed to load validators', e); }
+}
+
+async function loadMyDelegations() {
+  const addr = document.getElementById('lookup-addr').value.trim();
+  if (addr.length !== 40) { showMsg('Address must be 40 hex chars','error'); return; }
+  try {
+    const [dR, rR] = await Promise.all([
+      fetch(API+'/api/v1/staking/delegations/'+addr),
+      fetch(API+'/api/v1/staking/rewards/'+addr),
+    ]);
+    const dD = await dR.json();
+    const rD = await rR.json();
+    const delegations = dD.delegations || [];
+    const rewards = rD.total_rewards || 0;
+    const tbody = document.getElementById('my-delegations-body');
+    if (!delegations.length) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">No delegations found</td></tr>'; return; }
+    tbody.innerHTML = delegations.map(d => `<tr>
+      <td class="addr">${d.validator.substring(0,12)}...</td>
+      <td>${fmt(d.amount||0)}</td>
+      <td>${fmt(d.rewards||0)}</td>
+      <td>${d.since_epoch||'-'}</td>
+    </tr>`).join('');
+    document.getElementById('avg-apy').textContent = rewards > 0 ? fmt(rewards)+' earned' : '-';
+  } catch(e) { console.error('Failed to load delegations', e); }
+}
+
+function showMsg(msg, type) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = type;
+}
+
+async function delegate() {
+  showMsg('Delegation requires signing from a wallet. Use pichain-cli to delegate.', 'success');
+}
+
+async function undelegate() {
+  showMsg('Undelegation requires signing from a wallet. Use pichain-cli to undelegate.', 'success');
+}
+
+async function loadInfo() {
+  try {
+    const r = await fetch(API+'/api/v1/info');
+    const d = await r.json();
+    document.getElementById('epoch').textContent = Math.floor((d.height||0)/1000);
+  } catch(e) {}
+}
+
+loadValidators();
+loadInfo();
+setInterval(loadValidators, 30000);
+</script>
+</body>
+</html>

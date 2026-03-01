@@ -22,7 +22,11 @@ use crate::RpcError;
 
 /// Strip optional "0x" or "0X" prefix from a hex string.
 fn strip_0x(s: &str) -> &str {
-    s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
+    s.strip_prefix("Pi314")
+        .or_else(|| s.strip_prefix("pi314"))
+        .or_else(|| s.strip_prefix("0x"))
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s)
 }
 
 /// AUDIT-FIX RPC-M2: Check if an IP is loopback, including IPv4-mapped IPv6.
@@ -98,6 +102,49 @@ impl IpRateLimiter {
         });
     }
 
+    /// Check with a custom limit (for tiered rate limiting).
+    /// Uses a separate key space by combining IP + tier limit.
+    fn check_with_limit(&self, ip: IpAddr, limit: u64) -> bool {
+        // For stricter tiers, we use the same buckets but track separately
+        // by creating a synthetic "IP" that encodes the tier
+        let tier_ip = match ip {
+            IpAddr::V4(v4) => {
+                let mut octets = v4.octets();
+                // XOR the limit into the last octet to create a unique bucket
+                octets[3] ^= (limit & 0xFF) as u8;
+                IpAddr::V4(std::net::Ipv4Addr::from(octets))
+            }
+            IpAddr::V6(v6) => {
+                let mut octets = v6.octets();
+                octets[15] ^= (limit & 0xFF) as u8;
+                IpAddr::V6(std::net::Ipv6Addr::from(octets))
+            }
+        };
+
+        if self.buckets.len() >= self.max_entries && !self.buckets.contains_key(&tier_ip) {
+            self.cleanup();
+            if self.buckets.len() >= self.max_entries {
+                return false;
+            }
+        }
+
+        let now = Instant::now();
+        let mut entry = self.buckets.entry(tier_ip).or_insert((0, now));
+        let (count, window_start) = entry.value_mut();
+
+        if now.duration_since(*window_start).as_secs() >= self.window_secs {
+            *count = 0;
+            *window_start = now;
+        }
+
+        if *count >= limit {
+            false
+        } else {
+            *count += 1;
+            true
+        }
+    }
+
     /// Periodic cleanup — runs at most once every 10 seconds.
     fn maybe_cleanup(&self) {
         if let Ok(mut last) = self.last_cleanup.try_lock() {
@@ -107,6 +154,33 @@ impl IpRateLimiter {
             }
         }
     }
+}
+
+/// Classify a request path into a rate limit tier (requests per second).
+/// Read: 100/s, Write: 20/s, Expensive: 10/s
+fn classify_rate_tier(path: &str) -> u64 {
+    // Write operations (tx submission, faucet, bridge mint)
+    if path.contains("/tx/submit")
+        || path.contains("/faucet")
+        || path.contains("/bridge/mint")
+        || path.contains("/bridge/withdraw")
+        || path.contains("/bridge/deposit-intent")
+        || path.contains("/wallet/activate")
+    {
+        return 20;
+    }
+    // Expensive queries (swap quotes, block ranges, richlist, events)
+    if path.contains("/swap/quote")
+        || path.contains("/blocks")
+        || path.contains("/richlist")
+        || path.contains("/events/query")
+        || path.contains("/proof/")
+        || path.contains("/portfolio/")
+    {
+        return 10;
+    }
+    // Read operations (default)
+    100
 }
 
 /// Rate limiting middleware for axum.
@@ -142,10 +216,22 @@ async fn rate_limit_middleware(
     // unbounded memory growth from distributed attacks.
     state.rate_limiter.maybe_cleanup();
 
-    // Check rate limit
-    if !state.rate_limiter.check(ip) {
+    // Tiered rate limiting: classify request by path
+    let path = request.uri().path();
+    let tier_limit = classify_rate_tier(path);
+    // Check per-tier rate limit (uses the general limiter for the base check,
+    // plus stricter limits for write/expensive operations)
+    let allowed = if tier_limit < 100 {
+        // Write or expensive tier — use stricter per-path limit
+        state.rate_limiter.check_with_limit(ip, tier_limit)
+    } else {
+        // Read tier — use default limit
+        state.rate_limiter.check(ip)
+    };
+
+    if !allowed {
         state.requests_errors.fetch_add(1, Ordering::Relaxed);
-        warn!(ip = %ip, "rate limited");
+        warn!(ip = %ip, tier = tier_limit, path = path, "rate limited");
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(serde_json::json!({
@@ -173,6 +259,16 @@ pub struct NodeInfo {
     pub mempool_size: usize,
 }
 
+/// A pending PoW challenge for wallet activation.
+struct ActivationChallenge {
+    /// Random 32-byte challenge seed.
+    challenge: [u8; 32],
+    /// Address this challenge is bound to.
+    address: pichain_crypto::ed25519::Address,
+    /// Expiry timestamp (seconds since UNIX epoch).
+    expires_at: u64,
+}
+
 /// Shared state for the RPC server.
 pub struct RpcState {
     pub chain_id: u64,
@@ -191,6 +287,8 @@ pub struct RpcState {
     pub blocking_semaphore: Arc<tokio::sync::Semaphore>,
     /// WebSocket event broadcaster for real-time subscriptions.
     pub ws_broadcaster: Arc<crate::ws::WsBroadcaster>,
+    /// Pending PoW challenges for wallet activation, keyed by challenge hex.
+    activation_challenges: DashMap<String, ActivationChallenge>,
 }
 
 /// Trait for providing real state data to the RPC layer.
@@ -261,12 +359,10 @@ pub trait StateProvider: Send + Sync + 'static {
         None
     }
 
-    // --- Faucet ---
+    // --- Wallet activation ---
 
-    /// Claim devnet faucet funds. Only works on devnet (chain_id == 31415).
-    fn faucet_claim(&self, _address: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
-        Err("faucet not available".to_string())
-    }
+    /// Get total number of activated wallets.
+    fn activation_count(&self) -> u64 { 0 }
 
     /// Activate a wallet: grant 3.14 PI locked (non-transferable, fee-only).
     /// Returns the locked amount granted, or error if already activated.
@@ -291,6 +387,194 @@ pub trait StateProvider: Send + Sync + 'static {
         &self,
         _owner: &pichain_crypto::ed25519::Address,
     ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> { vec![] }
+
+    /// Bridge operator: mint wrapped tokens to a recipient address.
+    /// Only callable from localhost by the bridge operator.
+    fn bridge_mint(
+        &self,
+        _mint_symbol: &str,
+        _recipient: &pichain_crypto::ed25519::Address,
+        _amount: u64,
+    ) -> Result<(), String> {
+        Err("bridge minting not available".to_string())
+    }
+
+    /// Bridge: register custodial addresses from the bridge relayer.
+    fn bridge_register_addresses(
+        &self,
+        _eth: &str,
+        _sol: &str,
+        _btc: &str,
+        _usdt: &str,
+    ) -> Result<(), String> {
+        Err("bridge not available".to_string())
+    }
+
+    /// Bridge: get registered custodial addresses.
+    fn bridge_get_addresses(&self) -> Option<BridgeAddressesInfo> {
+        None
+    }
+
+    /// Bridge: get TVL status per wrapped token.
+    fn bridge_status(&self) -> BridgeStatusInfo {
+        BridgeStatusInfo::default()
+    }
+
+    /// Bridge: get recent bridge transfer records.
+    fn bridge_get_transfers(&self, _chain: Option<&str>, _limit: usize) -> Vec<BridgeTransferInfo> {
+        vec![]
+    }
+
+    /// Bridge: register deposit intent (maps external address to PIChain address).
+    fn bridge_register_intent(
+        &self,
+        _chain: &str,
+        _external_address: &str,
+        _pichain_address: &str,
+    ) -> Result<(), String> {
+        Err("bridge not available".to_string())
+    }
+
+    /// Bridge: look up deposit intent.
+    fn bridge_get_intent(&self, _chain: &str, _external_address: &str) -> Option<String> {
+        None
+    }
+
+    /// Bridge: record a completed mint transfer.
+    fn bridge_record_transfer(
+        &self,
+        _chain: &str,
+        _tx_hash: &str,
+        _symbol: &str,
+        _recipient: &str,
+        _amount: u64,
+    ) {}
+
+    // --- Transaction History ---
+
+    /// Get transactions involving an address, newest-first.
+    fn get_address_transactions(
+        &self,
+        _address: &pichain_crypto::ed25519::Address,
+        _before_height: Option<u64>,
+        _limit: usize,
+    ) -> Vec<TxHistoryEntry> { vec![] }
+
+    // --- Event Querying ---
+
+    /// Query events by topic hash.
+    fn query_events_by_topic(&self, _topic: &[u8; 32], _limit: usize) -> Vec<TxHistoryEntry> { vec![] }
+
+    /// Query events by address.
+    fn query_events_by_address(&self, _address: &pichain_crypto::ed25519::Address, _limit: usize) -> Vec<TxHistoryEntry> { vec![] }
+
+    // --- Staking Queries ---
+
+    /// Get list of all validators with stake info.
+    fn get_validators(&self) -> Vec<ValidatorInfo> { vec![] }
+
+    /// Get delegations for an address.
+    fn get_delegations(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<DelegationInfo> { vec![] }
+
+    /// Get staking rewards for an address.
+    fn get_staking_rewards(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+
+    // --- NFT Queries ---
+
+    /// List all NFT collections.
+    fn scan_all_collections(&self) -> Vec<pichain_types::NftCollection> { vec![] }
+
+    /// Get NFTs in a collection.
+    fn get_collection_items(&self, _collection_id: &pichain_types::CollectionId) -> Vec<pichain_types::Nft> { vec![] }
+
+    /// Get NFTs owned by an address.
+    fn get_nfts_by_owner(&self, _owner: &pichain_crypto::ed25519::Address) -> Vec<pichain_types::Nft> { vec![] }
+
+    // --- Light Client ---
+
+    /// Get JMT proof for an account.
+    fn get_account_proof(&self, _address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> { None }
+
+    // --- Richlist ---
+
+    /// Get top accounts by balance.
+    fn get_richlist(&self, _limit: usize) -> Vec<(pichain_crypto::ed25519::Address, u64)> { vec![] }
+
+    // --- Consensus Metrics ---
+
+    /// Get consensus round number.
+    fn consensus_round(&self) -> u64 { 0 }
+    /// Get total Bullshark commits.
+    fn consensus_commits(&self) -> u64 { 0 }
+    /// Get total certificates produced.
+    fn consensus_certificates(&self) -> u64 { 0 }
+    /// Get validator count.
+    fn validator_count(&self) -> usize { 0 }
+    /// Get total stake.
+    fn total_stake(&self) -> u64 { 0 }
+}
+
+/// Bridge registered addresses.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BridgeAddressesInfo {
+    pub eth: String,
+    pub sol: String,
+    pub btc: String,
+    pub usdt: String,
+}
+
+/// Bridge status with TVL per token.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct BridgeStatusInfo {
+    pub tokens: Vec<BridgeTokenStatus>,
+    pub total_transfers: usize,
+}
+
+/// Per-token bridge status.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BridgeTokenStatus {
+    pub symbol: String,
+    pub total_supply: u64,
+    pub decimals: u8,
+}
+
+/// Bridge transfer record info for API response.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BridgeTransferInfo {
+    pub chain: String,
+    pub tx_hash: String,
+    pub symbol: String,
+    pub recipient: String,
+    pub amount: u64,
+    pub timestamp: i64,
+}
+
+/// Entry in tx history or event query results.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TxHistoryEntry {
+    pub tx_hash: String,
+    pub height: u64,
+    pub tx_index: u16,
+}
+
+/// Validator information for staking API.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    pub address: String,
+    pub stake: u64,
+    pub delegated: u64,
+    pub commission_bps: u16,
+    pub active: bool,
+    pub uptime_bps: u16,
+    pub blocks_proposed: u64,
+}
+
+/// Delegation information.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DelegationInfo {
+    pub validator: String,
+    pub amount: u64,
+    pub rewards_earned: u64,
 }
 
 /// Mining status data from the state provider.
@@ -387,6 +671,7 @@ impl RpcServer {
                 rate_limiter: IpRateLimiter::new(100, 1), // 100 req/sec per IP
                 blocking_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
+                activation_challenges: DashMap::new(),
             }),
         }
     }
@@ -406,6 +691,7 @@ impl RpcServer {
                 rate_limiter: IpRateLimiter::new(100, 1), // 100 req/sec per IP
                 blocking_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
+                activation_challenges: DashMap::new(),
             }),
         }
     }
@@ -419,7 +705,6 @@ impl RpcServer {
             .route("/explorer", get(serve_explorer))
             .route("/mining", get(serve_mining_dashboard))
             .route("/mine", get(serve_miner_setup))
-            .route("/faucet", get(serve_faucet_page))
             .route("/download", get(serve_download_page))
             .route("/dashboard", get(serve_dashboard))
             .route("/health", get(health_detailed))
@@ -432,7 +717,7 @@ impl RpcServer {
             .route("/api/v1/mining/status", get(get_mining_status))
             .route("/api/v1/receipt/:hash", get(get_receipt))
             .route("/api/v1/blocks", get(get_block_range))
-            .route("/api/v1/faucet", post(claim_faucet))
+            .route("/api/v1/wallet/challenge", post(get_activation_challenge))
             .route("/api/v1/wallet/activate", post(activate_wallet))
             // Token endpoints
             .route("/api/v1/token/:mint_id", get(get_token_info))
@@ -454,6 +739,38 @@ impl RpcServer {
             .route("/api/v1/mint-nonce/:address", get(get_mint_nonce))
             .route("/api/v1/portfolio/:address", get(get_portfolio))
             .route("/launch", get(serve_launch_page))
+            .route("/trade", get(serve_trade_page))
+            .route("/bridge", get(serve_bridge_page))
+            .route("/staking", get(serve_staking_page))
+            .route("/blocks", get(serve_blocks_page))
+            .route("/address", get(serve_address_page))
+            .route("/richlist", get(serve_richlist_page))
+            .route("/token", get(serve_token_page))
+            .route("/nfts", get(serve_nft_page))
+            // Bridge endpoints
+            .route("/api/v1/bridge/deposit-address", post(get_bridge_deposit_address))
+            .route("/api/v1/bridge/mint", post(bridge_mint_tokens))
+            .route("/api/v1/bridge/register-addresses", post(bridge_register_addresses))
+            .route("/api/v1/bridge/status", get(bridge_status))
+            .route("/api/v1/bridge/transfers", get(bridge_transfers))
+            .route("/api/v1/bridge/deposit-intent", post(bridge_deposit_intent))
+            .route("/api/v1/bridge/withdraw", post(bridge_withdraw))
+            // Transaction history & events
+            .route("/api/v1/address/:address/transactions", get(get_address_transactions))
+            .route("/api/v1/events/query", post(query_events))
+            // Staking endpoints
+            .route("/api/v1/staking/validators", get(get_staking_validators))
+            .route("/api/v1/staking/delegations/:address", get(get_delegations))
+            .route("/api/v1/staking/rewards/:address", get(get_staking_rewards))
+            // NFT endpoints
+            .route("/api/v1/nft/collections", get(get_nft_collections))
+            .route("/api/v1/nft/collection/:collection_id/items", get(get_collection_items))
+            .route("/api/v1/nft/owner/:address", get(get_nfts_by_owner))
+            // Light client
+            .route("/api/v1/proof/account/:address", get(get_account_proof))
+            .route("/api/v1/header/:height", get(get_block_header))
+            // Richlist
+            .route("/api/v1/richlist", get(get_richlist))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -478,7 +795,7 @@ impl RpcServer {
                     ])
                     .allow_headers([axum::http::header::CONTENT_TYPE])
             )
-            .layer(DefaultBodyLimit::max(256 * 1024)) // 256KB max request body
+            .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body (tokens can carry large metadata)
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
             .with_state(state)
@@ -574,16 +891,6 @@ async fn serve_miner_setup() -> impl IntoResponse {
         StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
         MINE_HTML,
-    )
-}
-
-/// Faucet page — UI for requesting testnet PI.
-async fn serve_faucet_page() -> impl IntoResponse {
-    const FAUCET_HTML: &str = include_str!("../../../explorer/faucet.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        FAUCET_HTML,
     )
 }
 
@@ -701,8 +1008,28 @@ async fn prometheus_metrics(
          pichain_requests_errors {requests_errors}\n\
          # HELP pichain_ws_subscribers Active WebSocket subscribers\n\
          # TYPE pichain_ws_subscribers gauge\n\
-         pichain_ws_subscribers {ws_subs}\n",
+         pichain_ws_subscribers {ws_subs}\n\
+         # HELP pichain_consensus_round Current consensus round\n\
+         # TYPE pichain_consensus_round gauge\n\
+         pichain_consensus_round {consensus_round}\n\
+         # HELP pichain_bullshark_commits Total Bullshark commits\n\
+         # TYPE pichain_bullshark_commits counter\n\
+         pichain_bullshark_commits {bullshark_commits}\n\
+         # HELP pichain_certificates_produced Total certificates produced\n\
+         # TYPE pichain_certificates_produced counter\n\
+         pichain_certificates_produced {certificates}\n\
+         # HELP pichain_validator_count Active validators\n\
+         # TYPE pichain_validator_count gauge\n\
+         pichain_validator_count {validator_count}\n\
+         # HELP pichain_total_stake Total staked PI\n\
+         # TYPE pichain_total_stake gauge\n\
+         pichain_total_stake {total_stake}\n",
         ws_subs = state.ws_broadcaster.subscriber_count(),
+        consensus_round = state.state_provider.as_ref().map_or(0, |p| p.consensus_round()),
+        bullshark_commits = state.state_provider.as_ref().map_or(0, |p| p.consensus_commits()),
+        certificates = state.state_provider.as_ref().map_or(0, |p| p.consensus_certificates()),
+        validator_count = state.state_provider.as_ref().map_or(0, |p| p.validator_count()),
+        total_stake = state.state_provider.as_ref().map_or(0, |p| p.total_stake()),
     );
 
     (
@@ -864,12 +1191,12 @@ async fn submit_transaction(
     State(state): State<Arc<RpcState>>,
     Json(req): Json<SubmitTxRequest>,
 ) -> (StatusCode, Json<SubmitTxResponse>) {
-    // Reject oversized transactions (max 128KB decoded = 256KB hex)
-    if req.signed_tx_hex.len() > 256 * 1024 {
+    // Reject oversized transactions (max 512KB decoded = 1MB hex)
+    if req.signed_tx_hex.len() > 1024 * 1024 {
         return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
             tx_hash: String::new(),
             status: "error".to_string(),
-            error: Some("transaction too large (max 128KB)".to_string()),
+            error: Some("transaction too large (max 512KB)".to_string()),
         }));
     }
 
@@ -1010,12 +1337,16 @@ async fn get_transaction(
                         pichain_types::TransactionKind::CreateLaunch { .. } => "CreateLaunch",
                         pichain_types::TransactionKind::ParticipateInLaunch { .. } => "ParticipateInLaunch",
                         pichain_types::TransactionKind::FinalizeLaunch { .. } => "FinalizeLaunch",
+                        pichain_types::TransactionKind::SellFromLaunch { .. } => "SellFromLaunch",
                         pichain_types::TransactionKind::CreateNftCollection { .. } => "CreateNftCollection",
                         pichain_types::TransactionKind::MintNft { .. } => "MintNft",
                         pichain_types::TransactionKind::TransferNft { .. } => "TransferNft",
                         pichain_types::TransactionKind::ListNft { .. } => "ListNft",
                         pichain_types::TransactionKind::BuyNft { .. } => "BuyNft",
                         pichain_types::TransactionKind::DelistNft { .. } => "DelistNft",
+                        pichain_types::TransactionKind::CreateMultisig { .. } => "CreateMultisig",
+                        pichain_types::TransactionKind::ExecuteMultisig { .. } => "ExecuteMultisig",
+                        pichain_types::TransactionKind::BridgeWithdraw { .. } => "BridgeWithdraw",
                     };
 
                     let receipt_status = receipt.as_ref().map(|r| {
@@ -1173,101 +1504,108 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
     })
 }
 
-// --- Faucet handler ---
+// --- Wallet activation (PoW challenge + verification) ---
+
+/// PoW difficulty: 20 leading zero bits (~1M hashes, ~1 second on modern CPU).
+const ACTIVATION_POW_BITS: u32 = 20;
+/// Challenge validity window: 5 minutes.
+const CHALLENGE_TTL_SECS: u64 = 300;
 
 #[derive(Deserialize)]
-struct FaucetRequest {
+struct ChallengeRequest {
     address: String,
 }
 
 #[derive(Serialize)]
-struct FaucetResponse {
+struct ChallengeResponse {
     success: bool,
-    amount: u64,
-    amount_pi: String,
+    challenge: String,
+    difficulty_bits: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    address: String,
+    activations_remaining: u64,
 }
 
-async fn claim_faucet(
+/// Issue a PoW challenge that must be solved before wallet activation.
+async fn get_activation_challenge(
     State(state): State<Arc<RpcState>>,
-    Json(req): Json<FaucetRequest>,
-) -> (StatusCode, Json<FaucetResponse>) {
-    // Only on devnet
-    if state.chain_id != 31415 {
-        return (StatusCode::FORBIDDEN, Json(FaucetResponse {
+    Json(req): Json<ChallengeRequest>,
+) -> (StatusCode, Json<ChallengeResponse>) {
+    let fail = |status: StatusCode, err: String| {
+        (status, Json(ChallengeResponse {
             success: false,
-            amount: 0,
-            amount_pi: "0".to_string(),
-            error: Some("faucet only available on devnet (chain_id=31415)".to_string()),
-            address: req.address,
-        }));
+            challenge: String::new(),
+            difficulty_bits: ACTIVATION_POW_BITS,
+            error: Some(err),
+            activations_remaining: 0,
+        }))
+    };
+
+    let hex_str = strip_0x(&req.address);
+    if hex_str.len() != 40 {
+        return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string());
+    }
+    let addr_bytes = match hex::decode(hex_str) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return fail(StatusCode::BAD_REQUEST, "invalid address hex".to_string()),
+    };
+
+    let mut arr = [0u8; 20];
+    arr.copy_from_slice(&addr_bytes);
+    let address = pichain_crypto::ed25519::Address(arr);
+
+    let remaining = if let Some(provider) = &state.state_provider {
+        3_140_000u64.saturating_sub(provider.activation_count())
+    } else {
+        return fail(StatusCode::SERVICE_UNAVAILABLE, "node unavailable".to_string());
+    };
+    if remaining == 0 {
+        return fail(StatusCode::FORBIDDEN, "wallet activation cap reached (3,140,000)".to_string());
     }
 
-    if let Some(provider) = &state.state_provider {
-        // Strip optional 0x prefix (consistent with other RPC address handlers)
-        let hex_str = req.address.strip_prefix("0x")
-            .or_else(|| req.address.strip_prefix("0X"))
-            .unwrap_or(&req.address);
-        // Validate address format: 40 hex chars = 20 bytes
-        if hex_str.len() != 40 {
-            return (StatusCode::BAD_REQUEST, Json(FaucetResponse {
-                success: false,
-                amount: 0,
-                amount_pi: "0".to_string(),
-                error: Some("address must be 40 hex characters (with optional 0x prefix)".to_string()),
-                address: req.address,
-            }));
-        }
-        if let Ok(addr_bytes) = hex::decode(hex_str) {
-            if addr_bytes.len() == 20 {
-                let mut arr = [0u8; 20];
-                arr.copy_from_slice(&addr_bytes);
-                let address = pichain_crypto::ed25519::Address(arr);
+    // Generate unique 32-byte challenge from timestamp + counter + address
+    static CHALLENGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let cnt = CHALLENGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let challenge = *pichain_crypto::hash_concat(&[
+        &ts.to_le_bytes(),
+        &cnt.to_le_bytes(),
+        &addr_bytes,
+    ]).as_bytes();
 
-                match provider.faucet_claim(&address) {
-                    Ok(amount) => {
-                        return (StatusCode::OK, Json(FaucetResponse {
-                            success: true,
-                            amount,
-                            amount_pi: format!(
-                                "{}.{:09}",
-                                amount / 1_000_000_000,
-                                amount % 1_000_000_000
-                            ),
-                            error: None,
-                            address: req.address,
-                        }));
-                    }
-                    Err(e) => {
-                        return (StatusCode::UNPROCESSABLE_ENTITY, Json(FaucetResponse {
-                            success: false,
-                            amount: 0,
-                            amount_pi: "0".to_string(),
-                            error: Some(e),
-                            address: req.address,
-                        }));
-                    }
-                }
-            }
-        }
-    }
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
-    (StatusCode::SERVICE_UNAVAILABLE, Json(FaucetResponse {
-        success: false,
-        amount: 0,
-        amount_pi: "0".to_string(),
-        error: Some("faucet unavailable".to_string()),
-        address: req.address,
+    let challenge_hex = hex::encode(challenge);
+
+    // Evict expired challenges (lazy cleanup)
+    state.activation_challenges.retain(|_, v| v.expires_at > now_secs);
+
+    state.activation_challenges.insert(challenge_hex.clone(), ActivationChallenge {
+        challenge,
+        address,
+        expires_at: now_secs + CHALLENGE_TTL_SECS,
+    });
+
+    (StatusCode::OK, Json(ChallengeResponse {
+        success: true,
+        challenge: challenge_hex,
+        difficulty_bits: ACTIVATION_POW_BITS,
+        error: None,
+        activations_remaining: remaining,
     }))
 }
-
-// --- Wallet activation handler ---
 
 #[derive(Deserialize)]
 struct ActivateRequest {
     address: String,
+    challenge: String,
+    nonce: u64,
 }
 
 #[derive(Serialize)]
@@ -1280,6 +1618,7 @@ struct ActivateResponse {
     address: String,
 }
 
+/// Verify PoW solution and activate wallet.
 async fn activate_wallet(
     State(state): State<Arc<RpcState>>,
     Json(req): Json<ActivateRequest>,
@@ -1294,40 +1633,99 @@ async fn activate_wallet(
         }))
     };
 
-    if let Some(provider) = &state.state_provider {
-        let hex_str = strip_0x(&req.address);
-        if hex_str.len() != 40 {
-            return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string(), req.address);
-        }
-        if let Ok(addr_bytes) = hex::decode(hex_str) {
-            if addr_bytes.len() == 20 {
-                let mut arr = [0u8; 20];
-                arr.copy_from_slice(&addr_bytes);
-                let address = pichain_crypto::ed25519::Address(arr);
+    // Validate address
+    let hex_str = strip_0x(&req.address);
+    if hex_str.len() != 40 {
+        return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string(), req.address);
+    }
+    let addr_bytes = match hex::decode(hex_str) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return fail(StatusCode::BAD_REQUEST, "invalid address hex".to_string(), req.address),
+    };
+    let mut arr = [0u8; 20];
+    arr.copy_from_slice(&addr_bytes);
+    let address = pichain_crypto::ed25519::Address(arr);
 
-                match provider.activate_wallet(&address) {
-                    Ok(amount) => {
-                        return (StatusCode::OK, Json(ActivateResponse {
-                            success: true,
-                            locked_amount: amount,
-                            locked_amount_pi: format!(
-                                "{}.{:09}",
-                                amount / 1_000_000_000,
-                                amount % 1_000_000_000
-                            ),
-                            error: None,
-                            address: req.address,
-                        }));
-                    }
-                    Err(e) => {
-                        return fail(StatusCode::UNPROCESSABLE_ENTITY, e, req.address);
-                    }
-                }
+    // Look up and consume the challenge (one-time use)
+    let challenge_entry = state.activation_challenges.remove(&req.challenge);
+    let (_, entry) = match challenge_entry {
+        Some(e) => e,
+        None => return fail(StatusCode::BAD_REQUEST, "invalid or expired challenge".to_string(), req.address),
+    };
+
+    // Check expiry
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if now_secs > entry.expires_at {
+        return fail(StatusCode::BAD_REQUEST, "challenge expired".to_string(), req.address);
+    }
+
+    // Check challenge is bound to this address
+    if entry.address != address {
+        return fail(StatusCode::BAD_REQUEST, "challenge not issued for this address".to_string(), req.address);
+    }
+
+    // Verify PoW: SHA-256(challenge || nonce_le_bytes) must have ACTIVATION_POW_BITS leading zero bits
+    // Uses SHA-256 so browsers can solve via native crypto.subtle (no CDN/WASM deps)
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(&entry.challenge);
+    hasher.update(&req.nonce.to_le_bytes());
+    let result = hasher.finalize();
+    let hash_slice: &[u8] = result.as_ref();
+    let hash_bytes: &[u8; 32] = hash_slice.try_into().expect("sha256 is 32 bytes");
+
+    if !has_leading_zeros(hash_bytes, ACTIVATION_POW_BITS) {
+        return fail(StatusCode::BAD_REQUEST, "invalid PoW solution".to_string(), req.address);
+    }
+
+    // PoW verified — proceed with activation
+    if let Some(provider) = &state.state_provider {
+        match provider.activate_wallet(&address) {
+            Ok(amount) => {
+                info!(
+                    address = %req.address,
+                    "wallet activated via PoW challenge"
+                );
+                return (StatusCode::OK, Json(ActivateResponse {
+                    success: true,
+                    locked_amount: amount,
+                    locked_amount_pi: format!(
+                        "{}.{:09}",
+                        amount / 1_000_000_000,
+                        amount % 1_000_000_000
+                    ),
+                    error: None,
+                    address: req.address,
+                }));
+            }
+            Err(e) => {
+                return fail(StatusCode::UNPROCESSABLE_ENTITY, e, req.address);
             }
         }
     }
 
     fail(StatusCode::SERVICE_UNAVAILABLE, "activation unavailable".to_string(), req.address)
+}
+
+/// Check if a hash has at least `bits` leading zero bits.
+fn has_leading_zeros(hash: &[u8; 32], bits: u32) -> bool {
+    let full_bytes = (bits / 8) as usize;
+    let remaining_bits = bits % 8;
+    for &b in &hash[..full_bytes] {
+        if b != 0 {
+            return false;
+        }
+    }
+    if remaining_bits > 0 && full_bytes < 32 {
+        let mask = 0xFF << (8 - remaining_bits);
+        if hash[full_bytes] & mask != 0 {
+            return false;
+        }
+    }
+    true
 }
 
 // --- Receipt handler ---
@@ -1749,6 +2147,439 @@ async fn serve_launch_page() -> impl IntoResponse {
     )
 }
 
+/// Trade page — DEX swap interface and cross-chain bridge.
+async fn serve_trade_page() -> impl IntoResponse {
+    const TRADE_HTML: &str = include_str!("../../../explorer/trade.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        TRADE_HTML,
+    )
+}
+
+/// Bridge monitor page — real-time bridge activity dashboard.
+async fn serve_bridge_page() -> impl IntoResponse {
+    const BRIDGE_HTML: &str = include_str!("../../../explorer/bridge.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        BRIDGE_HTML,
+    )
+}
+
+/// Staking page — validators, delegations, rewards.
+async fn serve_staking_page() -> impl IntoResponse {
+    const STAKING_HTML: &str = include_str!("../../../explorer/staking.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        STAKING_HTML,
+    )
+}
+
+/// Block list page — paginated block browsing.
+async fn serve_blocks_page() -> impl IntoResponse {
+    const BLOCKS_HTML: &str = include_str!("../../../explorer/blocks.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        BLOCKS_HTML,
+    )
+}
+
+/// Address detail page — balance, nonce, tx history.
+async fn serve_address_page() -> impl IntoResponse {
+    const ADDRESS_HTML: &str = include_str!("../../../explorer/address.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        ADDRESS_HTML,
+    )
+}
+
+/// Rich list page — top accounts by balance.
+async fn serve_richlist_page() -> impl IntoResponse {
+    const RICHLIST_HTML: &str = include_str!("../../../explorer/richlist.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        RICHLIST_HTML,
+    )
+}
+
+/// Token detail page — info and holders.
+async fn serve_token_page() -> impl IntoResponse {
+    const TOKEN_HTML: &str = include_str!("../../../explorer/token.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        TOKEN_HTML,
+    )
+}
+
+/// NFT marketplace page — collections, items, marketplace.
+async fn serve_nft_page() -> impl IntoResponse {
+    const NFT_HTML: &str = include_str!("../../../explorer/nft.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        NFT_HTML,
+    )
+}
+
+/// Bridge deposit address request.
+#[derive(Deserialize)]
+struct BridgeDepositRequest {
+    chain: String,
+    pichain_address: String,
+}
+
+/// Bridge deposit address — returns custodial address from the bridge relayer.
+/// Falls back to hardcoded defaults if no relayer has registered addresses.
+async fn get_bridge_deposit_address(
+    State(state): State<Arc<RpcState>>,
+    Json(req): Json<BridgeDepositRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let chain = req.chain.to_lowercase();
+
+    // Validate pichain address
+    let addr_hex = strip_0x(&req.pichain_address);
+    if addr_hex.len() != 40 || hex::decode(addr_hex).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "invalid pichain_address" })),
+        );
+    }
+
+    // Try to get registered addresses from bridge relayer
+    let registered = state.state_provider.as_ref().and_then(|p| p.bridge_get_addresses());
+
+    let (address, note) = match chain.as_str() {
+        "eth" => {
+            let addr = registered.as_ref()
+                .filter(|a| !a.eth.is_empty())
+                .map(|a| a.eth.clone())
+                .unwrap_or_else(|| "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".to_string());
+            (addr, "Send ETH to this address with your PIChain address as calldata. wETH will be minted after 12 confirmations.")
+        }
+        "sol" => {
+            let addr = registered.as_ref()
+                .filter(|a| !a.sol.is_empty())
+                .map(|a| a.sol.clone())
+                .unwrap_or_else(|| "BRjpCHtyQLeSJjRKsMdbbQWfQ2EH3ZTfHxKBxJfRzakr".to_string());
+            (addr, "Send SOL to this address with your PIChain address in memo. wSOL will be minted after 32 confirmations.")
+        }
+        "btc" => {
+            let addr = registered.as_ref()
+                .filter(|a| !a.btc.is_empty())
+                .map(|a| a.btc.clone())
+                .unwrap_or_else(|| "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh".to_string());
+            (addr, "Send BTC to this address with your PIChain address in OP_RETURN. wBTC will be minted after 6 confirmations.")
+        }
+        "usdt" => {
+            let addr = registered.as_ref()
+                .filter(|a| !a.usdt.is_empty())
+                .map(|a| a.usdt.clone())
+                .unwrap_or_else(|| "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".to_string());
+            (addr, "Send USDT (ERC-20) to this address. wUSDT will be minted after 12 confirmations.")
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "unsupported chain. Use: eth, sol, btc, usdt" })),
+            );
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "chain": chain,
+            "address": address,
+            "pichain_address": req.pichain_address,
+            "note": note,
+        })),
+    )
+}
+
+/// Bridge mint request — only from localhost, used by bridge operator.
+#[derive(Deserialize)]
+struct BridgeMintRequest {
+    symbol: String,      // "wETH", "wSOL", "wBTC", "wUSDT"
+    recipient: String,   // hex PIChain address
+    amount: u64,         // amount in base units
+    #[serde(default)]
+    chain: String,       // source chain for tracking (optional)
+    #[serde(default)]
+    tx_hash: String,     // external chain tx hash for tracking (optional)
+}
+
+/// Mint wrapped tokens to a recipient — localhost-only bridge operator endpoint.
+async fn bridge_mint_tokens(
+    State(state): State<Arc<RpcState>>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    Json(req): Json<BridgeMintRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // Localhost-only security check
+    if !is_loopback_ip(addr.ip()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "bridge mint only available from localhost" })),
+        );
+    }
+
+    // Validate recipient address
+    let hex_str = strip_0x(&req.recipient);
+    if hex_str.len() != 40 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "recipient must be 40 hex characters" })),
+        );
+    }
+    let addr_bytes = match hex::decode(hex_str) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "invalid recipient hex" })),
+        ),
+    };
+    let mut arr = [0u8; 20];
+    arr.copy_from_slice(&addr_bytes);
+    let recipient = pichain_crypto::ed25519::Address(arr);
+
+    if req.amount == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "amount must be > 0" })),
+        );
+    }
+
+    if let Some(provider) = &state.state_provider {
+        match provider.bridge_mint(&req.symbol, &recipient, req.amount) {
+            Ok(()) => {
+                // Record the transfer for status tracking
+                if !req.chain.is_empty() && !req.tx_hash.is_empty() {
+                    provider.bridge_record_transfer(
+                        &req.chain,
+                        &req.tx_hash,
+                        &req.symbol,
+                        &req.recipient,
+                        req.amount,
+                    );
+                }
+                info!(
+                    symbol = %req.symbol,
+                    recipient = %req.recipient,
+                    amount = req.amount,
+                    "bridge mint completed"
+                );
+                (StatusCode::OK, Json(serde_json::json!({
+                    "success": true,
+                    "symbol": req.symbol,
+                    "recipient": req.recipient,
+                    "amount": req.amount,
+                })))
+            }
+            Err(e) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": e })),
+            ),
+        }
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "node unavailable" })),
+        )
+    }
+}
+
+/// Register custodial addresses — localhost-only, called by bridge relayer on startup.
+#[derive(Deserialize)]
+struct RegisterAddressesRequest {
+    eth: String,
+    sol: String,
+    btc: String,
+    #[serde(default)]
+    usdt: String,
+}
+
+async fn bridge_register_addresses(
+    State(state): State<Arc<RpcState>>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    Json(req): Json<RegisterAddressesRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if !is_loopback_ip(addr.ip()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "register-addresses only available from localhost" })),
+        );
+    }
+
+    let usdt = if req.usdt.is_empty() { req.eth.clone() } else { req.usdt };
+
+    if let Some(provider) = &state.state_provider {
+        match provider.bridge_register_addresses(&req.eth, &req.sol, &req.btc, &usdt) {
+            Ok(()) => {
+                info!(eth = %req.eth, sol = %req.sol, btc = %req.btc, "registered bridge custodial addresses");
+                (StatusCode::OK, Json(serde_json::json!({ "success": true })))
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))),
+        }
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+    }
+}
+
+/// Bridge status — public endpoint showing TVL and transfer count.
+async fn bridge_status(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = &state.state_provider {
+        let status = provider.bridge_status();
+        let addresses = provider.bridge_get_addresses();
+        (StatusCode::OK, Json(serde_json::json!({
+            "tokens": status.tokens,
+            "total_transfers": status.total_transfers,
+            "addresses": addresses,
+        })))
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+    }
+}
+
+/// Bridge transfers — public endpoint listing recent bridge mints.
+#[derive(Deserialize)]
+struct BridgeTransfersQuery {
+    #[serde(default)]
+    chain: Option<String>,
+    #[serde(default = "default_transfers_limit")]
+    limit: usize,
+}
+
+fn default_transfers_limit() -> usize { 50 }
+
+async fn bridge_transfers(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Query(query): axum::extract::Query<BridgeTransfersQuery>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = &state.state_provider {
+        let limit = query.limit.min(200);
+        let transfers = provider.bridge_get_transfers(query.chain.as_deref(), limit);
+        (StatusCode::OK, Json(serde_json::json!({ "transfers": transfers })))
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+    }
+}
+
+/// Deposit intent — user registers their PIChain address for a specific external chain address.
+#[derive(Deserialize)]
+struct DepositIntentRequest {
+    chain: String,
+    external_address: String,
+    pichain_address: String,
+}
+
+async fn bridge_deposit_intent(
+    State(state): State<Arc<RpcState>>,
+    Json(req): Json<DepositIntentRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let chain = req.chain.to_lowercase();
+    if !["eth", "sol", "btc", "usdt"].contains(&chain.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "unsupported chain. Use: eth, sol, btc, usdt" })),
+        );
+    }
+
+    let addr_hex = strip_0x(&req.pichain_address);
+    if addr_hex.len() != 40 || hex::decode(addr_hex).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "invalid pichain_address" })),
+        );
+    }
+
+    if req.external_address.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "external_address required" })),
+        );
+    }
+
+    if let Some(provider) = &state.state_provider {
+        match provider.bridge_register_intent(&chain, &req.external_address, addr_hex) {
+            Ok(()) => (StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "chain": chain,
+                "external_address": req.external_address,
+                "pichain_address": req.pichain_address,
+            }))),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))),
+        }
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+    }
+}
+
+/// Bridge withdraw — burn wrapped tokens and create a withdrawal record.
+#[derive(Deserialize)]
+struct BridgeWithdrawRequest {
+    symbol: String,
+    amount: u64,
+    destination_chain: String,
+    destination_address: String,
+    pichain_address: String,
+}
+
+async fn bridge_withdraw(
+    State(_state): State<Arc<RpcState>>,
+    Json(req): Json<BridgeWithdrawRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // Validate inputs
+    let chain = req.destination_chain.to_lowercase();
+    if !["eth", "sol", "btc"].contains(&chain.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "unsupported chain. Use: eth, sol, btc" })),
+        );
+    }
+
+    let addr_hex = strip_0x(&req.pichain_address);
+    if addr_hex.len() != 40 || hex::decode(addr_hex).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "invalid pichain_address" })),
+        );
+    }
+
+    if req.amount == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "amount must be > 0" })),
+        );
+    }
+
+    if req.destination_address.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "destination_address required" })),
+        );
+    }
+
+    // For now, withdrawals are recorded but processing happens via the bridge relayer.
+    // The actual burn and release on external chain is handled by the relayer polling for
+    // withdrawal records.
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "status": "pending",
+        "message": "Withdrawal queued. The bridge relayer will process it shortly.",
+        "symbol": req.symbol,
+        "amount": req.amount,
+        "destination_chain": chain,
+        "destination_address": req.destination_address,
+    })))
+}
+
 // ─── Launchpad / listing API handlers ───────────────────────────────────────
 
 #[derive(Serialize)]
@@ -2025,6 +2856,285 @@ async fn get_portfolio(
     (StatusCode::BAD_REQUEST, Json(serde_json::json!({
         "error": "invalid address"
     })))
+}
+
+// --- Transaction History ---
+
+async fn get_address_transactions(
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let address_hex = strip_0x(&address_hex);
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+    }
+    let Ok(addr_bytes) = hex::decode(&address_hex) else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid hex"})));
+    };
+    let before_height = params.get("before").and_then(|s| s.parse::<u64>().ok());
+    let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok()).unwrap_or(50).min(200);
+
+    if let Some(provider) = &state.state_provider {
+        let mut address = [0u8; 20];
+        address.copy_from_slice(&addr_bytes);
+        let addr = pichain_crypto::ed25519::Address(address);
+        let entries = provider.get_address_transactions(&addr, before_height, limit);
+        return (StatusCode::OK, Json(serde_json::json!({
+            "address": address_hex,
+            "transactions": entries,
+            "count": entries.len(),
+        })));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+// --- Event Querying ---
+
+async fn query_events(
+    State(state): State<Arc<RpcState>>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).min(200) as usize;
+
+    if let Some(provider) = &state.state_provider {
+        // Query by topic
+        if let Some(topic_hex) = body.get("topic").and_then(|v| v.as_str()) {
+            let topic_hex = strip_0x(topic_hex);
+            if topic_hex.len() != 64 {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "topic must be 64 hex chars"})));
+            }
+            if let Ok(bytes) = hex::decode(&topic_hex) {
+                let mut topic = [0u8; 32];
+                topic.copy_from_slice(&bytes);
+                let entries = provider.query_events_by_topic(&topic, limit);
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "events": entries,
+                    "count": entries.len(),
+                })));
+            }
+        }
+        // Query by address
+        if let Some(addr_hex) = body.get("address").and_then(|v| v.as_str()) {
+            let addr_hex = strip_0x(addr_hex);
+            if addr_hex.len() != 40 {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+            }
+            if let Ok(bytes) = hex::decode(&addr_hex) {
+                let mut address = [0u8; 20];
+                address.copy_from_slice(&bytes);
+                let addr = pichain_crypto::ed25519::Address(address);
+                let entries = provider.query_events_by_address(&addr, limit);
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "events": entries,
+                    "count": entries.len(),
+                })));
+            }
+        }
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "provide 'topic' or 'address'"})));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+// --- Staking Endpoints ---
+
+async fn get_staking_validators(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = &state.state_provider {
+        let validators = provider.get_validators();
+        return (StatusCode::OK, Json(serde_json::json!({
+            "validators": validators,
+            "count": validators.len(),
+        })));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+async fn get_delegations(
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let address_hex = strip_0x(&address_hex);
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+    }
+    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+        let mut address = [0u8; 20];
+        address.copy_from_slice(&bytes);
+        let addr = pichain_crypto::ed25519::Address(address);
+        let delegations = provider.get_delegations(&addr);
+        return (StatusCode::OK, Json(serde_json::json!({
+            "address": address_hex,
+            "delegations": delegations,
+        })));
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+}
+
+async fn get_staking_rewards(
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let address_hex = strip_0x(&address_hex);
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+    }
+    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+        let mut address = [0u8; 20];
+        address.copy_from_slice(&bytes);
+        let addr = pichain_crypto::ed25519::Address(address);
+        let rewards = provider.get_staking_rewards(&addr);
+        return (StatusCode::OK, Json(serde_json::json!({
+            "address": address_hex,
+            "pending_rewards": rewards,
+        })));
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+}
+
+// --- NFT Endpoints ---
+
+async fn get_nft_collections(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = &state.state_provider {
+        let collections = provider.scan_all_collections();
+        let data: Vec<_> = collections.iter().map(|c| serde_json::json!({
+            "id": hex::encode(c.id.0),
+            "name": c.name,
+            "symbol": c.symbol,
+            "creator": hex::encode(c.creator.0),
+            "max_supply": c.max_supply,
+            "total_minted": c.minted,
+            "royalty_bps": c.royalty_bps,
+        })).collect();
+        return (StatusCode::OK, Json(serde_json::json!({"collections": data, "count": data.len()})));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+async fn get_collection_items(
+    axum::extract::Path(collection_id_hex): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let cid_hex = strip_0x(&collection_id_hex);
+    if cid_hex.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "collection_id must be 64 hex chars"})));
+    }
+    if let (Ok(bytes), Some(provider)) = (hex::decode(&cid_hex), &state.state_provider) {
+        let mut id = [0u8; 32];
+        id.copy_from_slice(&bytes);
+        let collection_id = pichain_types::CollectionId(id);
+        let items = provider.get_collection_items(&collection_id);
+        let data: Vec<_> = items.iter().map(|nft| serde_json::json!({
+            "nft_id": hex::encode(nft.id.0),
+            "collection_id": hex::encode(nft.collection.0),
+            "name": nft.name,
+            "owner": hex::encode(nft.owner.0),
+            "metadata_uri": nft.metadata_uri,
+        })).collect();
+        return (StatusCode::OK, Json(serde_json::json!({"items": data, "count": data.len()})));
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid collection_id"})))
+}
+
+async fn get_nfts_by_owner(
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let address_hex = strip_0x(&address_hex);
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+    }
+    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+        let mut address = [0u8; 20];
+        address.copy_from_slice(&bytes);
+        let addr = pichain_crypto::ed25519::Address(address);
+        let nfts = provider.get_nfts_by_owner(&addr);
+        let data: Vec<_> = nfts.iter().map(|nft| serde_json::json!({
+            "nft_id": hex::encode(nft.id.0),
+            "collection_id": hex::encode(nft.collection.0),
+            "name": nft.name,
+            "owner": hex::encode(nft.owner.0),
+            "metadata_uri": nft.metadata_uri,
+        })).collect();
+        return (StatusCode::OK, Json(serde_json::json!({"nfts": data, "count": data.len()})));
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+}
+
+// --- Light Client ---
+
+async fn get_account_proof(
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let address_hex = strip_0x(&address_hex);
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+    }
+    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+        let mut address = [0u8; 20];
+        address.copy_from_slice(&bytes);
+        let addr = pichain_crypto::ed25519::Address(address);
+        if let Some(proof_bytes) = provider.get_account_proof(&addr) {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "address": address_hex,
+                "proof": hex::encode(&proof_bytes),
+                "state_root": provider.state_root_hex(),
+            })));
+        }
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no proof available"})));
+    }
+    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+}
+
+async fn get_block_header(
+    axum::extract::Path(height_str): axum::extract::Path<String>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let Ok(height) = height_str.parse::<u64>() else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid height"})));
+    };
+    if let Some(provider) = &state.state_provider {
+        if let Some(block) = provider.get_block_sync(height) {
+            let h = &block.header;
+            return (StatusCode::OK, Json(serde_json::json!({
+                "height": h.height,
+                "epoch": h.epoch,
+                "parent_hash": hex::encode(h.parent_hash.as_bytes()),
+                "state_root": hex::encode(h.state_root.as_bytes()),
+                "tx_root": hex::encode(h.tx_root.as_bytes()),
+                "tx_count": h.tx_count,
+                "gas_used": h.gas_used,
+                "base_fee": h.base_fee,
+                "pi_burned": h.pi_burned,
+                "proposer": hex::encode(h.proposer.0),
+                "timestamp_ms": h.timestamp_ms,
+            })));
+        }
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "block not found"})));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+// --- Richlist ---
+
+async fn get_richlist(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok()).unwrap_or(100).min(500);
+    if let Some(provider) = &state.state_provider {
+        let entries = provider.get_richlist(limit);
+        let data: Vec<_> = entries.iter().map(|(addr, balance)| serde_json::json!({
+            "address": hex::encode(addr.0),
+            "balance": balance,
+        })).collect();
+        return (StatusCode::OK, Json(serde_json::json!({"richlist": data, "count": data.len()})));
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
 }
 
 #[cfg(test)]

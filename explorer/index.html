@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PIChain Explorer</title>
-<meta name="description" content="PIChain block explorer. View blocks, transactions, accounts, and mining stats in real-time.">
+<title>PiChain Explorer</title>
+<meta name="description" content="PiChain block explorer. View blocks, transactions, accounts, and mining stats in real-time.">
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -200,13 +200,15 @@ tr[onclick] { cursor: pointer; }
 
 <nav class="navbar">
   <div class="navbar-inner">
-    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
     <div class="nav-links">
       <a href="/">Home</a>
       <a href="/explorer" class="active">Explorer</a>
       <a href="/mining">Mining</a>
       <a href="https://github.com/pureinkart-tech/pichain" target="_blank">GitHub</a>
       <a href="/launch">Launch</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge">Bridge</a>
       <a href="/mine">Start Mining</a>
     </div>
   </div>
@@ -221,7 +223,6 @@ tr[onclick] { cursor: pointer; }
   <button class="tab" onclick="showPage('wallet', this)">Wallet</button>
   <button class="tab" onclick="showPage('txs', this)">Transactions</button>
   <button class="tab" onclick="showPage('mining', this)">Mining</button>
-  <button class="tab" onclick="showPage('faucet', this)">Faucet</button>
 </div>
 
 <!-- SEARCH BAR -->
@@ -374,22 +375,6 @@ tr[onclick] { cursor: pointer; }
   --rpc-url http://localhost:8314 \
   --keypair wallet.json \
   --profile server</div>
-  </div>
-</div>
-
-<!-- ===== FAUCET ===== -->
-<div id="page-faucet" class="page">
-  <div class="form-section">
-    <h2>Devnet Faucet</h2>
-    <p style="color:var(--muted);margin-bottom:20px">
-      Claim 10 PI for testing on devnet (chain_id 31415). One claim per address.
-    </p>
-    <div class="form-row">
-      <label>Address</label>
-      <input id="faucet-addr" placeholder="40-char hex address (no 0x prefix)">
-      <button class="btn btn-green" onclick="claimFaucet()">Claim 10 PI</button>
-    </div>
-    <div id="faucet-result" class="result-box" style="display:none"></div>
   </div>
 </div>
 
@@ -569,22 +554,6 @@ async function refreshMining() {
     document.getElementById('mine-pool-text').textContent = fmtPI(remaining) + ' remaining (' + pct.toFixed(2) + '%)';
     document.getElementById('mine-bar').style.width = pct + '%';
   } catch(e) {}
-}
-
-async function claimFaucet() {
-  const addr = document.getElementById('faucet-addr').value.replace('0x','').trim();
-  const div = document.getElementById('faucet-result');
-  div.style.display = 'block';
-  try {
-    const r = await fetch(API + '/api/v1/faucet', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({address: addr})
-    });
-    const result = await r.json();
-    div.textContent = result.success
-      ? 'Success! Received ' + fmtPI(result.amount) + '\nAddress: ' + result.address
-      : 'Failed: ' + (result.error || 'Unknown error');
-  } catch(e) { div.textContent = 'Error: ' + e.message; }
 }
 
 async function doSearch() {

@@ -17,6 +17,9 @@ pub const CF_RECEIPTS: &str = "receipts";
 pub const CF_METADATA: &str = "metadata";
 pub const CF_OBJECTS: &str = "objects";
 pub const CF_JMT_NODES: &str = "jmt_nodes";
+pub const CF_TX_HISTORY: &str = "tx_history";
+pub const CF_EVENT_INDEX: &str = "event_index";
+pub const CF_EVM_STATE: &str = "evm_state";
 
 const ALL_CFS: &[&str] = &[
     CF_STATE,
@@ -26,6 +29,9 @@ const ALL_CFS: &[&str] = &[
     CF_METADATA,
     CF_OBJECTS,
     CF_JMT_NODES,
+    CF_TX_HISTORY,
+    CF_EVENT_INDEX,
+    CF_EVM_STATE,
 ];
 
 type DB = DBWithThreadMode<MultiThreaded>;
@@ -380,6 +386,172 @@ impl PiChainDB {
     /// Get the inner Arc<DB> for advanced operations.
     pub fn inner(&self) -> &Arc<DB> {
         &self.db
+    }
+
+    // --- Transaction History Index (CF_TX_HISTORY) ---
+    // Key format: addr(20) | height_be(8) | tx_idx_be(2) → tx_hash(32)
+    // Range scan newest-first using reverse iteration.
+
+    /// Index a transaction for an address (sender or recipient).
+    pub fn batch_index_tx_for_address(
+        &self,
+        batch: &mut WriteBatch,
+        address: &[u8; 20],
+        height: u64,
+        tx_idx: u16,
+        tx_hash: &[u8; 32],
+    ) {
+        let mut key = Vec::with_capacity(30);
+        key.extend_from_slice(address);
+        key.extend_from_slice(&height.to_be_bytes());
+        key.extend_from_slice(&tx_idx.to_be_bytes());
+        batch.put_cf(&self.cf(CF_TX_HISTORY), key, tx_hash);
+    }
+
+    /// Get transaction hashes for an address, newest-first.
+    /// `before_height`: if Some, start scanning below this height (for pagination).
+    /// Returns up to `limit` tx hashes with their (height, tx_idx).
+    pub fn get_address_transactions(
+        &self,
+        address: &[u8; 20],
+        before_height: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<([u8; 32], u64, u16)>, StorageError> {
+        use rocksdb::{Direction, IteratorMode};
+        let cf = self.cf(CF_TX_HISTORY);
+
+        // Build the start key for reverse iteration
+        let start_height = before_height.unwrap_or(u64::MAX);
+        let mut seek_key = Vec::with_capacity(30);
+        seek_key.extend_from_slice(address);
+        seek_key.extend_from_slice(&start_height.to_be_bytes());
+        seek_key.extend_from_slice(&u16::MAX.to_be_bytes());
+
+        let mut results = Vec::with_capacity(limit);
+        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        for item in iter {
+            let (key, value) = item?;
+            if key.len() != 30 || !key.starts_with(address) {
+                break;
+            }
+            let height_bytes: [u8; 8] = key[20..28].try_into().unwrap();
+            let idx_bytes: [u8; 2] = key[28..30].try_into().unwrap();
+            let height = u64::from_be_bytes(height_bytes);
+            let tx_idx = u16::from_be_bytes(idx_bytes);
+            let mut tx_hash = [0u8; 32];
+            if value.len() == 32 {
+                tx_hash.copy_from_slice(&value);
+            }
+            results.push((tx_hash, height, tx_idx));
+            if results.len() >= limit {
+                break;
+            }
+        }
+        Ok(results)
+    }
+
+    // --- Event Index (CF_EVENT_INDEX) ---
+    // Topic index: "t:" | topic(32) | height_be(8) | idx_be(2) → tx_hash(32)
+    // Address index: "a:" | addr(20) | height_be(8) | idx_be(2) → tx_hash(32)
+
+    /// Index an event by topic.
+    pub fn batch_index_event_topic(
+        &self,
+        batch: &mut WriteBatch,
+        topic: &[u8; 32],
+        height: u64,
+        idx: u16,
+        tx_hash: &[u8; 32],
+    ) {
+        let mut key = Vec::with_capacity(44);
+        key.extend_from_slice(b"t:");
+        key.extend_from_slice(topic);
+        key.extend_from_slice(&height.to_be_bytes());
+        key.extend_from_slice(&idx.to_be_bytes());
+        batch.put_cf(&self.cf(CF_EVENT_INDEX), key, tx_hash);
+    }
+
+    /// Index an event by address.
+    pub fn batch_index_event_address(
+        &self,
+        batch: &mut WriteBatch,
+        address: &[u8; 20],
+        height: u64,
+        idx: u16,
+        tx_hash: &[u8; 32],
+    ) {
+        let mut key = Vec::with_capacity(32);
+        key.extend_from_slice(b"a:");
+        key.extend_from_slice(address);
+        key.extend_from_slice(&height.to_be_bytes());
+        key.extend_from_slice(&idx.to_be_bytes());
+        batch.put_cf(&self.cf(CF_EVENT_INDEX), key, tx_hash);
+    }
+
+    /// Query events by topic, newest-first.
+    pub fn query_events_by_topic(
+        &self,
+        topic: &[u8; 32],
+        limit: usize,
+    ) -> Result<Vec<([u8; 32], u64, u16)>, StorageError> {
+        use rocksdb::{Direction, IteratorMode};
+        let cf = self.cf(CF_EVENT_INDEX);
+
+        let mut seek_key = Vec::with_capacity(44);
+        seek_key.extend_from_slice(b"t:");
+        seek_key.extend_from_slice(topic);
+        seek_key.extend_from_slice(&u64::MAX.to_be_bytes());
+        seek_key.extend_from_slice(&u16::MAX.to_be_bytes());
+
+        let prefix_len = 34; // "t:" + 32-byte topic
+        let mut results = Vec::with_capacity(limit);
+        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        for item in iter {
+            let (key, value) = item?;
+            if key.len() != 44 || !key[..prefix_len].starts_with(&seek_key[..prefix_len]) {
+                break;
+            }
+            let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
+            let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            let mut tx_hash = [0u8; 32];
+            if value.len() == 32 { tx_hash.copy_from_slice(&value); }
+            results.push((tx_hash, height, idx));
+            if results.len() >= limit { break; }
+        }
+        Ok(results)
+    }
+
+    /// Query events by address, newest-first.
+    pub fn query_events_by_address(
+        &self,
+        address: &[u8; 20],
+        limit: usize,
+    ) -> Result<Vec<([u8; 32], u64, u16)>, StorageError> {
+        use rocksdb::{Direction, IteratorMode};
+        let cf = self.cf(CF_EVENT_INDEX);
+
+        let mut seek_key = Vec::with_capacity(32);
+        seek_key.extend_from_slice(b"a:");
+        seek_key.extend_from_slice(address);
+        seek_key.extend_from_slice(&u64::MAX.to_be_bytes());
+        seek_key.extend_from_slice(&u16::MAX.to_be_bytes());
+
+        let prefix_len = 22; // "a:" + 20-byte address
+        let mut results = Vec::with_capacity(limit);
+        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        for item in iter {
+            let (key, value) = item?;
+            if key.len() != 32 || !key[..prefix_len].starts_with(&seek_key[..prefix_len]) {
+                break;
+            }
+            let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
+            let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            let mut tx_hash = [0u8; 32];
+            if value.len() == 32 { tx_hash.copy_from_slice(&value); }
+            results.push((tx_hash, height, idx));
+            if results.len() >= limit { break; }
+        }
+        Ok(results)
     }
 }
 

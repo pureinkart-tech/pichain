@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain — Bridge Monitor</title>
+<meta name="description" content="Monitor cross-chain bridge activity on PiChain. Track deposits, withdrawals, TVL, and relayer status.">
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0c1018;
+  --surface: #111827; --surface-2: #1a2236;
+  --border: #1e293b; --border-light: #2d3a52;
+  --text: #e8ecf4; --muted: #8896b0; --dim: #5e6b82;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --cyan: #22d3ee; --green: #34d399; --gold: #fbbf24; --rose: #fb7185;
+  --radius: 16px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; line-height: 1.6; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Navbar */
+.navbar { background: rgba(6, 8, 13, 0.9); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(30, 41, 59, 0.5); position: sticky; top: 0; z-index: 100; }
+.navbar-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); letter-spacing: -0.5px; }
+.pi-sym { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); font-size: 20px; font-weight: 900; color: white; }
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: var(--radius-sm); transition: all 0.2s; }
+.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-links a.active { color: var(--accent-light); background: rgba(99,102,241,0.1); }
+
+/* Layout */
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.page-header { margin-bottom: 28px; }
+.page-header h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+.page-header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+.card h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.card h2 .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(34,211,238,0.1); color: var(--cyan); }
+
+/* Stats grid */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.stat-label { font-size: 12px; color: var(--dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.stat-value { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+.stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* TVL tokens */
+.tvl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.tvl-token { background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; transition: border-color 0.2s; }
+.tvl-token:hover { border-color: var(--border-light); }
+.tvl-symbol { font-size: 14px; font-weight: 700; color: var(--cyan); }
+.tvl-amount { font-size: 20px; font-weight: 800; margin-top: 4px; }
+.tvl-usd { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Address cards */
+.addr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.addr-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.addr-chain { font-size: 13px; font-weight: 700; color: var(--gold); margin-bottom: 6px; }
+.addr-value { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--text); word-break: break-all; background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; }
+.addr-value:hover { border-color: var(--cyan); }
+.addr-none { font-size: 12px; color: var(--dim); font-style: italic; }
+
+/* Transfer table */
+.transfers-table { width: 100%; border-collapse: collapse; }
+.transfers-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.transfers-table td { padding: 12px; border-bottom: 1px solid rgba(30,41,59,0.5); font-size: 13px; }
+.transfers-table tr:hover td { background: rgba(99,102,241,0.03); }
+.chain-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; }
+.chain-badge.ethereum { background: rgba(99,102,241,0.1); color: #818cf8; }
+.chain-badge.solana { background: rgba(34,211,238,0.1); color: #22d3ee; }
+.chain-badge.bitcoin { background: rgba(251,191,36,0.1); color: #fbbf24; }
+.symbol-tag { font-weight: 700; color: var(--green); }
+.tx-hash { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--muted); cursor: pointer; }
+.tx-hash:hover { color: var(--cyan); }
+.addr-short { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--muted); }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--dim); }
+.empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+
+/* Status indicator */
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(52,211,153,0.4); }
+.status-dot.offline { background: var(--rose); box-shadow: 0 0 6px rgba(251,113,133,0.4); }
+.status-dot.unknown { background: var(--dim); }
+
+/* Auto-refresh indicator */
+.refresh-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.refresh-info { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+.refresh-btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+.refresh-btn:hover { border-color: var(--accent); color: var(--accent-light); }
+
+/* Filter tabs */
+.filter-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.filter-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 8px; cursor: pointer; background: var(--bg-2); border: 1px solid var(--border); color: var(--muted); transition: all 0.2s; }
+.filter-tab:hover { border-color: var(--border-light); color: var(--text); }
+.filter-tab.active { border-color: var(--accent); color: var(--accent-light); background: rgba(99,102,241,0.08); }
+
+/* Toast */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 500; opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 200; }
+.toast.show { opacity: 1; pointer-events: auto; }
+.toast-success { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+.toast-error { background: rgba(251,113,133,0.15); border: 1px solid rgba(251,113,133,0.3); color: var(--rose); }
+.toast-info { background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); color: var(--accent-light); }
+
+.footer { text-align: center; padding: 40px 24px; color: var(--dim); font-size: 13px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .tvl-grid { grid-template-columns: repeat(2, 1fr); }
+  .addr-grid { grid-template-columns: 1fr; }
+  .transfers-table { font-size: 12px; }
+  .transfers-table th, .transfers-table td { padding: 8px 6px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/mining">Mining</a>
+      <a href="/mine">Mine</a>
+      <a href="/launch">Launch</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge" class="active">Bridge</a>
+      <a href="/download">Download</a>
+    </div>
+  </div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<div class="container">
+  <div class="page-header">
+    <h1>Bridge Monitor</h1>
+    <p>Real-time cross-chain bridge activity — deposits, withdrawals, TVL, and relayer status.</p>
+  </div>
+
+  <!-- Status Overview -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="stat-label">Relayer Status</div>
+      <div class="stat-value" id="relayerStatus"><span class="status-dot unknown"></span> Checking...</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Transfers</div>
+      <div class="stat-value" id="totalTransfers">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Chains Active</div>
+      <div class="stat-value" id="chainsActive">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last Updated</div>
+      <div class="stat-value" id="lastUpdated" style="font-size:16px;">—</div>
+    </div>
+  </div>
+
+  <!-- TVL Section -->
+  <div class="card">
+    <h2>Total Value Locked <span class="badge" id="tvlBadge">Loading</span></h2>
+    <div class="tvl-grid" id="tvlGrid">
+      <div class="tvl-token"><div class="tvl-symbol">WETH</div><div class="tvl-amount">—</div></div>
+      <div class="tvl-token"><div class="tvl-symbol">WSOL</div><div class="tvl-amount">—</div></div>
+      <div class="tvl-token"><div class="tvl-symbol">WBTC</div><div class="tvl-amount">—</div></div>
+      <div class="tvl-token"><div class="tvl-symbol">WUSDT</div><div class="tvl-amount">—</div></div>
+    </div>
+  </div>
+
+  <!-- Custodial Addresses -->
+  <div class="card">
+    <h2>Custodial Deposit Addresses</h2>
+    <div class="addr-grid" id="addrGrid">
+      <div class="addr-card">
+        <div class="addr-chain">Ethereum (Sepolia)</div>
+        <div id="addrEth" class="addr-none">No address registered</div>
+      </div>
+      <div class="addr-card">
+        <div class="addr-chain">Solana (Devnet)</div>
+        <div id="addrSol" class="addr-none">No address registered</div>
+      </div>
+      <div class="addr-card">
+        <div class="addr-chain">Bitcoin (Testnet)</div>
+        <div id="addrBtc" class="addr-none">No address registered</div>
+      </div>
+      <div class="addr-card">
+        <div class="addr-chain">USDT (Sepolia ERC-20)</div>
+        <div id="addrUsdt" class="addr-none">No address registered</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Transfers -->
+  <div class="card">
+    <h2>Recent Bridge Transfers</h2>
+
+    <div class="refresh-bar">
+      <div class="filter-tabs">
+        <div class="filter-tab active" onclick="filterChain(null)">All</div>
+        <div class="filter-tab" onclick="filterChain('ethereum')">Ethereum</div>
+        <div class="filter-tab" onclick="filterChain('solana')">Solana</div>
+        <div class="filter-tab" onclick="filterChain('bitcoin')">Bitcoin</div>
+      </div>
+      <button class="refresh-btn" onclick="refreshAll()">Refresh</button>
+    </div>
+
+    <div id="transfersContainer">
+      <div class="empty-state">
+        <div class="icon">&#9878;</div>
+        <div>No bridge transfers yet</div>
+        <div style="font-size:12px;margin-top:4px;">Transfers will appear here when the bridge relayer processes deposits.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">PiChain &mdash; Computing the Infinite</div>
+
+<script>
+const API = window.location.origin;
+let currentFilter = null;
+let allTransfers = [];
+let refreshInterval = null;
+
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast toast-' + type + ' show';
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!', 'success'));
+}
+
+function shortAddr(addr) {
+  if (!addr || addr.length < 16) return addr || '';
+  return 'Pi314' + addr.slice(0, 6) + '...' + addr.slice(-4);
+}
+
+function shortTx(hash) {
+  if (!hash || hash.length < 20) return hash || '';
+  return hash.slice(0, 14) + '...' + hash.slice(-6);
+}
+
+function formatAmount(amount, symbol) {
+  const val = amount / 1e9;
+  if (val >= 1000) return val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (val >= 1) return val.toFixed(4);
+  return val.toFixed(6);
+}
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return Math.floor(diff) + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function chainBadgeClass(chain) {
+  if (chain.includes('ethereum') || chain === 'eth') return 'ethereum';
+  if (chain.includes('solana') || chain === 'sol') return 'solana';
+  if (chain.includes('bitcoin') || chain === 'btc') return 'bitcoin';
+  return '';
+}
+
+function renderAddress(elId, addr) {
+  const el = document.getElementById(elId);
+  if (addr && addr.trim()) {
+    el.className = 'addr-value';
+    el.textContent = addr;
+    el.onclick = () => copyToClipboard(addr);
+    el.title = 'Click to copy';
+  } else {
+    el.className = 'addr-none';
+    el.textContent = 'No address registered — start the bridge relayer';
+    el.onclick = null;
+    el.title = '';
+  }
+}
+
+function renderTransfers(transfers) {
+  const container = document.getElementById('transfersContainer');
+
+  if (!transfers || transfers.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">&#9878;</div>
+        <div>No bridge transfers yet</div>
+        <div style="font-size:12px;margin-top:4px;">Transfers will appear here when the bridge relayer processes deposits.</div>
+      </div>`;
+    return;
+  }
+
+  let html = `<table class="transfers-table">
+    <thead><tr>
+      <th>Chain</th>
+      <th>Token</th>
+      <th>Amount</th>
+      <th>Recipient</th>
+      <th>Tx Hash</th>
+      <th>Time</th>
+    </tr></thead><tbody>`;
+
+  for (const t of transfers) {
+    const badge = chainBadgeClass(t.chain);
+    html += `<tr>
+      <td><span class="chain-badge ${badge}">${t.chain}</span></td>
+      <td><span class="symbol-tag">${t.symbol}</span></td>
+      <td style="font-weight:600;">${formatAmount(t.amount, t.symbol)}</td>
+      <td><span class="addr-short" title="${t.recipient}" onclick="copyToClipboard('${t.recipient}')" style="cursor:pointer;">${shortAddr(t.recipient)}</span></td>
+      <td><span class="tx-hash" title="${t.tx_hash}" onclick="copyToClipboard('${t.tx_hash}')">${shortTx(t.tx_hash)}</span></td>
+      <td style="color:var(--dim);font-size:12px;" title="${new Date(t.timestamp * 1000).toLocaleString()}">${formatTime(t.timestamp)}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function filterChain(chain) {
+  currentFilter = chain;
+  document.querySelectorAll('.filter-tab').forEach(tab => {
+    const isAll = !chain && tab.textContent === 'All';
+    const isMatch = chain && tab.textContent.toLowerCase() === chain;
+    tab.classList.toggle('active', isAll || isMatch);
+  });
+
+  if (chain) {
+    renderTransfers(allTransfers.filter(t => t.chain === chain));
+  } else {
+    renderTransfers(allTransfers);
+  }
+}
+
+async function fetchStatus() {
+  try {
+    const res = await fetch(API + '/api/v1/bridge/status');
+    const data = await res.json();
+
+    // TVL tokens
+    const grid = document.getElementById('tvlGrid');
+    if (data.tokens && data.tokens.length > 0) {
+      let tvlHtml = '';
+      let tokenCount = 0;
+      for (const t of data.tokens) {
+        const amt = t.total_supply / 1e9;
+        const formatted = amt >= 1000 ? amt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : amt.toFixed(4);
+        tvlHtml += `<div class="tvl-token">
+          <div class="tvl-symbol">${t.symbol}</div>
+          <div class="tvl-amount">${formatted}</div>
+          <div class="tvl-usd">${t.decimals} decimals</div>
+        </div>`;
+        if (amt > 0) tokenCount++;
+      }
+      grid.innerHTML = tvlHtml;
+      document.getElementById('tvlBadge').textContent = data.tokens.length + ' tokens';
+    }
+
+    // Total transfers
+    document.getElementById('totalTransfers').textContent = (data.total_transfers || 0).toLocaleString();
+
+    // Addresses
+    if (data.addresses) {
+      renderAddress('addrEth', data.addresses.eth);
+      renderAddress('addrSol', data.addresses.sol);
+      renderAddress('addrBtc', data.addresses.btc);
+      renderAddress('addrUsdt', data.addresses.usdt);
+      const active = [data.addresses.eth, data.addresses.sol, data.addresses.btc].filter(a => a && a.trim()).length;
+      document.getElementById('chainsActive').textContent = active + ' / 3';
+      document.getElementById('relayerStatus').innerHTML = active > 0
+        ? '<span class="status-dot online"></span> Connected'
+        : '<span class="status-dot offline"></span> Not Connected';
+    } else {
+      document.getElementById('chainsActive').textContent = '0 / 3';
+      document.getElementById('relayerStatus').innerHTML = '<span class="status-dot offline"></span> Not Connected';
+    }
+
+    // Last updated
+    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+
+  } catch (e) {
+    document.getElementById('relayerStatus').innerHTML = '<span class="status-dot offline"></span> Error';
+  }
+}
+
+async function fetchTransfers() {
+  try {
+    const res = await fetch(API + '/api/v1/bridge/transfers?limit=100');
+    const data = await res.json();
+    allTransfers = data.transfers || [];
+
+    if (currentFilter) {
+      renderTransfers(allTransfers.filter(t => t.chain === currentFilter));
+    } else {
+      renderTransfers(allTransfers);
+    }
+  } catch (e) {
+    // silent
+  }
+}
+
+function refreshAll() {
+  fetchStatus();
+  fetchTransfers();
+  showToast('Refreshed', 'info');
+}
+
+// Initial load
+fetchStatus();
+fetchTransfers();
+
+// Auto-refresh every 10 seconds
+refreshInterval = setInterval(() => {
+  fetchStatus();
+  fetchTransfers();
+}, 10000);
+</script>
+
+</body>
+</html>

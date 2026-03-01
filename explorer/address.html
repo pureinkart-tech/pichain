@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain Address</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+@media(max-width:768px){.nav-links{display:none;}}
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+.search-bar{display:flex;gap:12px;margin-bottom:32px;}
+.search-bar input{flex:1;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:15px;font-family:monospace;}
+.search-bar input:focus{outline:none;border-color:var(--accent);}
+.search-bar button{padding:12px 24px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:white;font-weight:600;cursor:pointer;font-size:14px;}
+.search-bar button:hover{background:var(--accent-light);}
+.account-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;}
+.account-card h2{font-size:18px;margin-bottom:16px;color:var(--cyan);font-family:monospace;word-break:break-all;}
+.account-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;}
+.account-stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;}
+.account-stat .value{font-size:20px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;}
+.section-title{font-size:18px;font-weight:700;margin-bottom:16px;}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:14px;}
+th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
+.mono{font-family:'SF Mono',Monaco,monospace;font-size:13px;}
+.hash{color:var(--cyan);}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;}
+.badge-success{background:rgba(52,211,153,0.15);color:var(--green);}
+.badge-reverted{background:rgba(251,113,133,0.15);color:var(--rose);}
+.load-more{display:block;margin:16px auto;padding:10px 24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);cursor:pointer;}
+.load-more:hover{background:var(--surface-2);}
+#account-info{display:none;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/blocks">Blocks</a>
+      <a href="/staking">Staking</a>
+      <a href="/mining">Mining</a>
+      <a href="/trade">Trade</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title">Address Lookup</h1>
+  <p class="page-desc">View account balance, nonce, and transaction history.</p>
+
+  <div class="search-bar">
+    <input type="text" id="addr-input" placeholder="Enter 40-char hex address" maxlength="40">
+    <button onclick="lookup()">Search</button>
+  </div>
+
+  <div id="account-info">
+    <div class="account-card">
+      <h2 id="addr-display"></h2>
+      <div class="account-stats">
+        <div class="account-stat"><div class="label">Balance</div><div class="value" id="balance">-</div></div>
+        <div class="account-stat"><div class="label">Nonce</div><div class="value" id="nonce">-</div></div>
+        <div class="account-stat"><div class="label">Staked</div><div class="value" id="staked">-</div></div>
+      </div>
+    </div>
+
+    <div class="section-title">Transaction History</div>
+    <table>
+      <thead><tr><th>Hash</th><th>Type</th><th>Block</th><th>Status</th></tr></thead>
+      <tbody id="tx-body"></tbody>
+    </table>
+    <button class="load-more" id="load-more-btn" onclick="loadMore()" style="display:none;">Load More</button>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentAddr = '';
+let lastHeight = null;
+const fmt = n => {
+  if (n >= 1e9) return (n/1e9).toFixed(4)+' PI';
+  return n.toLocaleString()+' base';
+};
+
+// Check URL hash for address
+function checkHash() {
+  const h = window.location.hash.replace('#','');
+  if (h.length === 40) { document.getElementById('addr-input').value = h; lookup(); }
+}
+
+async function lookup() {
+  const addr = document.getElementById('addr-input').value.trim().replace(/^0x/,'');
+  if (addr.length !== 40) { alert('Address must be 40 hex chars'); return; }
+  currentAddr = addr;
+  lastHeight = null;
+  window.location.hash = addr;
+
+  document.getElementById('account-info').style.display = 'block';
+  document.getElementById('addr-display').textContent = addr;
+
+  try {
+    const r = await fetch(API+'/api/v1/account/'+addr);
+    const d = await r.json();
+    document.getElementById('balance').textContent = fmt(d.balance||0);
+    document.getElementById('nonce').textContent = d.nonce||0;
+    document.getElementById('staked').textContent = fmt(d.staked||0);
+  } catch(e) {
+    document.getElementById('balance').textContent = '0 PI';
+    document.getElementById('nonce').textContent = '0';
+    document.getElementById('staked').textContent = '0 PI';
+  }
+
+  // Load tx history
+  document.getElementById('tx-body').innerHTML = '';
+  await loadTxHistory();
+}
+
+async function loadTxHistory() {
+  let url = API+'/api/v1/address/'+currentAddr+'/transactions?limit=20';
+  if (lastHeight !== null) url += '&before='+lastHeight;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    const txs = d.transactions || [];
+    const tbody = document.getElementById('tx-body');
+    txs.forEach(tx => {
+      const row = document.createElement('tr');
+      const status = (tx.status||'').includes('success') || tx.status === 'Success'
+        ? '<span class="badge badge-success">Success</span>'
+        : '<span class="badge badge-reverted">Reverted</span>';
+      row.innerHTML = `
+        <td class="mono hash">${(tx.hash||'-').substring(0,16)}...</td>
+        <td>${tx.kind||'-'}</td>
+        <td>${tx.height||'-'}</td>
+        <td>${status}</td>`;
+      tbody.appendChild(row);
+      if (tx.height) lastHeight = tx.height;
+    });
+    document.getElementById('load-more-btn').style.display = txs.length >= 20 ? 'block' : 'none';
+  } catch(e) { console.error(e); }
+}
+
+function loadMore() { loadTxHistory(); }
+window.addEventListener('load', checkHash);
+</script>
+</body>
+</html>

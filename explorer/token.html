@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain Token</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+@media(max-width:768px){.nav-links{display:none;}}
+.main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
+.page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
+.page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
+.search-bar{display:flex;gap:12px;margin-bottom:32px;}
+.search-bar input{flex:1;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:15px;font-family:monospace;}
+.search-bar input:focus{outline:none;border-color:var(--accent);}
+.search-bar button{padding:12px 24px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:white;font-weight:600;cursor:pointer;font-size:14px;}
+.token-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;}
+.token-name{font-size:24px;font-weight:800;margin-bottom:4px;}
+.token-symbol{color:var(--gold);font-size:16px;font-weight:600;}
+.token-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:16px;}
+.token-stat .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;}
+.token-stat .value{font-size:18px;font-weight:700;margin-top:4px;}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:14px;}
+th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;}
+.mono{font-family:'SF Mono',Monaco,monospace;font-size:13px;}
+.addr{color:var(--cyan);cursor:pointer;}
+#token-info{display:none;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/trade">Trade</a>
+      <a href="/launch">Launchpad</a>
+      <a href="/nfts">NFTs</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <h1 class="page-title">Token Info</h1>
+  <p class="page-desc">View token details and holder distribution.</p>
+
+  <div class="search-bar">
+    <input type="text" id="mint-input" placeholder="Enter token mint ID (64-char hex)" maxlength="64">
+    <button onclick="lookup()">Search</button>
+  </div>
+
+  <div id="token-info">
+    <div class="token-card">
+      <div class="token-name" id="t-name">-</div>
+      <div class="token-symbol" id="t-symbol">-</div>
+      <div class="token-stats">
+        <div class="token-stat"><div class="label">Total Supply</div><div class="value" id="t-supply">-</div></div>
+        <div class="token-stat"><div class="label">Decimals</div><div class="value" id="t-decimals">-</div></div>
+        <div class="token-stat"><div class="label">Holders</div><div class="value" id="t-holders">-</div></div>
+        <div class="token-stat"><div class="label">Creator</div><div class="value mono" id="t-creator">-</div></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:18px;margin-bottom:16px;">Holders</h3>
+    <table>
+      <thead><tr><th>#</th><th>Address</th><th>Balance</th><th>Share</th></tr></thead>
+      <tbody id="holders-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+function checkHash() {
+  const h = window.location.hash.replace('#','');
+  if (h.length === 64) { document.getElementById('mint-input').value = h; lookup(); }
+}
+
+async function lookup() {
+  const mint = document.getElementById('mint-input').value.trim();
+  if (mint.length !== 64) { alert('Mint ID must be 64 hex chars'); return; }
+  window.location.hash = mint;
+
+  try {
+    const r = await fetch(API+'/api/v1/token/'+mint);
+    if (!r.ok) { alert('Token not found'); return; }
+    const d = await r.json();
+    document.getElementById('token-info').style.display = 'block';
+    document.getElementById('t-name').textContent = d.name || 'Unknown';
+    document.getElementById('t-symbol').textContent = d.symbol || '???';
+    document.getElementById('t-supply').textContent = (d.total_supply||0).toLocaleString();
+    document.getElementById('t-decimals').textContent = d.decimals||0;
+    document.getElementById('t-creator').textContent = d.creator ? d.creator.substring(0,16)+'...' : '-';
+
+    // Load holders
+    const hR = await fetch(API+'/api/v1/token/'+mint+'/holders');
+    const hD = await hR.json();
+    const holders = hD.holders || [];
+    document.getElementById('t-holders').textContent = holders.length;
+    const totalBal = holders.reduce((s,h) => s + (h.balance||0), 0);
+    document.getElementById('holders-body').innerHTML = holders.length ? holders.map((h, i) => {
+      const pct = totalBal > 0 ? ((h.balance||0)/totalBal*100).toFixed(1) : '0.0';
+      return `<tr>
+        <td>${i+1}</td>
+        <td class="mono addr" onclick="window.location.href='/address#${h.address}'">${h.address}</td>
+        <td>${(h.balance||0).toLocaleString()}</td>
+        <td>${pct}%</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4" style="color:var(--muted);text-align:center;">No holders</td></tr>';
+  } catch(e) { console.error(e); alert('Error loading token'); }
+}
+window.addEventListener('load', checkHash);
+</script>
+</body>
+</html>

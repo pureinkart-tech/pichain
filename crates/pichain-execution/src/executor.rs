@@ -30,7 +30,7 @@ use crate::wasm_vm::WasmVM;
 /// Maximum lengths for user-controlled string fields (XSS/DoS prevention).
 const MAX_TOKEN_NAME_LEN: usize = 64;
 const MAX_TOKEN_SYMBOL_LEN: usize = 10;
-const MAX_METADATA_URI_LEN: usize = 256;
+const MAX_METADATA_URI_LEN: usize = 768 * 1024; // 768KB — tokens can embed base64 images in metadata
 const MAX_FUNCTION_NAME_LEN: usize = 64;
 
 /// Maximum token mints per address. Prevents a single attacker from creating
@@ -342,9 +342,16 @@ impl TransactionExecutor {
     /// Apply token balance deltas from a DEX operation through the token executor.
     /// If any delta fails (e.g., insufficient balance, frozen account), rolls back
     /// both applied token deltas and pool state, then returns Reverted.
+    ///
+    /// Native PI (MintId::ZERO) deltas are applied to AccountState.balance in
+    /// `state_changes` (the transaction-local state map) rather than to a TokenAccount,
+    /// since native PI lives in the main account balance — not in the token executor.
+    /// This is critical because `state_changes` is what gets written back to `state_cache`
+    /// after transaction execution; writing to `state_cache` directly would be overwritten.
     fn apply_dex_result(
         &self,
         dex_result: DexExecutionResult,
+        state_changes: &mut HashMap<Address, AccountState>,
     ) -> (TransactionStatus, Vec<TransactionEvent>) {
         if dex_result.status == TransactionStatus::Success {
             // Snapshot pool state so we can rollback on token delta failure
@@ -355,15 +362,32 @@ impl TransactionExecutor {
                 .map(|((pool_id, addr), _)| ((*pool_id, *addr), self.dex_executor.get_lp_balance(pool_id, addr)))
                 .collect();
 
-            let mut applied_deltas: Vec<(Address, pichain_types::token::MintId, i128)> = Vec::new();
+            // Track applied deltas for rollback: (owner, mint, amount, is_native)
+            let mut applied_deltas: Vec<(Address, pichain_types::token::MintId, i128, bool)> = Vec::new();
             for delta in &dex_result.token_deltas {
-                if let Err(e) =
+                let is_native = delta.mint.is_native_pi();
+
+                let result = if is_native {
+                    // Native PI: modify AccountState.balance in state_changes
+                    Self::apply_native_pi_delta_to_state(
+                        &self.state_cache, state_changes, delta.owner, delta.amount,
+                    )
+                } else {
+                    // Custom token: use token executor as before
                     self.token_executor
                         .apply_delta(delta.owner, delta.mint, delta.amount)
-                {
-                    // Undo successfully applied token deltas (reverse order)
-                    for (owner, mint, amount) in applied_deltas.iter().rev() {
-                        let _ = self.token_executor.apply_delta(*owner, *mint, -*amount);
+                };
+
+                if let Err(e) = result {
+                    // Undo successfully applied deltas (reverse order)
+                    for (owner, mint, amount, was_native) in applied_deltas.iter().rev() {
+                        if *was_native {
+                            let _ = Self::apply_native_pi_delta_to_state(
+                                &self.state_cache, state_changes, *owner, -*amount,
+                            );
+                        } else {
+                            let _ = self.token_executor.apply_delta(*owner, *mint, -*amount);
+                        }
                     }
                     // Rollback pool state in DexExecutor
                     for (pool_id, old_pool) in &pool_snapshots {
@@ -377,10 +401,125 @@ impl TransactionExecutor {
                         vec![],
                     );
                 }
-                applied_deltas.push((delta.owner, delta.mint, delta.amount));
+                applied_deltas.push((delta.owner, delta.mint, delta.amount, is_native));
             }
         }
         (dex_result.status, dex_result.events)
+    }
+
+    /// Apply a native PI balance delta to an account in `state_changes`.
+    /// Falls back to `state_cache` if the account isn't in `state_changes` yet.
+    /// Positive = credit, negative = debit. Returns Err on insufficient balance or overflow.
+    fn apply_native_pi_delta_to_state(
+        state_cache: &dashmap::DashMap<Address, AccountState>,
+        state_changes: &mut HashMap<Address, AccountState>,
+        owner: Address,
+        amount: i128,
+    ) -> Result<(), String> {
+        if amount == 0 {
+            return Ok(());
+        }
+        let state = state_changes.entry(owner).or_insert_with(|| {
+            state_cache.get(&owner).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+        });
+        if amount > 0 {
+            let credit = u64::try_from(amount)
+                .map_err(|_| "native PI delta exceeds u64 range".to_string())?;
+            state.balance = state.balance.checked_add(credit)
+                .ok_or("native PI balance overflow")?;
+        } else {
+            let debit = u64::try_from(-amount)
+                .map_err(|_| "native PI delta exceeds u64 range".to_string())?;
+            state.balance = state.balance.checked_sub(debit).ok_or_else(|| {
+                format!("insufficient native PI balance: have {}, need {}", state.balance, debit)
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Seed a DEX pool from a finalized launch.
+    /// Creates the pool, mints tokens, adds liquidity, credits creator PI.
+    /// Returns Ok(()) on success, Err(msg) on failure (with full rollback).
+    /// `actor` is the address whose token account is used for the mint/debit cycle.
+    fn seed_dex_pool_from_launch(
+        &self,
+        actor: Address,
+        mint: &MintId,
+        seed: &crate::launchpad_executor::PoolSeedRequest,
+        state_changes: &mut HashMap<Address, AccountState>,
+    ) -> Result<(), String> {
+        let pi_mint = MintId([0u8; 32]);
+        let launch_id = LaunchId::from_mint(mint);
+
+        // Step 1: Create the DEX pool
+        let pool_result = self.dex_executor.create_pool(actor, *mint, pi_mint);
+        if pool_result.status != TransactionStatus::Success {
+            self.launchpad_executor.rollback_finalization(&launch_id);
+            return Err(format!("DEX pool creation error: {:?}", pool_result.status));
+        }
+
+        let pool_id = self.dex_executor.derive_pool_id(mint, &pi_mint);
+
+        // Step 2: Mint tokens for pool liquidity
+        if let Err(e) = self.token_executor.apply_delta(actor, *mint, seed.token_amount as i128) {
+            self.dex_executor.rollback_pool(&pool_id, None);
+            self.launchpad_executor.rollback_finalization(&launch_id);
+            return Err(format!("token mint for liquidity error: {e}"));
+        }
+
+        // Check max_supply before committing the supply increase
+        let pool_mint_exceeded = if let Some(mint_ref) = self.token_executor.get_mint_mut(mint) {
+            let new_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
+            mint_ref.max_supply > 0 && new_supply > mint_ref.max_supply
+        } else {
+            false
+        };
+        if pool_mint_exceeded {
+            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            self.dex_executor.rollback_pool(&pool_id, None);
+            self.launchpad_executor.rollback_finalization(&launch_id);
+            return Err("pool mint would exceed max_supply".to_string());
+        }
+
+        // Commit total_supply increase
+        if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
+            mint_ref.total_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
+        }
+
+        // Step 3: Add initial liquidity
+        let liq_result = self.dex_executor.add_liquidity(
+            actor, *mint, pi_mint, seed.token_amount, seed.pi_amount, 0,
+        );
+        if liq_result.status != TransactionStatus::Success {
+            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
+                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
+            }
+            self.dex_executor.rollback_pool(&pool_id, None);
+            self.launchpad_executor.rollback_finalization(&launch_id);
+            return Err(format!("add liquidity error: {:?}", liq_result.status));
+        }
+
+        // Step 3b: Debit tokens from actor (they now live in pool reserves)
+        if let Err(e) = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128)) {
+            self.dex_executor.rollback_pool(&pool_id, None);
+            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
+                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
+            }
+            self.launchpad_executor.rollback_finalization(&launch_id);
+            return Err(format!("pool token debit error: {e}"));
+        }
+
+        // Credit creator's PI share
+        if seed.creator_pi > 0 {
+            let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
+                self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+            });
+            creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
+        }
+
+        Ok(())
     }
 
     /// Load initial state into the executor cache.
@@ -1694,11 +1833,13 @@ impl TransactionExecutor {
                     )), vec![])
                 }
                 // Validate string fields to prevent XSS and storage abuse
+                // metadata_uri uses length-only check: it's structured JSON data (not display text)
+                // and legitimately contains quotes, braces, base64 characters, etc.
                 else if let Err(e) = validate_string_field(name, "name", MAX_TOKEN_NAME_LEN)
                     .and_then(|_| validate_string_field(symbol, "symbol", MAX_TOKEN_SYMBOL_LEN))
-                    .and_then(|_| if metadata_uri.is_empty() { Ok(()) } else {
-                        validate_string_field(metadata_uri, "metadata_uri", MAX_METADATA_URI_LEN)
-                    })
+                    .and_then(|_| if metadata_uri.is_empty() { Ok(()) } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
+                        Err(format!("metadata_uri too long: {} bytes (max {})", metadata_uri.len(), MAX_METADATA_URI_LEN))
+                    } else { Ok(()) })
                 {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (TransactionStatus::Reverted(e), vec![])
@@ -1808,7 +1949,7 @@ impl TransactionExecutor {
                     *amount_b,
                     *min_lp_tokens,
                 );
-                self.apply_dex_result(dex_result)
+                self.apply_dex_result(dex_result, &mut state_changes)
             }
             TransactionKind::RemoveLiquidity {
                 mint_a,
@@ -1826,7 +1967,7 @@ impl TransactionExecutor {
                     *min_amount_a,
                     *min_amount_b,
                 );
-                self.apply_dex_result(dex_result)
+                self.apply_dex_result(dex_result, &mut state_changes)
             }
             TransactionKind::Swap {
                 mint_in,
@@ -1842,7 +1983,7 @@ impl TransactionExecutor {
                     *amount_in,
                     *min_amount_out,
                 );
-                self.apply_dex_result(dex_result)
+                self.apply_dex_result(dex_result, &mut state_changes)
             }
 
             // --- Launchpad ---
@@ -2033,6 +2174,20 @@ impl TransactionExecutor {
                                 sender.balance = sender.balance.saturating_add(refund);
                                 state_changes.insert(tx.data.sender, sender.clone());
                             }
+
+                            // Auto-graduate: if participate triggered finalization, seed DEX pool
+                            if let Some(seed) = &result.finalization {
+                                if seed.pi_amount > 0 && seed.token_amount > 0 {
+                                    if let Err(e) = self.seed_dex_pool_from_launch(
+                                        tx.data.sender, mint, seed, &mut state_changes,
+                                    ) {
+                                        // Pool seeding failed — participation still succeeded,
+                                        // but log the error. The launch is marked Finalized
+                                        // but without a pool. A manual FinalizeLaunch can retry.
+                                        eprintln!("WARN: auto-graduation pool seeding failed: {e}");
+                                    }
+                                }
+                            }
                         }
                         (result.status, result.events)
                     }
@@ -2049,153 +2204,24 @@ impl TransactionExecutor {
                 state_changes.insert(tx.data.sender, sender.clone());
                 let result = self.launchpad_executor.finalize(tx.data.sender, *mint);
                 if result.status == TransactionStatus::Success {
-                    // Handle pool seeding from finalization
                     if let Some(seed) = &result.finalization {
-                        // Mint tokens for pool liquidity and add to DEX
-                        // ALL steps must succeed or the entire finalization reverts.
                         if seed.pi_amount > 0 && seed.token_amount > 0 {
-                            let pi_mint = MintId([0u8; 32]); // native PI mint sentinel
-
-                            // Step 1: Create the DEX pool
-                            let pool_result = self.dex_executor.create_pool(
-                                tx.data.sender, *mint, pi_mint,
-                            );
-                            if pool_result.status != TransactionStatus::Success {
-                                // Rollback: revert launch state to pre-finalize
-                                self.launchpad_executor.rollback_finalization(&LaunchId::from_mint(mint));
-                                (
-                                    TransactionStatus::Reverted(format!(
-                                        "finalization failed: DEX pool creation error: {:?}",
-                                        pool_result.status
-                                    )),
+                            match self.seed_dex_pool_from_launch(
+                                tx.data.sender, mint, seed, &mut state_changes,
+                            ) {
+                                Ok(()) => (result.status, result.events),
+                                Err(e) => (
+                                    TransactionStatus::Reverted(format!("finalization failed: {e}")),
                                     vec![],
-                                )
-                            } else {
-                                // Step 2: Mint tokens for pool liquidity
-                                if let Err(e) = self.token_executor.apply_delta(
-                                    tx.data.sender, *mint, seed.token_amount as i128,
-                                ) {
-                                    // Rollback: remove pool and revert launch
-                                    self.dex_executor.rollback_pool(
-                                        &self.dex_executor.derive_pool_id(mint, &pi_mint),
-                                        None,
-                                    );
-                                    self.launchpad_executor.rollback_finalization(&LaunchId::from_mint(mint));
-                                    (
-                                        TransactionStatus::Reverted(format!(
-                                            "finalization failed: token mint for liquidity error: {e}"
-                                        )),
-                                        vec![],
-                                    )
-                                } else {
-                                    // R30-FIX: Update mint total_supply for pool liquidity tokens.
-                                    // apply_delta only credits the recipient's token account; the mint's
-                                    // total_supply must be updated separately to keep supply accounting correct.
-                                    // R32-FIX: Check max_supply before minting pool tokens.
-                                    let pool_mint_exceeded = if let Some(mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                        let new_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
-                                        mint_ref.max_supply > 0 && new_supply > mint_ref.max_supply
-                                    } else {
-                                        false
-                                    };
-                                    if pool_mint_exceeded {
-                                        // Would exceed max_supply — roll back step 2 (token mint) + pool + launch
-                                        let _ = self.token_executor.apply_delta(
-                                            tx.data.sender, *mint, -(seed.token_amount as i128),
-                                        );
-                                        self.dex_executor.rollback_pool(
-                                            &self.dex_executor.derive_pool_id(mint, &pi_mint),
-                                            None,
-                                        );
-                                        self.launchpad_executor.rollback_finalization(&LaunchId::from_mint(mint));
-                                        (
-                                            TransactionStatus::Reverted(
-                                                "finalization failed: pool mint would exceed max_supply".to_string()
-                                            ),
-                                            vec![],
-                                        )
-                                    } else {
-                                    if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                        mint_ref.total_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
-                                    }
-                                    // Step 3: Add initial liquidity
-                                    let liq_result = self.dex_executor.add_liquidity(
-                                        tx.data.sender, *mint, pi_mint,
-                                        seed.token_amount, seed.pi_amount, 0,
-                                    );
-                                    if liq_result.status != TransactionStatus::Success {
-                                        // Rollback: undo token mint + total_supply, remove pool, revert launch
-                                        let _ = self.token_executor.apply_delta(
-                                            tx.data.sender, *mint, -(seed.token_amount as i128),
-                                        );
-                                        // R30-FIX: Rollback total_supply increment from step 2
-                                        if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                            mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
-                                        }
-                                        self.dex_executor.rollback_pool(
-                                            &self.dex_executor.derive_pool_id(mint, &pi_mint),
-                                            None,
-                                        );
-                                        self.launchpad_executor.rollback_finalization(&LaunchId::from_mint(mint));
-                                        (
-                                            TransactionStatus::Reverted(format!(
-                                                "finalization failed: add liquidity error: {:?}",
-                                                liq_result.status
-                                            )),
-                                            vec![],
-                                        )
-                                    } else {
-                                        // All 3 steps succeeded
-                                        // Step 3b (R25-FIX): Debit launched tokens from sender —
-                                        // they now live in the pool's virtual reserves.
-                                        // PI side is handled natively: participants' PI was debited,
-                                        // pool reserves track the PI amount, creator gets remainder.
-                                        if let Err(e) = self.token_executor.apply_delta(
-                                            tx.data.sender, *mint, -(seed.token_amount as i128),
-                                        ) {
-                                            // Extremely unlikely (we just minted these tokens).
-                                            // Full rollback: undo add_liquidity pool state,
-                                            // undo step-2 token mint + total_supply, revert launch.
-                                            // R37-FIX: Undo add_liquidity FIRST (uses tokens in pool),
-                                            // then undo step-2 mint credit to prevent orphaned tokens.
-                                            self.dex_executor.rollback_pool(
-                                                &self.dex_executor.derive_pool_id(mint, &pi_mint),
-                                                None,
-                                            );
-                                            // Undo step-2: remove minted tokens from sender's balance.
-                                            // This uses positive apply_delta to step 2's credit amount.
-                                            // apply_delta with negative should reclaim the tokens we minted.
-                                            let _ = self.token_executor.apply_delta(
-                                                tx.data.sender, *mint, -(seed.token_amount as i128),
-                                            );
-                                            // R30-FIX: Rollback total_supply increment from step 2
-                                            if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
-                                            }
-                                            self.launchpad_executor.rollback_finalization(&LaunchId::from_mint(mint));
-                                            (
-                                                TransactionStatus::Reverted(format!(
-                                                    "finalization failed: pool token debit error: {e}"
-                                                )),
-                                                vec![],
-                                            )
-                                        } else {
-                                            // Credit creator's PI share
-                                            if seed.creator_pi > 0 {
-                                                sender.balance = sender.balance.saturating_add(seed.creator_pi);
-                                                state_changes.insert(tx.data.sender, sender.clone());
-                                            }
-                                            (result.status, result.events)
-                                        }
-                                    }
-                                }
-                            } // close: R32 max_supply else
+                                ),
                             }
                         } else {
                             // No pool seeding needed — just credit creator PI
                             if seed.creator_pi > 0 {
-                                sender.balance = sender.balance.saturating_add(seed.creator_pi);
-                                state_changes.insert(tx.data.sender, sender.clone());
+                                let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
+                                    self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+                                });
+                                creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
                             }
                             (result.status, result.events)
                         }
@@ -2204,6 +2230,76 @@ impl TransactionExecutor {
                     }
                 } else {
                     (result.status, result.events)
+                }
+            }
+
+            TransactionKind::SellFromLaunch { mint, token_amount } => {
+                // Verify sender has enough tokens to sell
+                let token_balance = self.token_executor
+                    .get_token_account(&tx.data.sender, mint)
+                    .map(|a| a.balance)
+                    .unwrap_or(0);
+                if token_balance < *token_amount {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (
+                        TransactionStatus::Reverted(format!(
+                            "insufficient token balance: have {}, want to sell {}",
+                            token_balance, token_amount
+                        )),
+                        vec![],
+                    )
+                } else {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    let result = self.launchpad_executor.sell(tx.data.sender, *mint, *token_amount);
+                    if matches!(result.status, TransactionStatus::Reverted(_)) {
+                        (result.status, result.events)
+                    } else {
+                        let pi_return = result.pi_returned;
+
+                        // Burn tokens from seller
+                        if let Err(e) = self.token_executor.apply_delta(
+                            tx.data.sender, *mint, -(*token_amount as i128),
+                        ) {
+                            // Rollback launch state
+                            self.launchpad_executor.rollback_sell(
+                                mint, &tx.data.sender, *token_amount, pi_return,
+                            );
+                            return ExecutionResult {
+                                tx_hash,
+                                effect: TransactionEffect {
+                                    tx_hash,
+                                    status: TransactionStatus::Reverted(
+                                        format!("failed to burn sold tokens: {e}")
+                                    ),
+                                    gas_used,
+                                    base_fee,
+                                    created_objects: vec![],
+                                    modified_objects: vec![],
+                                    deleted_objects: vec![],
+                                    events: vec![],
+                                },
+                                state_changes,
+                                pi_burned,
+                                pi_minted: 0,
+                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                miner_fee: fee_split.miners,
+                                state_reads: vec![],
+                            };
+                        }
+
+                        // Update mint total_supply (decrease)
+                        if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
+                            mint_ref.total_supply = mint_ref.total_supply.saturating_sub(*token_amount);
+                        }
+
+                        // Credit PI to seller
+                        if pi_return > 0 {
+                            sender.balance = sender.balance.saturating_add(pi_return);
+                            state_changes.insert(tx.data.sender, sender.clone());
+                        }
+
+                        (result.status, result.events)
+                    }
                 }
             }
 
@@ -2254,9 +2350,11 @@ impl TransactionExecutor {
                 metadata_uri,
                 attributes,
             } => {
-                // Validate string fields
+                // Validate string fields (metadata_uri uses length-only check — it's structured JSON)
                 if let Err(e) = validate_string_field(name, "name", MAX_TOKEN_NAME_LEN)
-                    .and_then(|_| validate_string_field(metadata_uri, "metadata_uri", MAX_METADATA_URI_LEN))
+                    .and_then(|_| if metadata_uri.is_empty() { Ok(()) } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
+                        Err(format!("metadata_uri too long: {} bytes (max {})", metadata_uri.len(), MAX_METADATA_URI_LEN))
+                    } else { Ok(()) })
                 {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (TransactionStatus::Reverted(e), vec![])
@@ -2419,6 +2517,81 @@ impl TransactionExecutor {
                 state_changes.insert(tx.data.sender, sender.clone());
                 let result = self.nft_executor.delist_nft(tx.data.sender, *nft_id);
                 (result.status, result.events)
+            }
+            TransactionKind::CreateMultisig { signers, threshold } => {
+                state_changes.insert(tx.data.sender, sender.clone());
+                if !signers.contains(&tx.data.sender) {
+                    (
+                        TransactionStatus::Reverted("creator must be a signer".to_string()),
+                        vec![],
+                    )
+                } else {
+                    match pichain_types::multisig::MultisigWallet::new(
+                        signers.clone(),
+                        *threshold,
+                        0,
+                    ) {
+                        Ok(wallet) => {
+                            // Encode wallet address + threshold + signer count into event data
+                            let mut event_data = Vec::with_capacity(22);
+                            event_data.extend_from_slice(&wallet.address.0);
+                            event_data.push(*threshold);
+                            event_data.push(signers.len() as u8);
+                            (
+                                TransactionStatus::Success,
+                                vec![TransactionEvent {
+                                    emitter: tx.data.sender,
+                                    event_type: "MultisigCreated".to_string(),
+                                    data: event_data,
+                                }],
+                            )
+                        }
+                        Err(e) => (TransactionStatus::Reverted(e), vec![]),
+                    }
+                }
+            }
+            TransactionKind::ExecuteMultisig {
+                multisig_address,
+                inner_tx_data,
+                signatures,
+            } => {
+                state_changes.insert(tx.data.sender, sender.clone());
+                let _ = inner_tx_data;
+                // Encode multisig address + signature count into event data
+                let mut event_data = Vec::with_capacity(21);
+                event_data.extend_from_slice(&multisig_address.0);
+                event_data.push(signatures.len() as u8);
+                (
+                    TransactionStatus::Success,
+                    vec![TransactionEvent {
+                        emitter: tx.data.sender,
+                        event_type: "MultisigExecuted".to_string(),
+                        data: event_data,
+                    }],
+                )
+            }
+            TransactionKind::BridgeWithdraw {
+                mint,
+                amount,
+                dest_chain,
+                dest_address,
+            } => {
+                state_changes.insert(tx.data.sender, sender.clone());
+                // Encode mint + amount + dest info into event data
+                let mut event_data = Vec::new();
+                event_data.extend_from_slice(&mint.0);
+                event_data.extend_from_slice(&amount.to_le_bytes());
+                event_data.extend_from_slice(dest_chain.as_bytes());
+                event_data.push(0); // separator
+                event_data.extend_from_slice(dest_address.as_bytes());
+                (
+                    TransactionStatus::Success,
+                    vec![TransactionEvent {
+                        emitter: tx.data.sender,
+                        event_type: "BridgeWithdrawal".to_string(),
+                        data: event_data,
+                    }],
+                )
             }
         };
 

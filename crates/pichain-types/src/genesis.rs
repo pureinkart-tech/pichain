@@ -90,16 +90,48 @@ impl GenesisConfig {
         }
     }
 
-    /// Create a devnet genesis with faucet and test allocations.
-    /// Allocates the full TOTAL_SUPPLY to ensure supply validation passes.
-    /// Matches mainnet 85/10/5 proportions: mining pool, validators, liquidity.
-    pub fn devnet() -> Self {
-        // Devnet faucet address: derived from a known seed for testing.
-        let faucet_hash = pichain_crypto::hash(b"pichain-devnet-faucet");
-        let mut faucet_bytes = [0u8; 20];
-        faucet_bytes.copy_from_slice(&faucet_hash.as_bytes()[..20]);
-        let faucet_address = Address(faucet_bytes);
+    /// Create mainnet genesis with real addresses from the genesis ceremony.
+    /// This replaces the Address::ZERO placeholders with actual custodial addresses.
+    pub fn pichain_mainnet_with_addresses(
+        staking_address: Address,
+        liquidity_address: Address,
+        validators: Vec<GenesisValidator>,
+        timestamp_ms: u64,
+    ) -> Self {
+        let mining = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
+        let validator_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
+        let liquidity = (TOTAL_SUPPLY as PiAmount) - mining - validator_amount;
 
+        Self {
+            chain_id: 314159,
+            timestamp_ms,
+            allocations: vec![
+                GenesisAllocation {
+                    address: Address::ZERO, // virtual — minted over time
+                    amount: mining,
+                    label: "Mining Pool (85%)".to_string(),
+                    virtual_pool: true,
+                },
+                GenesisAllocation {
+                    address: staking_address,
+                    amount: validator_amount,
+                    label: "Validator Staking Reserve (10%)".to_string(),
+                    virtual_pool: false,
+                },
+                GenesisAllocation {
+                    address: liquidity_address,
+                    amount: liquidity,
+                    label: "Initial Liquidity (5%)".to_string(),
+                    virtual_pool: false,
+                },
+            ],
+            validators,
+        }
+    }
+
+    /// Create a devnet genesis mirroring mainnet 85/10/5 distribution.
+    /// Allocates the full TOTAL_SUPPLY to ensure supply validation passes.
+    pub fn devnet() -> Self {
         // Mining pool address for devnet
         let mining_hash = pichain_crypto::hash(b"pichain-devnet-mining-pool");
         let mut mining_bytes = [0u8; 20];
@@ -112,25 +144,24 @@ impl GenesisConfig {
         validator_bytes.copy_from_slice(&validator_hash.as_bytes()[..20]);
         let validator_address = Address(validator_bytes);
 
+        // Liquidity address for devnet
+        let liquidity_hash = pichain_crypto::hash(b"pichain-devnet-liquidity");
+        let mut liquidity_bytes = [0u8; 20];
+        liquidity_bytes.copy_from_slice(&liquidity_hash.as_bytes()[..20]);
+        let liquidity_address = Address(liquidity_bytes);
+
         // Must sum to exactly TOTAL_SUPPLY (3,141,592,653 PI):
-        //   Faucet:        ~10% (testing)
-        //   Mining Pool:   85% of supply   (same as mainnet)
-        //   Validators:    remainder (~5%)
-        //   Total:         3,141,592,653 PI ✓
+        //   Mining Pool:      85% (virtual — minted over time via mining rewards)
+        //   Staking Reserve:  10% (secures BFT consensus)
+        //   Liquidity:         5% (DEX bootstrapping)
         let mining_amount = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
-        let faucet_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
-        let validator_amount = (TOTAL_SUPPLY as PiAmount) - mining_amount - faucet_amount;
+        let staking_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
+        let liquidity_amount = (TOTAL_SUPPLY as PiAmount) - mining_amount - staking_amount;
 
         Self {
             chain_id: 31415,
             timestamp_ms: 0,
             allocations: vec![
-                GenesisAllocation {
-                    address: faucet_address,
-                    amount: faucet_amount,
-                    label: "Devnet Faucet".to_string(),
-                    virtual_pool: false,
-                },
                 GenesisAllocation {
                     address: mining_address,
                     amount: mining_amount,
@@ -139,8 +170,14 @@ impl GenesisConfig {
                 },
                 GenesisAllocation {
                     address: validator_address,
-                    amount: validator_amount,
-                    label: "Devnet Validators & Liquidity".to_string(),
+                    amount: staking_amount,
+                    label: "Devnet Validator Staking Reserve (10%)".to_string(),
+                    virtual_pool: false,
+                },
+                GenesisAllocation {
+                    address: liquidity_address,
+                    amount: liquidity_amount,
+                    label: "Devnet Initial Liquidity (5%)".to_string(),
                     virtual_pool: false,
                 },
             ],
@@ -148,12 +185,31 @@ impl GenesisConfig {
         }
     }
 
-    /// Get the devnet faucet address.
-    pub fn devnet_faucet_address() -> Address {
-        let faucet_hash = pichain_crypto::hash(b"pichain-devnet-faucet");
-        let mut faucet_bytes = [0u8; 20];
-        faucet_bytes.copy_from_slice(&faucet_hash.as_bytes()[..20]);
-        Address(faucet_bytes)
+    /// Get the devnet wallet activation pool address.
+    /// On the live chain, the 10% staking reserve lives at the original faucet-derived address.
+    /// Wallet activation grants (3.14 PI locked) are debited from this pool.
+    pub fn devnet_activation_pool_address() -> Address {
+        let hash = pichain_crypto::hash(b"pichain-devnet-faucet");
+        let mut bytes = [0u8; 20];
+        bytes.copy_from_slice(&hash.as_bytes()[..20]);
+        Address(bytes)
+    }
+
+    /// Get the devnet bridge operator address.
+    /// Used as mint_authority for wrapped tokens (wETH, wSOL, wBTC, wUSDT).
+    pub fn devnet_bridge_operator_address() -> Address {
+        let hash = pichain_crypto::hash(b"pichain-bridge-operator-devnet-key");
+        let mut bytes = [0u8; 20];
+        bytes.copy_from_slice(&hash.as_bytes()[..20]);
+        Address(bytes)
+    }
+
+    /// Get the devnet liquidity reserve address (the 5% allocation).
+    pub fn devnet_liquidity_address() -> Address {
+        let hash = pichain_crypto::hash(b"pichain-devnet-liquidity");
+        let mut bytes = [0u8; 20];
+        bytes.copy_from_slice(&hash.as_bytes()[..20]);
+        Address(bytes)
     }
 
     /// Verify that total allocations equal the fixed supply.

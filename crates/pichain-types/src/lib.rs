@@ -8,6 +8,7 @@ pub mod block;
 pub mod dex;
 pub mod genesis;
 pub mod launchpad;
+pub mod multisig;
 pub mod nft;
 pub mod object;
 pub mod token;
@@ -70,3 +71,44 @@ pub const FEE_MINER_RATE_BPS: u16 = 2500;
 
 /// Fee to stakers/proposer rate (50% of base fee — credited to block proposer).
 pub const FEE_STAKER_RATE_BPS: u16 = 5000;
+
+/// Network mode — determines genesis config and safety guards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NetworkMode {
+    /// Mainnet (chain_id 314159): strict validation, real money.
+    Mainnet,
+    /// Devnet (chain_id 31415): relaxed validation, test tokens.
+    Devnet,
+    /// Custom chain_id: operator-defined behavior.
+    Custom(u64),
+}
+
+impl NetworkMode {
+    /// Derive mode from chain_id.
+    pub fn from_chain_id(chain_id: u64) -> Self {
+        match chain_id {
+            314159 => NetworkMode::Mainnet,
+            31415 => NetworkMode::Devnet,
+            other => NetworkMode::Custom(other),
+        }
+    }
+
+    /// Whether this is the production mainnet.
+    pub fn is_mainnet(&self) -> bool {
+        matches!(self, NetworkMode::Mainnet)
+    }
+
+    /// Whether this is devnet.
+    pub fn is_devnet(&self) -> bool {
+        matches!(self, NetworkMode::Devnet)
+    }
+
+    /// Chain ID for this mode.
+    pub fn chain_id(&self) -> u64 {
+        match self {
+            NetworkMode::Mainnet => 314159,
+            NetworkMode::Devnet => 31415,
+            NetworkMode::Custom(id) => *id,
+        }
+    }
+}

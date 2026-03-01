@@ -30,6 +30,16 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.13"
+    },
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installMode": "currentUser",
+        "startMenuFolder": "PIChain"
+      },
+      "wix": {
+        "language": "en-US"
+      }
     }
   }
 }

@@ -178,22 +178,20 @@ impl LiquidityPool {
             return 10_000; // 100% impact
         }
 
-        // Spot price before swap: reserve_out / reserve_in
-        // Execution price: amount_out / amount_in
         // Impact = 1 - (execution_price / spot_price)
+        // Use cross-multiplication to avoid truncation with extreme reserve ratios.
+        // spot = reserve_out / reserve_in, exec = amount_out / amount_in
+        // impact = 1 - (exec / spot) = 1 - (amount_out * reserve_in) / (amount_in * reserve_out)
         if let Some((amount_out, _)) = self.calculate_swap_output(amount_in, is_a_to_b) {
-            // spot_price = reserve_out / reserve_in (scaled by 10000 for bps)
-            // exec_price = amount_out / amount_in (scaled by 10000 for bps)
-            // impact = (spot - exec) / spot * 10000
-            let spot = reserve_out * 10_000 / reserve_in;
-            let exec = amount_out as u128 * 10_000 / amount_in as u128;
+            let exec_num = amount_out as u128 * reserve_in; // exec * denominator
+            let spot_num = amount_in as u128 * reserve_out; // spot * denominator
 
-            if spot == 0 {
+            if spot_num == 0 {
                 return 10_000;
             }
 
-            let impact = if spot > exec {
-                (spot - exec) * 10_000 / spot
+            let impact = if spot_num > exec_num {
+                ((spot_num - exec_num) * 10_000) / spot_num
             } else {
                 0
             };
@@ -284,7 +282,7 @@ impl LiquidityPool {
 }
 
 /// Integer square root (Newton's method).
-fn isqrt(n: u128) -> u128 {
+pub fn isqrt(n: u128) -> u128 {
     if n == 0 {
         return 0;
     }

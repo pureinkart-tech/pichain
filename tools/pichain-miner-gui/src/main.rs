@@ -120,32 +120,6 @@ async fn get_mining_status(
 }
 
 #[tauri::command]
-async fn claim_faucet(
-    state: State<'_, AppState>,
-    rpc_url: String,
-    address: String,
-) -> Result<serde_json::Value, String> {
-    let body = serde_json::json!({ "address": address });
-    let resp = state
-        .http_client
-        .post(format!("{}/api/v1/faucet", rpc_url))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("Server error: HTTP {}", resp.status()));
-    }
-    let result: miner::FaucetResponse =
-        resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
-    Ok(serde_json::json!({
-        "success": result.success,
-        "amount": result.amount,
-        "error": result.error,
-    }))
-}
-
-#[tauri::command]
 async fn start_mining(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -221,19 +195,75 @@ async fn activate_wallet(
     rpc_url: String,
     address: String,
 ) -> Result<serde_json::Value, String> {
-    let body = serde_json::json!({ "address": address });
+    // Step 1: Request PoW challenge
+    let challenge_body = serde_json::json!({ "address": &address });
+    let challenge_resp = state
+        .http_client
+        .post(format!("{}/api/v1/wallet/challenge", rpc_url))
+        .json(&challenge_body)
+        .send()
+        .await
+        .map_err(|e| format!("Challenge request failed: {e}"))?;
+    let challenge_data: serde_json::Value = challenge_resp
+        .json()
+        .await
+        .map_err(|e| format!("Challenge parse error: {e}"))?;
+
+    if !challenge_data["success"].as_bool().unwrap_or(false) {
+        return Ok(challenge_data);
+    }
+
+    let challenge_hex = challenge_data["challenge"]
+        .as_str()
+        .ok_or("missing challenge field")?
+        .to_string();
+    let diff_bits = challenge_data["difficulty_bits"].as_u64().unwrap_or(20) as u32;
+
+    // Step 2: Solve PoW in a blocking task (fast in Rust)
+    let nonce = tokio::task::spawn_blocking(move || {
+        let challenge_bytes = hex::decode(&challenge_hex).unwrap_or_default();
+        solve_activation_pow(&challenge_bytes, diff_bits)
+    })
+    .await
+    .map_err(|e| format!("PoW solve error: {e}"))?;
+
+    // Step 3: Submit solution
+    let activate_body = serde_json::json!({
+        "address": &address,
+        "challenge": challenge_data["challenge"],
+        "nonce": nonce,
+    });
     let resp = state
         .http_client
         .post(format!("{}/api/v1/wallet/activate", rpc_url))
-        .json(&body)
+        .json(&activate_body)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+        .map_err(|e| format!("Activate request failed: {e}"))?;
     let result: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| format!("Parse error: {e}"))?;
     Ok(result)
+}
+
+/// Solve PoW: find nonce where blake3(challenge || nonce_le) has `diff_bits` leading zero bits.
+fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
+    let full_bytes = (diff_bits / 8) as usize;
+    let rem_bits = diff_bits % 8;
+    let mask = if rem_bits > 0 { 0xFF << (8 - rem_bits) } else { 0u8 };
+
+    for nonce in 0u64.. {
+        let hash = pichain_crypto::hash_concat(&[challenge, &nonce.to_le_bytes()]);
+        let h = hash.as_bytes();
+        let mut ok = true;
+        for i in 0..full_bytes {
+            if h[i] != 0 { ok = false; break; }
+        }
+        if ok && rem_bits > 0 && (h[full_bytes] & mask) != 0 { ok = false; }
+        if ok { return nonce; }
+    }
+    0 // unreachable
 }
 
 #[tauri::command]
@@ -258,7 +288,6 @@ fn main() {
             check_wallet_exists,
             get_balance,
             get_mining_status,
-            claim_faucet,
             start_mining,
             stop_mining,
             is_mining,

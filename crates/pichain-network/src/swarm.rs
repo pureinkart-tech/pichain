@@ -10,12 +10,14 @@
 use dashmap::DashMap;
 use futures::StreamExt;
 use libp2p::{
+    autonat,
     connection_limits::{self, ConnectionLimits},
     gossipsub::{self, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
     identify,
     identity::Keypair,
     kad::{self, store::MemoryStore},
     noise,
+    relay,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Swarm,
 };
@@ -116,6 +118,10 @@ pub struct PiChainBehaviour {
     pub gossipsub: gossipsub::Behaviour,
     pub kademlia: kad::Behaviour<MemoryStore>,
     pub identify: identify::Behaviour,
+    /// AutoNAT — probes peers to detect if we're behind NAT.
+    pub autonat: autonat::Behaviour,
+    /// Relay client — allows connections through relay nodes when behind NAT.
+    pub relay_client: relay::client::Behaviour,
     /// Enforces per-swarm connection limits to prevent DoS via connection flooding.
     pub connection_limits: connection_limits::Behaviour,
 }
@@ -493,13 +499,6 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
         .with_max_pending_incoming(Some(64));
     let conn_limits = connection_limits::Behaviour::new(limits);
 
-    let behaviour = PiChainBehaviour {
-        gossipsub,
-        kademlia,
-        identify,
-        connection_limits: conn_limits,
-    };
-
     let swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
         .with_tcp(
@@ -508,7 +507,27 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
             yamux::Config::default,
         )
         .map_err(|e| NetworkError::Transport(format!("tcp transport error: {e}")))?
-        .with_behaviour(|_| Ok(behaviour))
+        .with_relay_client(noise::Config::new, yamux::Config::default)
+        .map_err(|e| NetworkError::Transport(format!("relay client error: {e}")))?
+        .with_behaviour(|key, relay_client| {
+            // AutoNAT: probe every 30s, 3 attempts per peer
+            let autonat = autonat::Behaviour::new(
+                key.public().to_peer_id(),
+                autonat::Config {
+                    retry_interval: Duration::from_secs(30),
+                    ..Default::default()
+                },
+            );
+
+            Ok(PiChainBehaviour {
+                gossipsub,
+                kademlia,
+                identify,
+                autonat,
+                relay_client,
+                connection_limits: conn_limits,
+            })
+        })
         .map_err(|e| NetworkError::Transport(format!("behaviour error: {e}")))?
         .with_swarm_config(|cfg| {
             cfg.with_idle_connection_timeout(Duration::from_secs(300))
@@ -665,6 +684,29 @@ async fn run_swarm_loop(
 
                         if num_established == 0 {
                             let _ = inbound_tx.send(SwarmMessage::PeerDisconnected(peer_id)).await;
+                        }
+                    }
+                    SwarmEvent::Behaviour(PiChainBehaviourEvent::Autonat(event)) => {
+                        match event {
+                            autonat::Event::StatusChanged { old, new } => {
+                                info!(
+                                    old_status = ?old,
+                                    new_status = ?new,
+                                    "AutoNAT status changed"
+                                );
+                                match new {
+                                    autonat::NatStatus::Public(addr) => {
+                                        info!(%addr, "NAT status: PUBLIC — reachable from the internet");
+                                    }
+                                    autonat::NatStatus::Private => {
+                                        warn!("NAT status: PRIVATE — behind NAT, consider using a relay peer");
+                                    }
+                                    autonat::NatStatus::Unknown => {
+                                        debug!("NAT status: UNKNOWN — probing in progress");
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     _ => {}

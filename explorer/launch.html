@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PIChain — Token Launchpad</title>
-<meta name="description" content="Create and trade meme coins on PIChain. Bonding curve launches with automatic DEX graduation.">
+<title>PiChain — Token Launchpad</title>
+<meta name="description" content="Create and trade meme coins on PiChain. Bonding curve launches with automatic DEX graduation.">
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -103,6 +103,8 @@ a:hover { text-decoration: underline; }
 .input-group input::placeholder { color: var(--dim); }
 .preview-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 .preview-val { color: var(--text); font-weight: 600; }
+.btn-quick { flex:1; padding:8px 4px; font-size:13px; font-weight:600; border:1px solid var(--border-light); border-radius:6px; background:var(--bg-2); color:var(--text); cursor:pointer; transition:background .15s,border-color .15s; }
+.btn-quick:hover { background:var(--accent); border-color:var(--accent); color:#fff; }
 
 /* Create form */
 .create-form { max-width: 560px; margin: 0 auto; }
@@ -181,14 +183,15 @@ a:hover { text-decoration: underline; }
 
 <nav class="navbar">
   <div class="navbar-inner">
-    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
     <div class="nav-links">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
       <a href="/mining">Mining</a>
       <a href="/mine">Mine</a>
-      <a href="/faucet">Faucet</a>
       <a href="/launch" class="active">Launch</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge">Bridge</a>
       <a href="/download">Download</a>
     </div>
   </div>
@@ -241,6 +244,16 @@ a:hover { text-decoration: underline; }
       <button class="btn" style="width:100%;padding:14px;margin-top:8px;" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Continue</button>
       <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
     </div>
+    <!-- Step 3: PoW Captcha verification -->
+    <div id="walletStep3" style="display:none;">
+      <h3>Verifying Wallet</h3>
+      <div style="text-align:center;padding:24px 0;">
+        <div id="captchaSpinner" style="display:inline-block;width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
+        <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+        <div id="captchaStatus" style="color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
+        <div style="color:var(--dim);font-size:12px;margin-top:8px;">This verifies you're human and grants 3.14 PI for gas fees</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -267,8 +280,9 @@ a:hover { text-decoration: underline; }
   <div class="tab-content active" id="tab-discover">
     <div class="filter-bar">
       <button class="filter-btn active" onclick="setFilter('all')">All</button>
+      <button class="filter-btn" onclick="setFilter('New')">New</button>
       <button class="filter-btn" onclick="setFilter('Active')">Active</button>
-      <button class="filter-btn" onclick="setFilter('TargetReached')">Target Reached</button>
+      <button class="filter-btn" onclick="setFilter('NearGrad')">Near Graduate</button>
       <button class="filter-btn" onclick="setFilter('Finalized')">Graduated</button>
       <input type="text" class="search-input" placeholder="Search by name or symbol..." oninput="renderFeed()" id="searchInput">
     </div>
@@ -294,7 +308,7 @@ a:hover { text-decoration: underline; }
             <div class="image-upload-prompt" id="imageUploadPrompt">
               <div class="image-upload-icon">&#128247;</div>
               <div style="font-size:14px;font-weight:600;color:var(--text);">Drag & drop or click to upload</div>
-              <div style="font-size:12px;color:var(--dim);margin-top:4px;">PNG, JPG, GIF, SVG, WebP &bull; Max 150 KB</div>
+              <div style="font-size:12px;color:var(--dim);margin-top:4px;">PNG, JPG, GIF, SVG, WebP &bull; Max 500 KB</div>
             </div>
           </div>
         </div>
@@ -302,7 +316,7 @@ a:hover { text-decoration: underline; }
         <!-- Name -->
         <div class="form-row">
           <label>Name</label>
-          <input type="text" id="createName" placeholder="e.g. Doge PIChain" maxlength="64">
+          <input type="text" id="createName" placeholder="e.g. Doge PiChain" maxlength="64">
         </div>
 
         <!-- Ticker -->
@@ -392,7 +406,7 @@ a:hover { text-decoration: underline; }
   </div>
 </div>
 
-<div class="footer">PIChain &mdash; Computing the Infinite</div>
+<div class="footer">PiChain &mdash; Computing the Infinite</div>
 
 <!-- TweetNaCl for Ed25519 signing -->
 <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
@@ -459,9 +473,9 @@ function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<
 function u32LE(n){const buf=new Uint8Array(4);buf[0]=n&0xFF;buf[1]=(n>>8)&0xFF;buf[2]=(n>>16)&0xFF;buf[3]=(n>>24)&0xFF;return buf;}
 function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;const r=new Uint8Array(total);let off=0;for(const a of arrays){r.set(a,off);off+=a.length;}return r;}
 function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
-function formatPI(base){return (Number(base)/1e9).toFixed(4);}
+function formatPI(base){const v=Number(base)/1e9;if(v===0)return '0';if(v>=1)return v.toFixed(4);if(v>=0.0001)return v.toFixed(6);return v.toPrecision(4);}
 function formatTokens(amount,decimals){return (Number(amount)/Math.pow(10,decimals||9)).toLocaleString(undefined,{maximumFractionDigits:2});}
-function shortAddr(hex){return hex.slice(0,8)+'...'+hex.slice(-6);}
+function shortAddr(hex){return 'Pi314'+hex.slice(0,6)+'...'+hex.slice(-4);}
 function timeAgo(ms){const s=Math.floor((Date.now()-ms)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
 
 const API = window.location.origin;
@@ -481,7 +495,7 @@ let currentBaseFee = 1000;
 
 let pendingNewSeed = null;
 
-function initWallet(seed) {
+function initWallet(seed, skipModalClose) {
   walletKeypair = nacl.sign.keyPair.fromSeed(seed);
   walletAddress = deriveAddress(walletKeypair.publicKey);
   walletAddressHex = hexEncode(walletAddress);
@@ -489,8 +503,10 @@ function initWallet(seed) {
   localStorage.setItem('pichain_seed', walletSeedHex);
   updateWalletUI();
   updateBalance();
-  document.getElementById('walletModal').classList.remove('show');
-  resetWalletModal();
+  if(!skipModalClose){
+    document.getElementById('walletModal').classList.remove('show');
+    resetWalletModal();
+  }
 }
 
 // Step 1: Generate key and show it to user
@@ -512,9 +528,17 @@ function createWalletStep1() {
 // Step 2: User confirmed they saved the key
 function confirmNewWallet() {
   if (!pendingNewSeed) return;
-  initWallet(pendingNewSeed);
+  initWallet(pendingNewSeed, true);
   pendingNewSeed = null;
-  showToast('Wallet created!', 'success');
+  showCaptchaStep();
+}
+
+function showCaptchaStep() {
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'block';
+  document.getElementById('walletModal').classList.add('show');
+  activateWallet();
 }
 
 function cancelNewWallet() {
@@ -525,6 +549,9 @@ function cancelNewWallet() {
 function resetWalletModal() {
   document.getElementById('walletStep1').style.display = 'block';
   document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'none';
+  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
+  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
   document.getElementById('newWalletSeed').value = '';
   document.getElementById('newWalletAddr').value = '';
   document.getElementById('savedKeyCheck').checked = false;
@@ -542,13 +569,82 @@ function copyNewKey() {
 function importWallet() {
   const seed = document.getElementById('importSeedInput').value.trim();
   if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
-  initWallet(hexDecode(seed));
-  showToast('Wallet imported!', 'success');
+  initWallet(hexDecode(seed), true);
+  showCaptchaStep();
+}
+
+async function activateWallet(){
+  if(!walletAddressHex)return;
+  const statusEl=document.getElementById('captchaStatus');
+  const spinnerEl=document.getElementById('captchaSpinner');
+  try{
+    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const cd=await cr.json();
+    if(!cd.success){
+      if(cd.error&&cd.error.includes('already activated')){
+        if(statusEl){statusEl.textContent='Wallet already activated!';statusEl.style.color='var(--green)';}
+        if(spinnerEl)spinnerEl.style.display='none';
+        setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},1500);
+        showToast('Wallet ready!','success');
+      }
+      return;
+    }
+    if(statusEl)statusEl.textContent='Solving proof-of-work challenge...';
+    const challengeBytes=hexDecode(cd.challenge);
+    const diffBits=cd.difficulty_bits||20;
+    const nonce=await solveActivationPoW(challengeBytes,diffBits);
+    if(statusEl)statusEl.textContent='Activating wallet...';
+    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
+    const d=await r.json();
+    if(d.success){
+      if(statusEl){statusEl.textContent='Wallet activated! +'+d.locked_amount_pi+' PI for gas fees';statusEl.style.color='var(--green)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
+      updateBalance();
+      setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},2000);
+    }else{
+      if(statusEl){statusEl.textContent=d.error||'Activation failed';statusEl.style.color='var(--rose)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},3000);
+    }
+  }catch(e){
+    if(statusEl){statusEl.textContent='Could not reach node';statusEl.style.color='var(--rose)';}
+    if(spinnerEl)spinnerEl.style.display='none';
+    setTimeout(()=>{document.getElementById('walletModal').classList.remove('show');resetWalletModal();},3000);
+  }
+}
+
+async function solveActivationPoW(challenge,diffBits){
+  // Solve PoW using SHA-256 via Web Crypto API — no external dependencies needed.
+  const fullBytes=(diffBits/8)|0;
+  const remBits=diffBits%8;
+  const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
+  const batchSize=2000;
+  for(let batch=0;batch<1000000;batch++){
+    const base=batch*batchSize;
+    const promises=[];
+    for(let i=0;i<batchSize;i++){
+      const nonce=base+i;
+      const buf=new Uint8Array(challenge.length+8);
+      buf.set(challenge);
+      let n=nonce;
+      for(let j=0;j<8;j++){buf[challenge.length+j]=n&0xFF;n=Math.floor(n/256);}
+      promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));
+    }
+    const results=await Promise.all(promises);
+    for(const{nonce,hash}of results){
+      let ok=true;
+      for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}
+      if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;
+      if(ok)return nonce;
+    }
+  }
+  throw new Error('PoW solution not found');
 }
 
 function loadWallet() {
   const saved = localStorage.getItem('pichain_seed');
-  if(saved && saved.length===64) initWallet(hexDecode(saved));
+  if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
 }
 
 function showWalletModal() {
@@ -600,7 +696,7 @@ function showPrivateKey() {
     </div>
     <div class="form-row">
       <label>Address</label>
-      <input type="text" value="${walletAddressHex}" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);color:var(--cyan);">
+      <input type="text" value="Pi314${walletAddressHex}" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);color:var(--cyan);">
     </div>
     <button class="btn btn-outline" style="width:100%;margin-top:12px;" onclick="document.getElementById('walletKeyView').style.display='none';document.getElementById('walletModal').classList.remove('show');resetWalletModal();">Close</button>
   `;
@@ -671,7 +767,9 @@ async function loadLaunches() {
 
 function setFilter(f) {
   currentFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===(f==='all'?'All':f==='Active'?'Active':f==='TargetReached'?'Target Reached':'Graduated')));
+  if(currentDetailMint) hideDetail();
+  const labels = {all:'All', New:'New', Active:'Active', NearGrad:'Near Graduate', Finalized:'Graduated'};
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===labels[f]));
   renderFeed();
 }
 
@@ -679,7 +777,19 @@ function renderFeed() {
   const grid = document.getElementById('tokenGrid');
   const search = (document.getElementById('searchInput').value||'').toLowerCase();
   let filtered = allLaunches;
-  if(currentFilter!=='all') filtered = filtered.filter(l=>l.state===currentFilter);
+  if(currentFilter==='New') {
+    // New: created within last 1 hour, any non-finalized state
+    const oneHourAgo = Date.now() - 3600000;
+    filtered = filtered.filter(l=>l.state!=='Finalized' && l.created_at_ms >= oneHourAgo);
+  } else if(currentFilter==='Active') {
+    // Active: non-finalized tokens under 70% progress
+    filtered = filtered.filter(l=>l.state==='Active' && (l.percent_complete||0) < 70);
+  } else if(currentFilter==='NearGrad') {
+    // Near Graduate: 70%+ progress but not yet finalized
+    filtered = filtered.filter(l=>l.state!=='Finalized' && (l.percent_complete||0) >= 70);
+  } else if(currentFilter==='Finalized') {
+    filtered = filtered.filter(l=>l.state==='Finalized');
+  }
   if(search) filtered = filtered.filter(l=>(l.name+l.symbol).toLowerCase().includes(search));
 
   if(filtered.length===0) {
@@ -744,17 +854,44 @@ async function viewToken(mintId) {
 
     let tradeHtml = '';
     if(isActive) {
+      const userPiBal = walletAddressHex ? formatPI(piBalance) : '0';
       tradeHtml = `
         <div class="trade-panel">
           <h3>Buy $${escHtml(l.symbol)}</h3>
-          <div class="input-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--dim);">Balance: ${userPiBal} PI</span>
+          </div>
+          <div class="input-group" style="margin-bottom:6px;">
             <label>Amount (PI)</label>
             <input type="number" id="buyAmount" placeholder="0.0" step="0.001" min="0" oninput="previewBuy('${mintId}')">
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:12px;">
+            <button class="btn-quick" onclick="setBuyAmount(0.1,'${mintId}')">0.1</button>
+            <button class="btn-quick" onclick="setBuyAmount(0.25,'${mintId}')">0.25</button>
+            <button class="btn-quick" onclick="setBuyAmount(0.5,'${mintId}')">0.5</button>
+            <button class="btn-quick" onclick="setBuyAmount(1,'${mintId}')">1</button>
           </div>
           <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="buyEstimate">--</span></div>
           <div class="preview-row"><span>Current price</span><span class="preview-val">${formatPI(l.current_price)} PI/token</span></div>
           <button class="btn btn-green" style="width:100%;padding:14px;" onclick="buyOnCurve('${mintId}')" id="buyBtn">Buy $${escHtml(l.symbol)}</button>
-          <div style="margin-top:12px;font-size:12px;color:var(--dim);text-align:center;">Selling available after graduation to DEX</div>
+        </div>
+        <div class="trade-panel" style="margin-top:16px;">
+          <h3>Sell $${escHtml(l.symbol)}</h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--dim);">You own: <span id="sellTokenBal">--</span></span>
+          </div>
+          <div class="input-group" style="margin-bottom:6px;">
+            <label>Amount (tokens)</label>
+            <input type="number" id="sellAmount" placeholder="0.0" step="0.001" min="0" oninput="_sellExactBase=null;previewSell('${mintId}')">
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:12px;">
+            <button class="btn-quick" onclick="setSellPercent(10,'${mintId}')">10%</button>
+            <button class="btn-quick" onclick="setSellPercent(25,'${mintId}')">25%</button>
+            <button class="btn-quick" onclick="setSellPercent(50,'${mintId}')">50%</button>
+            <button class="btn-quick" onclick="setSellPercent(100,'${mintId}')">100%</button>
+          </div>
+          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="sellEstimate">--</span></div>
+          <button class="btn" style="width:100%;padding:14px;background:#e74c3c;" onclick="sellOnCurve('${mintId}')" id="sellBtn">Sell $${escHtml(l.symbol)}</button>
         </div>`;
     } else if(isTargetReached) {
       tradeHtml = `
@@ -764,27 +901,45 @@ async function viewToken(mintId) {
           <button class="btn btn-green" style="width:100%;padding:14px;" onclick="finalizeLaunch('${mintId}')">Finalize &amp; Graduate to DEX</button>
         </div>`;
     } else if(isFinalized) {
+      const userPiBal2 = walletAddressHex ? formatPI(piBalance) : '0';
       tradeHtml = `
         <div class="trade-panel">
-          <h3>Swap PI / $${escHtml(l.symbol)}</h3>
-          <div class="input-group">
-            <label>Direction</label>
-            <select id="swapDir" onchange="previewSwap('${mintId}')">
-              <option value="buy">Buy $${escHtml(l.symbol)} with PI</option>
-              <option value="sell">Sell $${escHtml(l.symbol)} for PI</option>
-            </select>
+          <h3>Buy $${escHtml(l.symbol)} <span style="font-size:11px;color:var(--dim);font-weight:400;">(DEX)</span></h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--dim);">Balance: ${userPiBal2} PI</span>
           </div>
-          <div class="input-group">
-            <label>Amount In</label>
-            <input type="number" id="swapAmountIn" placeholder="0.0" step="0.001" min="0" oninput="previewSwap('${mintId}')">
+          <div class="input-group" style="margin-bottom:6px;">
+            <label>Amount (PI)</label>
+            <input type="number" id="dexBuyAmount" placeholder="0.0" step="0.001" min="0" oninput="previewDexBuy('${mintId}')">
           </div>
-          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="swapEstimate">--</span></div>
-          <div class="preview-row"><span>Price impact</span><span class="preview-val" id="swapImpact">--</span></div>
-          <div class="input-group">
-            <label>Slippage tolerance (%)</label>
-            <input type="number" id="swapSlippage" value="1" step="0.1" min="0.1" max="50">
+          <div style="display:flex;gap:6px;margin-bottom:12px;">
+            <button class="btn-quick" onclick="setDexBuyAmount(0.1,'${mintId}')">0.1</button>
+            <button class="btn-quick" onclick="setDexBuyAmount(0.5,'${mintId}')">0.5</button>
+            <button class="btn-quick" onclick="setDexBuyAmount(1,'${mintId}')">1</button>
+            <button class="btn-quick" onclick="setDexBuyAmount(5,'${mintId}')">5</button>
           </div>
-          <button class="btn" style="width:100%;padding:14px;" onclick="executeSwap('${mintId}')">Swap</button>
+          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="dexBuyEstimate">--</span></div>
+          <div class="preview-row"><span>Slippage</span><span class="preview-val"><input type="number" id="dexBuySlippage" value="1" step="0.1" min="0.1" max="50" style="width:60px;padding:2px 6px;font-size:12px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;">%</span></div>
+          <button class="btn btn-green" style="width:100%;padding:14px;" onclick="buyOnDex('${mintId}')" id="dexBuyBtn">Buy $${escHtml(l.symbol)}</button>
+        </div>
+        <div class="trade-panel" style="margin-top:16px;">
+          <h3>Sell $${escHtml(l.symbol)} <span style="font-size:11px;color:var(--dim);font-weight:400;">(DEX)</span></h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--dim);">You own: <span id="dexSellTokenBal">--</span></span>
+          </div>
+          <div class="input-group" style="margin-bottom:6px;">
+            <label>Amount (tokens)</label>
+            <input type="number" id="dexSellAmount" placeholder="0.0" step="0.001" min="0" oninput="_dexSellExactBase=null;previewDexSell('${mintId}')">
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:12px;">
+            <button class="btn-quick" onclick="setDexSellPercent(10,'${mintId}')">10%</button>
+            <button class="btn-quick" onclick="setDexSellPercent(25,'${mintId}')">25%</button>
+            <button class="btn-quick" onclick="setDexSellPercent(50,'${mintId}')">50%</button>
+            <button class="btn-quick" onclick="setDexSellPercent(100,'${mintId}')">100%</button>
+          </div>
+          <div class="preview-row"><span>You receive (est.)</span><span class="preview-val" id="dexSellEstimate">--</span></div>
+          <div class="preview-row"><span>Slippage</span><span class="preview-val"><input type="number" id="dexSellSlippage" value="1" step="0.1" min="0.1" max="50" style="width:60px;padding:2px 6px;font-size:12px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;">%</span></div>
+          <button class="btn" style="width:100%;padding:14px;background:#e74c3c;" onclick="sellOnDex('${mintId}')" id="dexSellBtn">Sell $${escHtml(l.symbol)}</button>
         </div>`;
     }
 
@@ -845,6 +1000,11 @@ async function viewToken(mintId) {
 
         ${tradeHtml}
       </div>`;
+
+    // Load token balance for sell panel (active bonding curve or graduated DEX)
+    if((isActive || isFinalized) && walletAddressHex) {
+      loadTokenBalance(mintId);
+    }
   } catch(e) {
     detail.innerHTML = '<div class="empty"><h3>Error loading token</h3><p>'+e.message+'</p></div>';
   }
@@ -890,6 +1050,12 @@ function buildFinalizeCanonical(sender,nonce,mintId) {
   return concatBytes([h,new Uint8Array([20]),mintId]);
 }
 
+// Tag 30: SellFromLaunch
+function buildSellCanonical(sender,nonce,mintId,tokenAmount) {
+  const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
+  return concatBytes([h,new Uint8Array([30]),mintId,u64LE(tokenAmount)]);
+}
+
 // Tag 17: Swap
 function buildSwapCanonical(sender,nonce,mintIn,mintOut,amountIn,minAmountOut) {
   const h = buildTxHeader(sender,nonce,50000,currentBaseFee,100,CHAIN_ID);
@@ -913,7 +1079,10 @@ function buildSignedTxJson(kindName, kindData, nonce, signature, gasLimit) {
     signature: hexEncode(signature),
     public_key: Array.from(walletKeypair.publicKey)
   };
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(signedTx));
+  // Custom JSON stringify that preserves BigInt as raw numbers (JSON.stringify throws on BigInt)
+  const json = JSON.stringify(signedTx, (_, v) => typeof v === 'bigint' ? '__BI_'+v.toString()+'__' : v)
+    .replace(/"__BI_(\d+)__"/g, '$1');
+  const jsonBytes = new TextEncoder().encode(json);
   return hexEncode(jsonBytes);
 }
 
@@ -923,7 +1092,26 @@ async function submitTx(hexStr) {
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({signed_tx_hex: hexStr})
   });
-  return await res.json();
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { return { status: 'error', error: text }; }
+}
+
+// Wait for a transaction to be confirmed on-chain (included in a block).
+// Returns the tx receipt or throws if not confirmed within timeout.
+async function waitForConfirmation(txHash, timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(API + '/api/v1/tx/' + txHash);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.found && data.block_height) return data;
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error('Transaction not confirmed within ' + (timeoutMs/1000) + 's — check explorer');
 }
 
 // =====================================================================
@@ -948,8 +1136,8 @@ function processImageFile(file) {
     showToast('Please upload a PNG, JPG, GIF, SVG, or WebP image', 'error');
     return;
   }
-  if (file.size > 150 * 1024) {
-    showToast('Image must be under 150 KB', 'error');
+  if (file.size > 500 * 1024) {
+    showToast('Image must be under 500 KB', 'error');
     return;
   }
   const reader = new FileReader();
@@ -1101,7 +1289,7 @@ async function createTokenAndLaunch() {
   const maxSupplyTokens = 1000000000;
   const salePct = 80;
   const targetPiFloat = 100;
-  const maxPerAddrFloat = 10;
+  const maxPerAddrFloat = 0; // 0 = no per-address limit
 
   const devBuyFloat = parseFloat(document.getElementById('createDevBuy').value) || 0;
 
@@ -1155,6 +1343,7 @@ async function createTokenAndLaunch() {
 
     // Get mint nonce to precompute MintId
     const nonceRes = await fetch(API+'/api/v1/mint-nonce/'+walletAddressHex);
+    if(!nonceRes.ok) throw new Error('Failed to get mint nonce: ' + await nonceRes.text());
     const { mint_nonce } = await nonceRes.json();
     const mintId = deriveMintId(walletAddress, mint_nonce);
 
@@ -1191,7 +1380,7 @@ async function createTokenAndLaunch() {
       }, accountNonce+2, sig3, 50000);
     }
 
-    // Submit all transactions
+    // Submit all transactions and wait for on-chain confirmation
     status.textContent = 'Submitting CreateToken...';
     const r1 = await submitTx(hex1);
     if(r1.status !== 'pending') { throw new Error('CreateToken failed: '+(r1.error||'unknown')); }
@@ -1201,18 +1390,29 @@ async function createTokenAndLaunch() {
     if(r2.status !== 'pending') { throw new Error('CreateLaunch failed: '+(r2.error||'unknown')); }
 
     let txCount = 2;
+    let lastSubmittedHash = r2.tx_hash;
     if (hex3) {
       status.textContent = 'Submitting dev buy-in...';
       const r3 = await submitTx(hex3);
       if(r3.status !== 'pending') {
-        // Dev buy failed but token+launch succeeded — warn but don't throw
         showToast('Token launched but dev buy failed: '+(r3.error||'unknown'), 'info');
       } else {
         txCount = 3;
+        lastSubmittedHash = r3.tx_hash;
       }
     }
 
-    accountNonce += txCount;
+    // Wait for the last submitted tx to be confirmed on-chain
+    const lastTxHash = lastSubmittedHash;
+    status.textContent = 'Waiting for on-chain confirmation...';
+    try {
+      await waitForConfirmation(lastTxHash, 20000);
+    } catch(e) {
+      throw new Error('Transactions submitted but not confirmed yet. Check the Discover tab in a few seconds.');
+    }
+
+    // Refresh nonce from chain (confirmed state)
+    await updateBalance();
     status.textContent = '';
     showToast('Token $'+symbol+' launched!' + (txCount===3 ? ' Dev buy confirmed.' : ''), 'success');
 
@@ -1229,17 +1429,86 @@ async function createTokenAndLaunch() {
     updateCostPreview();
     removeImage({stopPropagation:()=>{}});
 
-    // Refresh and show detail
-    setTimeout(async ()=>{
-      await loadLaunches();
-      switchTab('discover');
-      viewToken(hexEncode(mintId));
-    }, 3000);
+    // Load launches and show detail (tx is already confirmed)
+    await loadLaunches();
+    switchTab('discover');
+    viewToken(hexEncode(mintId));
   } catch(e) {
     status.textContent = '';
     showToast(e.message, 'error');
   }
   btn.disabled = false;
+}
+
+// =====================================================================
+// QUICK BUY / SELL HELPERS
+// =====================================================================
+function setBuyAmount(pi, mintId) {
+  document.getElementById('buyAmount').value = pi;
+  previewBuy(mintId);
+}
+
+let _currentTokenBalance = 0n; // base units as BigInt (avoids JS number precision loss)
+let _sellExactBase = null; // exact BigInt base units when 100% sell selected
+let _dexSellExactBase = null; // same for DEX sell
+
+async function loadTokenBalance(mintId) {
+  _currentTokenBalance = 0n;
+  const el = document.getElementById('sellTokenBal') || document.getElementById('dexSellTokenBal');
+  if(!walletAddressHex) { if(el) el.textContent = '0'; return; }
+  try {
+    const res = await fetch(API+'/api/v1/token/'+mintId+'/account/'+walletAddressHex);
+    if(res.ok) {
+      // Parse balance as BigInt from raw JSON text to avoid Number precision loss
+      const text = await res.text();
+      const balMatch = text.match(/"balance"\s*:\s*(\d+)/);
+      _currentTokenBalance = balMatch ? BigInt(balMatch[1]) : 0n;
+      const data = JSON.parse(text);
+      const launch = allLaunches.find(l=>l.mint_id===mintId);
+      const dec = launch ? (launch.decimals||0) : 0;
+      const label = formatTokensBig(_currentTokenBalance, dec) + ' $' + (launch ? launch.symbol : '');
+      if(el) el.textContent = label;
+    } else {
+      if(el) el.textContent = '0';
+    }
+  } catch(e) { if(el) el.textContent = '0'; }
+}
+
+// Format BigInt token balance for display
+function formatTokensBig(baseAmount, decimals) {
+  if(baseAmount === 0n) return '0';
+  const scale = 10n ** BigInt(decimals);
+  const whole = baseAmount / scale;
+  const frac = baseAmount % scale;
+  if(frac === 0n) return whole.toString();
+  const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
+  return whole.toString() + '.' + fracStr;
+}
+
+// Parse display token amount (e.g. "136.285") to BigInt base units, preserving precision
+function parseBigTokenAmount(displayAmount, decimals) {
+  const s = String(displayAmount);
+  const parts = s.split('.');
+  const wholePart = parts[0] || '0';
+  let fracPart = parts[1] || '';
+  // Pad or truncate fractional part to exactly `decimals` digits
+  if(fracPart.length > decimals) fracPart = fracPart.slice(0, decimals);
+  else fracPart = fracPart.padEnd(decimals, '0');
+  return BigInt(wholePart + fracPart);
+}
+
+function setSellPercent(pct, mintId) {
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch) return;
+  const dec = launch.decimals || 0;
+  const scale = 10n ** BigInt(dec);
+  if(pct === 100) {
+    _sellExactBase = _currentTokenBalance;
+  } else {
+    _sellExactBase = _currentTokenBalance * BigInt(pct) / 100n;
+  }
+  document.getElementById('sellAmount').value = formatTokensBig(_sellExactBase, dec);
+  previewSell(mintId);
 }
 
 // =====================================================================
@@ -1288,9 +1557,92 @@ async function buyOnCurve(mintId) {
 
     const result = await submitTx(hex);
     if(result.status === 'pending') {
-      accountNonce++;
-      showToast('Purchase submitted! Tx: '+result.tx_hash.slice(0,16)+'...', 'success');
-      setTimeout(()=>{ loadLaunches(); viewToken(mintId); updateBalance(); }, 3000);
+      showToast('Purchase submitted, confirming...', 'info');
+      try {
+        await waitForConfirmation(result.tx_hash);
+        await updateBalance();
+        showToast('Purchase confirmed!', 'success');
+        await loadLaunches(); viewToken(mintId);
+      } catch(e) {
+        showToast('Submitted but not confirmed yet — check back shortly', 'info');
+        await updateBalance();
+      }
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// SELL ON BONDING CURVE
+// =====================================================================
+function previewSell(mintId) {
+  const tokAmount = parseFloat(document.getElementById('sellAmount').value) || 0;
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch || tokAmount <= 0) { document.getElementById('sellEstimate').textContent = '--'; return; }
+
+  const bp = BigInt(launch.base_price);
+  const sl = BigInt(launch.slope);
+  const ps = BigInt(launch.price_scale || 1);
+  const dec = launch.decimals || 0;
+  const scale = 10n ** BigInt(dec);
+  // Use exact BigInt from % buttons when available, else parse display string
+  const tokenBase = (_sellExactBase !== null) ? _sellExactBase : parseBigTokenAmount(tokAmount, dec);
+  // Parse tokens_sold from raw text to avoid JS Number precision loss
+  const soldText = String(launch.tokens_sold);
+  const sold = BigInt(soldText.replace(/[^0-9]/g,'') || '0');
+
+  if(tokenBase > sold || tokenBase <= 0n) { document.getElementById('sellEstimate').textContent = '--'; return; }
+
+  // Reverse bonding curve: integral from (sold-tokens) to sold
+  const a = tokenBase / scale; // display tokens being sold
+  const s = sold / scale;
+  const sNew = s - a;
+  if(a <= 0n) { document.getElementById('sellEstimate').textContent = '0 PI'; return; }
+
+  const linear = bp * a;
+  const inner = (2n * sNew + a - 1n) * a * sl / 2n;
+  const total = (linear + inner) / ps;
+
+  document.getElementById('sellEstimate').textContent = formatPI(Number(total)) + ' PI';
+}
+
+async function sellOnCurve(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const tokAmount = parseFloat(document.getElementById('sellAmount').value) || 0;
+  if(tokAmount <= 0) { showToast('Enter a token amount','error'); return; }
+
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch) { showToast('Launch not found','error'); return; }
+
+  const dec = launch.decimals || 0;
+  const scaleBig = 10n ** BigInt(dec);
+  // Use BigInt exact base when available (from % buttons), else parse display input
+  const tokenBase = (_sellExactBase !== null) ? _sellExactBase : parseBigTokenAmount(tokAmount, dec);
+  _sellExactBase = null;
+  if(tokenBase <= 0n) { showToast('Enter a token amount','error'); return; }
+  const mintIdBytes = hexDecode(mintId);
+
+  try {
+    await updateBalance();
+    const canonical = buildSellCanonical(walletAddress, accountNonce, mintIdBytes, tokenBase);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('SellFromLaunch', {
+      mint: Array.from(mintIdBytes), token_amount: tokenBase
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      showToast('Sell submitted, confirming...', 'info');
+      try {
+        await waitForConfirmation(result.tx_hash);
+        await updateBalance();
+        showToast('Sell confirmed!', 'success');
+        await loadLaunches(); viewToken(mintId);
+      } catch(e) {
+        showToast('Submitted but not confirmed yet — check back shortly', 'info');
+        await updateBalance();
+      }
     } else {
       showToast('Failed: '+(result.error||'unknown'), 'error');
     }
@@ -1314,9 +1666,16 @@ async function finalizeLaunch(mintId) {
 
     const result = await submitTx(hex);
     if(result.status === 'pending') {
-      accountNonce++;
-      showToast('Finalization submitted! DEX pool will be created.', 'success');
-      setTimeout(()=>{ loadLaunches(); viewToken(mintId); updateBalance(); }, 5000);
+      showToast('Finalization submitted, confirming...', 'info');
+      try {
+        await waitForConfirmation(result.tx_hash, 20000);
+        await updateBalance();
+        showToast('Finalized! DEX pool created.', 'success');
+        await loadLaunches(); viewToken(mintId);
+      } catch(e) {
+        showToast('Submitted but not confirmed yet — check back shortly', 'info');
+        await updateBalance();
+      }
     } else {
       showToast('Failed: '+(result.error||'unknown'), 'error');
     }
@@ -1387,6 +1746,147 @@ async function executeSwap(mintId) {
       accountNonce++;
       showToast('Swap submitted! Tx: '+result.tx_hash.slice(0,16)+'...', 'success');
       setTimeout(()=>{ updateBalance(); }, 3000);
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// DEX BUY / SELL (post-graduation, separate panels)
+// =====================================================================
+function setDexBuyAmount(amount, mintId) {
+  document.getElementById('dexBuyAmount').value = amount;
+  previewDexBuy(mintId);
+}
+
+async function previewDexBuy(mintId) {
+  const piAmount = parseFloat(document.getElementById('dexBuyAmount').value) || 0;
+  if(piAmount <= 0) { document.getElementById('dexBuyEstimate').textContent = '--'; return; }
+  const amountBase = Math.floor(piAmount * 1e9);
+  try {
+    const res = await fetch(`${API}/api/v1/swap/quote/${NATIVE_PI_MINT}/${mintId}/${amountBase}`);
+    const q = await res.json();
+    if(q.found) {
+      const launch = allLaunches.find(l=>l.mint_id===mintId);
+      document.getElementById('dexBuyEstimate').textContent = formatTokens(q.amount_out, launch?.decimals||9) + ' $' + (launch?.symbol||'???');
+    } else {
+      document.getElementById('dexBuyEstimate').textContent = 'No pool found';
+    }
+  } catch(e) { document.getElementById('dexBuyEstimate').textContent = 'Error'; }
+}
+
+async function buyOnDex(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const piAmount = parseFloat(document.getElementById('dexBuyAmount').value) || 0;
+  if(piAmount <= 0) { showToast('Enter a PI amount','error'); return; }
+  const slippage = parseFloat(document.getElementById('dexBuySlippage').value) || 1;
+  const amountBase = Math.floor(piAmount * 1e9);
+  const mintInBytes = hexDecode(NATIVE_PI_MINT);
+  const mintOutBytes = hexDecode(mintId);
+
+  try {
+    const qRes = await fetch(`${API}/api/v1/swap/quote/${NATIVE_PI_MINT}/${mintId}/${amountBase}`);
+    const q = await qRes.json();
+    if(!q.found) { showToast('No liquidity pool found','error'); return; }
+    const minOut = Math.floor(q.amount_out * (1 - slippage/100));
+
+    await updateBalance();
+    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Swap', {
+      mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
+      amount_in: amountBase, min_amount_out: minOut
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      showToast('Buy submitted, confirming...', 'info');
+      try {
+        await waitForConfirmation(result.tx_hash);
+        await updateBalance();
+        showToast('Purchase confirmed!', 'success');
+        await loadLaunches(); viewToken(mintId);
+      } catch(e) {
+        showToast('Submitted but not confirmed yet — check back shortly', 'info');
+        await updateBalance();
+      }
+    } else {
+      showToast('Failed: '+(result.error||'unknown'), 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+function setDexSellPercent(pct, mintId) {
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch) return;
+  const dec = launch.decimals || 0;
+  if(pct === 100) {
+    _dexSellExactBase = _currentTokenBalance;
+  } else {
+    _dexSellExactBase = _currentTokenBalance * BigInt(pct) / 100n;
+  }
+  document.getElementById('dexSellAmount').value = formatTokensBig(_dexSellExactBase, dec);
+  previewDexSell(mintId);
+}
+
+async function previewDexSell(mintId) {
+  const tokAmount = parseFloat(document.getElementById('dexSellAmount').value) || 0;
+  if(tokAmount <= 0) { document.getElementById('dexSellEstimate').textContent = '--'; return; }
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  const dec = launch?.decimals || 9;
+  const amountBase = (_dexSellExactBase !== null) ? _dexSellExactBase : parseBigTokenAmount(tokAmount, dec);
+  try {
+    const res = await fetch(`${API}/api/v1/swap/quote/${mintId}/${NATIVE_PI_MINT}/${amountBase}`);
+    const q = await res.json();
+    if(q.found) {
+      document.getElementById('dexSellEstimate').textContent = formatPI(q.amount_out) + ' PI';
+    } else {
+      document.getElementById('dexSellEstimate').textContent = 'No pool found';
+    }
+  } catch(e) { document.getElementById('dexSellEstimate').textContent = 'Error'; }
+}
+
+async function sellOnDex(mintId) {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const tokAmount = parseFloat(document.getElementById('dexSellAmount').value) || 0;
+  if(tokAmount <= 0) { showToast('Enter a token amount','error'); return; }
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  if(!launch) { showToast('Token not found','error'); return; }
+  const slippage = parseFloat(document.getElementById('dexSellSlippage').value) || 1;
+  const dec = launch.decimals || 9;
+  const amountBase = (_dexSellExactBase !== null) ? _dexSellExactBase : parseBigTokenAmount(tokAmount, dec);
+  _dexSellExactBase = null;
+  if(amountBase <= 0n) { showToast('Enter a token amount','error'); return; }
+  const mintInBytes = hexDecode(mintId);
+  const mintOutBytes = hexDecode(NATIVE_PI_MINT);
+
+  try {
+    const qRes = await fetch(`${API}/api/v1/swap/quote/${mintId}/${NATIVE_PI_MINT}/${amountBase}`);
+    const q = await qRes.json();
+    if(!q.found) { showToast('No liquidity pool found','error'); return; }
+    const minOut = Math.floor(q.amount_out * (1 - slippage/100));
+
+    await updateBalance();
+    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Swap', {
+      mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
+      amount_in: amountBase, min_amount_out: minOut
+    }, accountNonce, sig, 50000);
+
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      showToast('Sell submitted, confirming...', 'info');
+      try {
+        await waitForConfirmation(result.tx_hash);
+        await updateBalance();
+        showToast('Sell confirmed!', 'success');
+        await loadLaunches(); viewToken(mintId);
+      } catch(e) {
+        showToast('Submitted but not confirmed yet — check back shortly', 'info');
+        await updateBalance();
+      }
     } else {
       showToast('Failed: '+(result.error||'unknown'), 'error');
     }

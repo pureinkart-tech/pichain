@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PIChain — Mine in Your Browser</title>
-<meta name="description" content="Mine PIChain directly in your browser. No downloads, no installation. Create a wallet and start earning PI by computing digits of PI.">
+<title>PiChain — Mine in Your Browser</title>
+<meta name="description" content="Mine PiChain directly in your browser. No downloads, no installation. Create a wallet and start earning PI by computing digits of PI.">
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -200,14 +200,15 @@ pre .c { color: var(--dim); }
 
 <nav class="navbar">
   <div class="navbar-inner">
-    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PIChain</a>
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
     <div class="nav-links">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
       <a href="/dashboard">Dashboard</a>
       <a href="/mining">Mining</a>
-      <a href="/faucet">Faucet</a>
       <a href="/launch">Launch</a>
+      <a href="/trade">Trade</a>
+      <a href="/bridge">Bridge</a>
       <a href="/download">Download</a>
       <a href="/mine" class="active">Start Mining</a>
     </div>
@@ -246,7 +247,7 @@ pre .c { color: var(--dim); }
       <div class="tip-banner" id="tip-banner">
         <span class="tip-icon">&#x1f4a1;</span>
         <div>
-          <strong>Browser mining is great for trying out PIChain.</strong> For 10-50x more speed,
+          <strong>Browser mining is great for trying out PiChain.</strong> For 10-50x more speed,
           download the <a onclick="switchTab('cli');return false;">CLI miner</a> (native Rust binary).
           Monitor all mining activity on the <a href="/dashboard">live dashboard</a>.
         </div>
@@ -266,7 +267,6 @@ pre .c { color: var(--dim); }
             <span id="locked-balance">0.000</span> PI locked (fees only)
           </div>
           <div class="wallet-actions">
-            <button class="btn btn-secondary" onclick="requestFaucet()">Get Testnet PI</button>
             <button class="btn btn-secondary" onclick="exportWallet()">Export Key</button>
             <button class="btn btn-danger" onclick="resetWallet()">Reset</button>
           </div>
@@ -280,14 +280,14 @@ pre .c { color: var(--dim); }
           <div style="margin-top:16px;" class="mining-controls">
             <div class="control-group">
               <label>Threads</label>
-              <input type="range" id="thread-count" min="1" max="8" value="2" oninput="document.getElementById('thread-label').textContent=this.value;saveSettings()">
-              <span id="thread-label" style="font-size:14px;color:var(--text);text-align:center;">2</span>
+              <input type="range" id="thread-count" min="1" max="8" value="1" oninput="document.getElementById('thread-label').textContent=this.value;saveSettings()">
+              <span id="thread-label" style="font-size:14px;color:var(--text);text-align:center;">1</span>
             </div>
             <div class="control-group">
               <label>Batch Size</label>
               <select id="batch-size" onchange="saveSettings()">
-                <option value="10">10 digits (fast)</option>
-                <option value="20" selected>20 digits</option>
+                <option value="10" selected>10 digits (light)</option>
+                <option value="20">20 digits</option>
                 <option value="50">50 digits</option>
                 <option value="100">100 digits</option>
               </select>
@@ -667,7 +667,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
       <li>Increase power consumption and reduce battery life</li>
       <li>Make your system less responsive while mining</li>
     </ul>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:4px;"><strong style="color:var(--text);">Your settings:</strong> <span id="cpu-warn-threads">2</span> thread(s), <span id="cpu-warn-batch">20</span> digits/batch</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:4px;"><strong style="color:var(--text);">Your settings:</strong> <span id="cpu-warn-threads">1</span> thread(s), <span id="cpu-warn-batch">10</span> digits/batch</p>
     <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">Reduce threads or batch size for lighter CPU usage. You can stop mining at any time.</p>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
       <input type="checkbox" id="cpu-warn-ack" style="cursor:pointer;">
@@ -682,7 +682,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
 
 <div class="toast-container" id="toast-container"></div>
 
-<div class="footer">PIChain &mdash; Computing the Infinite</div>
+<div class="footer">PiChain &mdash; Computing the Infinite</div>
 
 <!-- Ed25519 library -->
 <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js" integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp" crossorigin="anonymous"></script>
@@ -818,21 +818,35 @@ function initWallet(seed){
   localStorage.setItem('pichain_wallet_seed',hexEncode(seed));
   document.getElementById('wallet-setup').style.display='none';
   document.getElementById('wallet-info').style.display='block';
-  document.getElementById('wallet-address').textContent='0x'+walletAddressHex;
+  document.getElementById('wallet-address').textContent='Pi314'+walletAddressHex;
   document.getElementById('mine-btn').disabled=false;
   const maxT=navigator.hardwareConcurrency||4;
   const sl=document.getElementById('thread-count');
-  sl.max=Math.min(maxT,16);sl.value=Math.min(2,maxT);
+  sl.max=Math.min(maxT,16);sl.value=1;
   document.getElementById('thread-label').textContent=sl.value;
   activateWallet();
   updateBalance();
-  addLog('Wallet ready: 0x'+walletAddressHex,'info');
+  addLog('Wallet ready: Pi314'+walletAddressHex,'info');
 }
 
 async function activateWallet(){
   if(!walletAddressHex)return;
   try{
-    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    // Step 1: Request PoW challenge
+    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const cd=await cr.json();
+    if(!cd.success){
+      if(cd.error&&cd.error.includes('already activated')){addLog('Wallet already activated','info');return;}
+      addLog('Wallet activation: '+(cd.error||'challenge failed'),'info');return;
+    }
+    addLog('Solving activation challenge (this takes a few seconds)...','info');
+    // Step 2: Solve PoW — find nonce where blake3(challenge||nonce) has N leading zero bits
+    const challengeBytes=hexToBytes(cd.challenge);
+    const diffBits=cd.difficulty_bits||20;
+    const nonce=await solveActivationPoW(challengeBytes,diffBits);
+    addLog('Challenge solved! Activating wallet...','info');
+    // Step 3: Submit solution
+    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
     const d=await r.json();
     if(d.success){
       addLog('Wallet activated! +'+d.locked_amount_pi+' PI locked for gas fees','success');
@@ -844,6 +858,40 @@ async function activateWallet(){
   }catch(e){
     addLog('Could not activate wallet (node may be unreachable)','warn');
   }
+}
+
+function hexToBytes(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<hex.length;i+=2)b[i/2]=parseInt(hex.substr(i,2),16);return b;}
+
+async function solveActivationPoW(challengeBytes,diffBits){
+  // Solve PoW using SHA-256 via Web Crypto API — no external dependencies needed.
+  // SHA-256 is hardware-accelerated in all modern browsers.
+  // With 20-bit difficulty, ~1M hashes expected, takes 2-5 seconds.
+  const fullBytes=(diffBits/8)|0;
+  const remBits=diffBits%8;
+  const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
+  const batchSize=2000;
+  for(let batch=0;batch<1000000;batch++){
+    const base=batch*batchSize;
+    // Build all inputs for this batch
+    const promises=[];
+    for(let i=0;i<batchSize;i++){
+      const nonce=base+i;
+      const buf=new Uint8Array(challengeBytes.length+8);
+      buf.set(challengeBytes);
+      let n=nonce;
+      for(let j=0;j<8;j++){buf[challengeBytes.length+j]=n&0xFF;n=Math.floor(n/256);}
+      promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));
+    }
+    const results=await Promise.all(promises);
+    for(const{nonce,hash}of results){
+      let ok=true;
+      for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}
+      if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;
+      if(ok)return nonce;
+    }
+    if(batch%50===0&&batch>0)addLog('PoW solving... '+(base+batchSize)+' hashes tried','info');
+  }
+  throw new Error('PoW solution not found');
 }
 
 function showImportModal(){
@@ -866,7 +914,7 @@ function importWallet(){
 
 function copyAddress(){
   if(!walletAddressHex)return;
-  navigator.clipboard.writeText('0x'+walletAddressHex).then(()=>{
+  navigator.clipboard.writeText('Pi314'+walletAddressHex).then(()=>{
     showToast('Address copied!','success');
   }).catch(()=>{
     // Fallback: select the address text
@@ -878,7 +926,7 @@ function copyAddress(){
 
 function exportWallet(){
   if(!walletSeed)return;
-  const data=JSON.stringify({secret_key:hexEncode(walletSeed),address:'0x'+walletAddressHex},null,2);
+  const data=JSON.stringify({secret_key:hexEncode(walletSeed),address:'Pi314'+walletAddressHex},null,2);
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
   a.download='pichain-wallet.json';a.click();addLog('Wallet exported','info');
 }
@@ -918,19 +966,6 @@ async function updateBalance(){
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
     updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
-}
-
-async function requestFaucet(){
-  if(!walletAddressHex)return;
-  const btn=document.querySelector('[onclick="requestFaucet()"]');
-  if(btn){btn.classList.add('loading');btn.textContent='Claiming...';}
-  try{
-    const r=await fetch(API+'/api/v1/faucet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
-    const d=await r.json();
-    if(d.success){addLog('Faucet: received '+d.amount_pi+' PI','success');showToast('Received '+d.amount_pi+' PI from faucet!','success');updateBalance();}
-    else{addLog('Faucet: '+(d.error||'failed'),'error');showToast('Faucet: '+(d.error||'failed'),'error');}
-  }catch(e){addLog('Faucet error: '+e.message,'error');showToast('Faucet error: '+e.message,'error');}
-  finally{if(btn){btn.classList.remove('loading');btn.textContent='Get Testnet PI';}}
 }
 
 // =====================================================================
@@ -1115,7 +1150,7 @@ async function startMining(){
     if(!r.ok)throw new Error('HTTP '+r.status);
   }catch(e){
     addLog('Cannot reach node at '+API+': '+e.message,'error');
-    showToast('Cannot reach PIChain node. Check your connection.','error');
+    showToast('Cannot reach PiChain node. Check your connection.','error');
     document.getElementById('status-text').textContent='Idle';
     return;
   }
@@ -1295,8 +1330,8 @@ function buildCanonicalBytes(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,cha
 
 async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchorHash){
   const baseFee=currentStatus.base_fee||1000;
-  // Gas limit must be >= estimated_gas (10_000 + digits*100). Add 10% headroom.
-  const gasLimit=Math.ceil((10000+digitCount*100)*1.1);
+  // Gas scales with digit count: 500 + digits*5 (matches backend). Add 10% headroom.
+  const gasLimit=Math.ceil((500+digitCount*5)*1.1);
   const chainId=31415;
 
   const canonical=buildCanonicalBytes(

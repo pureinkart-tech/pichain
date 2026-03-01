@@ -12,6 +12,38 @@ use serde::{Deserialize, Serialize};
 
 use crate::token::MintId;
 
+/// Serde helper for HashMap<Address, u64> — serializes Address keys as hex strings.
+mod address_map_serde {
+    use super::*;
+    use serde::ser::SerializeMap;
+    use std::collections::HashMap;
+
+    pub fn serialize<S>(map: &HashMap<Address, u64>, serializer: S) -> Result<S::Ok, S::Error>
+    where S: serde::Serializer {
+        let mut m = serializer.serialize_map(Some(map.len()))?;
+        for (addr, val) in map {
+            m.serialize_entry(&hex::encode(addr.0), val)?;
+        }
+        m.end()
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<Address, u64>, D::Error>
+    where D: serde::Deserializer<'de> {
+        let string_map: HashMap<String, u64> = HashMap::deserialize(deserializer)?;
+        let mut result = HashMap::with_capacity(string_map.len());
+        for (hex_str, val) in string_map {
+            let bytes = hex::decode(&hex_str).map_err(serde::de::Error::custom)?;
+            if bytes.len() != 20 {
+                return Err(serde::de::Error::custom(format!("address must be 20 bytes, got {}", bytes.len())));
+            }
+            let mut addr = [0u8; 20];
+            addr.copy_from_slice(&bytes);
+            result.insert(Address(addr), val);
+        }
+        Ok(result)
+    }
+}
+
 fn default_price_scale() -> u64 {
     1
 }
@@ -101,6 +133,7 @@ pub struct TokenLaunch {
     /// Maximum PI contribution per address.
     pub max_per_address: u64,
     /// Per-address contribution tracking.
+    #[serde(with = "address_map_serde")]
     pub contributions: std::collections::HashMap<Address, u64>,
     /// Creation timestamp.
     pub created_at_ms: u64,
@@ -250,8 +283,60 @@ impl TokenLaunch {
         }
     }
 
+    /// Calculate PI returned for selling `token_amount` back to the bonding curve.
+    /// This is the reverse of calculate_cost: integrates the curve from
+    /// (tokens_sold - token_amount) to tokens_sold.
+    pub fn calculate_sell_return(&self, token_amount: u64) -> Option<u64> {
+        if token_amount == 0 || token_amount > self.tokens_sold {
+            return None;
+        }
+
+        match &self.launch_type {
+            LaunchType::FairLaunch { price_per_token } => {
+                token_amount.checked_mul(*price_per_token)
+            }
+            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+                let ps = (*price_scale).max(1) as u128;
+                let scale = if self.token_decimals > 0 {
+                    10u128.pow(self.token_decimals as u32)
+                } else {
+                    1u128
+                };
+
+                let a = (token_amount as u128) / scale; // display tokens to sell
+                let s = (self.tokens_sold as u128) / scale; // current display tokens sold
+                let s_new = s.checked_sub(a)?; // display tokens after sell
+
+                if a == 0 {
+                    return Some(0);
+                }
+
+                let bp = *base_price as u128;
+                let sl = *slope as u128;
+
+                // Return = integral from s_new to s of price(x) dx
+                // = (base_price * a + slope * a * (2*s_new + a - 1) / 2) / price_scale
+                let linear = bp.checked_mul(a)?;
+                let inner = (2u128.checked_mul(s_new)?)
+                    .checked_add(a)?
+                    .checked_sub(1)?
+                    .checked_mul(a)?
+                    .checked_mul(sl)?;
+                let inner = (inner + 1) / 2;
+                let total = linear.checked_add(inner)? / ps;
+
+                if total > u64::MAX as u128 { None } else { Some(total as u64) }
+            }
+        }
+    }
+
     /// Calculate amounts for AMM pool seeding at finalization.
     /// Returns (pi_for_pool, tokens_for_pool).
+    ///
+    /// When unsold tokens remain, a percentage of them seeds the pool.
+    /// When ALL tokens are sold (bonding curve fully subscribed), new tokens
+    /// are minted as a percentage of total supply to seed the pool — this is
+    /// the standard pump.fun-style graduation model.
     pub fn finalization_amounts(&self) -> (u64, u64) {
         let pi_for_pool_u128 = self.pi_raised as u128 * self.liquidity_bps as u128 / 10_000;
         let pi_for_pool = if pi_for_pool_u128 > u64::MAX as u128 {
@@ -261,11 +346,16 @@ impl TokenLaunch {
         };
 
         let unsold = self.tokens_for_sale.saturating_sub(self.tokens_sold);
-        // Only unsold tokens go to the pool (percentage of unsold)
-        let tokens_for_pool = unsold as u128 * self.token_liquidity_bps as u128 / 10_000;
 
-        // Cap tokens_for_pool to what's available
-        let tokens_for_pool = std::cmp::min(tokens_for_pool as u64, unsold);
+        let tokens_for_pool = if unsold > 0 {
+            // Use percentage of unsold tokens
+            let t = unsold as u128 * self.token_liquidity_bps as u128 / 10_000;
+            std::cmp::min(t as u64, unsold)
+        } else {
+            // All tokens sold — mint new tokens as percentage of total sale
+            let t = self.tokens_for_sale as u128 * self.token_liquidity_bps as u128 / 10_000;
+            if t > u64::MAX as u128 { u64::MAX } else { t as u64 }
+        };
 
         (pi_for_pool, tokens_for_pool)
     }
