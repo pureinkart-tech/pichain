@@ -1030,6 +1030,7 @@ impl StateProvider for NodeState {
             frontier_position: stats.frontier_position,
             total_digits_verified: stats.total_digits_verified,
             next_position: stats.next_position,
+            max_batch_at_position: stats.max_batch_at_position,
             total_ranges: stats.total_ranges,
             unique_miners: stats.unique_miners,
             remaining_pool: stats.remaining_pool,

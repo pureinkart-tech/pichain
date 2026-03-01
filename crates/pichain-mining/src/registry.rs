@@ -166,15 +166,53 @@ impl DigitRegistry {
     }
 
     /// Get the next uncomputed position (where a miner should start).
+    /// Uses BTreeMap range queries to properly navigate fragmented ranges
+    /// (e.g., when a browser miner submits small non-aligned ranges).
     pub fn next_uncomputed_position(&self) -> u64 {
-        // Start from frontier and find first gap
+        self.find_next_gap().0
+    }
+
+    /// Find the first uncomputed gap from a given position.
+    /// Returns (gap_start, gap_size) where gap_size is the contiguous empty space
+    /// before the next existing range. If no more ranges exist, gap_size is u64::MAX.
+    fn find_gap_from(&self, from: u64) -> (u64, u64) {
+        let mut pos = from;
+        loop {
+            // Check if pos is covered by any range (one that starts at or before pos)
+            if let Some((&rs, range)) = self.ranges.range(..=pos).next_back() {
+                let re = rs + range.count as u64;
+                if re > pos {
+                    pos = re; // Skip past this range
+                    continue;
+                }
+            }
+            // pos is uncovered. Find gap size (distance to next range).
+            let gap_size = match self.ranges.range((pos + 1)..).next() {
+                Some((&next_start, _)) => next_start - pos,
+                None => u64::MAX,
+            };
+            return (pos, gap_size);
+        }
+    }
+
+    /// Find the first uncomputed gap from the frontier.
+    /// Returns (gap_start, gap_size).
+    pub fn find_next_gap(&self) -> (u64, u64) {
+        self.find_gap_from(self.frontier)
+    }
+
+    /// Find a gap large enough for the given batch size.
+    /// Searches forward from the frontier, skipping gaps smaller than min_size.
+    /// Returns (gap_start, gap_size).
+    pub fn find_mineable_gap(&self, min_size: u32) -> (u64, u64) {
         let mut pos = self.frontier;
         loop {
-            if let Some(range) = self.ranges.get(&pos) {
-                pos += range.count as u64;
-            } else {
-                return pos;
+            let (gap_start, gap_size) = self.find_gap_from(pos);
+            if gap_size >= min_size as u64 || gap_size == u64::MAX {
+                return (gap_start, gap_size);
             }
+            // Gap too small, skip past it and try after the next range
+            pos = gap_start + gap_size;
         }
     }
 
@@ -408,5 +446,107 @@ mod tests {
         assert_eq!(stats.frontier_position, 1500);
         assert_eq!(stats.total_ranges, 2);
         assert_eq!(stats.unique_miners, 2);
+    }
+
+    #[test]
+    fn find_next_gap_empty_registry() {
+        let reg = DigitRegistry::new();
+        let (pos, size) = reg.find_next_gap();
+        assert_eq!(pos, 0);
+        assert_eq!(size, u64::MAX);
+    }
+
+    #[test]
+    fn find_next_gap_contiguous() {
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 1000, 1)).unwrap();
+        reg.register(make_range(1000, 1000, 2)).unwrap();
+
+        let (pos, size) = reg.find_next_gap();
+        assert_eq!(pos, 2000); // After all contiguous ranges
+        assert_eq!(size, u64::MAX); // No more ranges
+    }
+
+    #[test]
+    fn find_next_gap_with_gap() {
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 1000, 1)).unwrap();
+        // Gap at 1000-2000
+        reg.register(make_range(2000, 500, 2)).unwrap();
+
+        let (pos, size) = reg.find_next_gap();
+        assert_eq!(pos, 1000); // First gap
+        assert_eq!(size, 1000); // 1000 digits until next range at 2000
+    }
+
+    #[test]
+    fn find_next_gap_fragmented() {
+        // Simulates browser miner submitting small ranges in the middle
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 1000, 1)).unwrap();
+        // Small browser ranges scattered ahead
+        reg.register(make_range(1500, 10, 2)).unwrap();
+        reg.register(make_range(1530, 10, 2)).unwrap();
+
+        let (pos, size) = reg.find_next_gap();
+        assert_eq!(pos, 1000); // Gap starts at 1000
+        assert_eq!(size, 500); // 500 digits until browser range at 1500
+    }
+
+    #[test]
+    fn find_mineable_gap_skips_small_gaps() {
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 1000, 1)).unwrap();
+        // Tiny gaps between browser ranges
+        reg.register(make_range(1010, 10, 2)).unwrap(); // gap at 1000, size 10
+        reg.register(make_range(1030, 10, 2)).unwrap(); // gap at 1020, size 10
+        reg.register(make_range(1050, 10, 2)).unwrap(); // gap at 1040, size 10
+        // Big gap after 1060
+        // No more ranges after 1060
+
+        let (pos, size) = reg.find_mineable_gap(100);
+        assert_eq!(pos, 1060); // Skipped tiny gaps, found big open space
+        assert_eq!(size, u64::MAX);
+    }
+
+    #[test]
+    fn find_mineable_gap_fits_in_first() {
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 1000, 1)).unwrap();
+        reg.register(make_range(2000, 500, 2)).unwrap();
+
+        // Gap at 1000 is 1000 digits — big enough for batch of 500
+        let (pos, size) = reg.find_mineable_gap(500);
+        assert_eq!(pos, 1000);
+        assert_eq!(size, 1000);
+    }
+
+    #[test]
+    fn next_uncomputed_position_with_fragmented_ranges() {
+        // This is the exact scenario that was causing the mining bug:
+        // CLI miner registered [0, 2000), then browser miner scattered
+        // small ranges at 3000, 3030, 3050 inside the [2000, 4000) gap.
+        let mut reg = DigitRegistry::new();
+        reg.register(make_range(0, 2000, 1)).unwrap();
+        reg.register(make_range(3000, 10, 2)).unwrap();
+        reg.register(make_range(3030, 10, 2)).unwrap();
+        reg.register(make_range(3050, 10, 2)).unwrap();
+        reg.register(make_range(4000, 2000, 1)).unwrap();
+
+        // Frontier should be at 2000 (gap at 2000-3000)
+        assert_eq!(reg.frontier(), 2000);
+
+        // next_uncomputed should return 2000 (first gap)
+        assert_eq!(reg.next_uncomputed_position(), 2000);
+
+        // Gap at 2000 should be 1000 (until browser range at 3000)
+        let (pos, size) = reg.find_next_gap();
+        assert_eq!(pos, 2000);
+        assert_eq!(size, 1000);
+
+        // Mineable gap for batch of 2000 should skip past fragmented region
+        let (pos, size) = reg.find_mineable_gap(2000);
+        assert_eq!(pos, 6000); // Past all existing ranges
+        assert_eq!(size, u64::MAX);
     }
 }

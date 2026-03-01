@@ -171,17 +171,20 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
       </div>
       <div class="control-group">
         <label>Profile</label>
-        <select id="profile">
-          <option value="laptop">Laptop (light)</option>
-          <option value="desktop" selected>Desktop (balanced)</option>
-          <option value="server">Server (max CPU)</option>
-          <option value="max">Max (all-out)</option>
+        <select id="profile" onchange="updateProfileWarning()">
+          <option value="laptop">Laptop (2 threads, light)</option>
+          <option value="desktop" selected>Desktop (half CPU)</option>
+          <option value="server">Server (all CPU)</option>
+          <option value="max">Max (all CPU + large batches)</option>
         </select>
       </div>
       <div class="control-group" style="flex:0.5;">
         <label>Chain ID</label>
         <input type="text" id="chain-id" value="31415">
       </div>
+    </div>
+    <div id="profile-warning" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);font-size:12px;color:var(--gold);display:none;">
+      <strong>High CPU usage:</strong> This profile will heavily load your system. Your computer may slow down, run hot, and use more power. Make sure your cooling is adequate. Consider using "Laptop" or "Desktop" for lighter usage.
     </div>
     <div class="mine-btn-wrap">
       <button class="btn btn-success btn-lg" id="mine-btn" onclick="toggleMining()">&#x25B6; Start Mining</button>
@@ -228,6 +231,30 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="hideImportModal()">Cancel</button>
       <button class="btn btn-primary" onclick="doImportWallet()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- CPU usage warning modal -->
+<div class="modal-overlay" id="cpu-warning-modal">
+  <div class="modal">
+    <h3 style="color:var(--gold);">CPU Usage Warning</h3>
+    <p style="margin-bottom:8px;">Mining uses significant CPU resources. Depending on your selected profile, this may:</p>
+    <ul style="color:var(--muted);font-size:13px;margin:0 0 12px 18px;line-height:2;">
+      <li>Slow down other applications on your computer</li>
+      <li>Cause your CPU to run at high temperatures</li>
+      <li>Increase power consumption and fan noise</li>
+      <li>Reduce battery life on laptops</li>
+    </ul>
+    <p id="cpu-warning-profile" style="font-size:13px;margin-bottom:8px;"></p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">You can stop mining at any time. Use the "Laptop" profile for minimal impact.</p>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+      <input type="checkbox" id="cpu-warning-ack" style="-webkit-app-region:no-drag;cursor:pointer;">
+      <label for="cpu-warning-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand and accept the risks</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cancelMiningWarning()">Cancel</button>
+      <button class="btn btn-primary" id="cpu-warning-proceed" onclick="proceedMining()" disabled>Start Mining</button>
     </div>
   </div>
 </div>
@@ -377,13 +404,57 @@ function copyAddress() {
 
 // ---------- Mining control ----------
 
+function updateProfileWarning() {
+  const profile = document.getElementById('profile').value;
+  const warn = document.getElementById('profile-warning');
+  if (profile === 'server' || profile === 'max') {
+    warn.style.display = 'block';
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
 async function toggleMining() {
   if (isMining) {
     await stopMining();
   } else {
-    await startMining();
+    showMiningWarning();
   }
 }
+
+function showMiningWarning() {
+  const profile = document.getElementById('profile').value;
+  const profileDesc = {
+    'laptop': 'Laptop — uses 2 CPU threads (minimal impact)',
+    'desktop': 'Desktop — uses half your CPU cores (moderate impact)',
+    'server': 'Server — uses ALL CPU cores (heavy impact)',
+    'max': 'Max — uses ALL CPU cores with large batches (maximum impact)',
+  };
+  document.getElementById('cpu-warning-profile').innerHTML =
+    '<strong>Selected profile:</strong> ' + (profileDesc[profile] || profile);
+  document.getElementById('cpu-warning-ack').checked = false;
+  document.getElementById('cpu-warning-proceed').disabled = true;
+  document.getElementById('cpu-warning-modal').classList.add('active');
+}
+
+function cancelMiningWarning() {
+  document.getElementById('cpu-warning-modal').classList.remove('active');
+}
+
+async function proceedMining() {
+  document.getElementById('cpu-warning-modal').classList.remove('active');
+  await startMining();
+}
+
+// Enable/disable proceed button based on checkbox
+document.addEventListener('DOMContentLoaded', () => {
+  const ack = document.getElementById('cpu-warning-ack');
+  if (ack) {
+    ack.addEventListener('change', () => {
+      document.getElementById('cpu-warning-proceed').disabled = !ack.checked;
+    });
+  }
+});
 
 async function startMining() {
   const rpc = document.getElementById('rpc-url').value;

@@ -529,6 +529,7 @@ impl MiningProcessor {
     pub fn stats(&self) -> MiningStats {
         let reg_stats = self.registry.stats();
         let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let (next_pos, gap_size) = self.registry.find_next_gap();
         MiningStats {
             total_digits_verified: reg_stats.total_digits_verified,
             frontier_position: reg_stats.frontier_position,
@@ -537,7 +538,8 @@ impl MiningProcessor {
             remaining_pool: self.reward_calc.remaining_pool(),
             total_mined: self.reward_calc.total_mined(),
             fee_income: self.reward_calc.fee_income(),
-            next_position: self.next_mining_position(),
+            next_position: next_pos,
+            max_batch_at_position: gap_size,
             reward_per_digit: self.reward_calc.reward_per_digit(year),
             emission_year: year,
             // Fixed minimum difficulty — accessible to all hardware
@@ -636,6 +638,11 @@ pub struct MiningStats {
     /// Cumulative transaction fee income added to mining pool.
     pub fee_income: u64,
     pub next_position: u64,
+    /// Maximum contiguous digits that can be mined at `next_position` before
+    /// hitting an existing range. Miners should cap their batch size to this value.
+    /// u64::MAX means unlimited (no ranges ahead).
+    #[serde(default = "default_max_batch")]
+    pub max_batch_at_position: u64,
     pub reward_per_digit: u64,
     pub emission_year: u32,
     /// Current PoW difficulty in leading zero bits.
@@ -646,6 +653,10 @@ pub struct MiningStats {
     pub mining_epoch: u64,
     /// Per-miner reward cap for current epoch (in base units).
     pub epoch_miner_cap: u64,
+}
+
+fn default_max_batch() -> u64 {
+    u64::MAX
 }
 
 #[cfg(test)]

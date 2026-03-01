@@ -293,6 +293,11 @@ pub struct MiningStatusData {
     pub frontier_position: u64,
     pub total_digits_verified: u64,
     pub next_position: u64,
+    /// Maximum contiguous digits that can be mined at `next_position`.
+    /// Miners should cap their batch size to this value to avoid overlap
+    /// with existing ranges (e.g., from browser miners submitting small batches).
+    #[serde(default)]
+    pub max_batch_at_position: u64,
     pub total_ranges: u64,
     pub unique_miners: u64,
     pub remaining_pool: u64,
@@ -1105,6 +1110,7 @@ struct MiningStatus {
     frontier_position: u64,
     total_digits_verified: u64,
     next_position: u64,
+    max_batch_at_position: u64,
     total_ranges: u64,
     unique_miners: u64,
     remaining_pool: u64,
@@ -1124,6 +1130,7 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
                 frontier_position: stats.frontier_position,
                 total_digits_verified: stats.total_digits_verified,
                 next_position: stats.next_position,
+                max_batch_at_position: stats.max_batch_at_position,
                 total_ranges: stats.total_ranges,
                 unique_miners: stats.unique_miners,
                 remaining_pool: stats.remaining_pool,
@@ -1142,6 +1149,7 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
         frontier_position: 0,
         total_digits_verified: 0,
         next_position: 0,
+        max_batch_at_position: u64::MAX,
         total_ranges: 0,
         unique_miners: 0,
         remaining_pool: 0,

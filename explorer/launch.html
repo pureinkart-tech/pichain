@@ -110,14 +110,39 @@ a:hover { text-decoration: underline; }
 .form-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
 .form-row { margin-bottom: 16px; }
 .form-row label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-.form-row input, .form-row select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 15px; }
-.form-row input:focus { outline: none; border-color: var(--accent); }
-.form-row input::placeholder { color: var(--dim); }
+.form-row input, .form-row select, .form-row textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 15px; font-family: inherit; }
+.form-row input:focus, .form-row textarea:focus { outline: none; border-color: var(--accent); }
+.form-row input::placeholder, .form-row textarea::placeholder { color: var(--dim); }
+.form-row textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 .form-hint { font-size: 12px; color: var(--dim); margin-top: 4px; }
-.advanced-toggle { font-size: 13px; color: var(--accent-light); cursor: pointer; margin-bottom: 16px; display: inline-block; }
-.advanced-toggle:hover { text-decoration: underline; }
-.advanced-fields { display: none; }
-.advanced-fields.open { display: block; }
+.advanced-toggle, .social-toggle { font-size: 13px; color: var(--accent-light); cursor: pointer; margin-bottom: 16px; display: inline-block; user-select: none; }
+.advanced-toggle:hover, .social-toggle:hover { text-decoration: underline; }
+.advanced-fields, .social-fields { display: none; }
+.advanced-fields.open, .social-fields.open { display: block; }
+
+/* Image upload */
+.image-upload-zone { border: 2px dashed var(--border-light); border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg); position: relative; min-height: 160px; display: flex; align-items: center; justify-content: center; }
+.image-upload-zone:hover { border-color: var(--accent); background: rgba(99,102,241,0.04); }
+.image-upload-zone.dragover { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+.image-upload-zone.has-image { padding: 12px; border-style: solid; }
+.image-preview { position: relative; display: inline-block; }
+.image-preview img { max-width: 200px; max-height: 200px; border-radius: 10px; object-fit: cover; display: block; }
+.image-remove-btn { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: var(--rose); color: white; border: 2px solid var(--surface); font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.image-remove-btn:hover { background: #e11d48; }
+.image-upload-prompt { pointer-events: none; }
+.image-upload-icon { font-size: 36px; margin-bottom: 8px; opacity: 0.6; }
+
+/* Social link inputs with icons */
+.input-with-icon { position: relative; display: flex; align-items: center; }
+.input-with-icon .input-icon { position: absolute; left: 14px; font-size: 16px; color: var(--dim); z-index: 1; pointer-events: none; display: flex; align-items: center; width: 20px; justify-content: center; }
+.input-with-icon input { padding-left: 42px !important; }
+.input-with-icon .input-icon svg { width: 16px; height: 16px; fill: var(--dim); }
+
+/* Cost preview panel */
+.cost-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 20px 0; }
+.cost-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 6px 0; }
+.cost-row.cost-total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; color: var(--text); font-weight: 700; font-size: 14px; }
+.cost-row .insufficient { color: var(--rose); font-weight: 600; }
 
 /* Portfolio */
 .portfolio-table { width: 100%; border-collapse: collapse; }
@@ -173,18 +198,48 @@ a:hover { text-decoration: underline; }
 
 <!-- Wallet Modal -->
 <div class="modal-overlay" id="walletModal">
-  <div class="modal">
-    <h3>Connect Wallet</h3>
-    <div class="form-row">
-      <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWallet()">Create New Wallet</button>
+  <div class="modal" id="walletModalContent">
+    <!-- Step 1: Create or Import -->
+    <div id="walletStep1">
+      <h3>Connect Wallet</h3>
+      <div class="form-row">
+        <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWalletStep1()">Create New Wallet</button>
+      </div>
+      <div class="form-row">
+        <label>Or import private key (64 hex chars)</label>
+        <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex private key..." maxlength="64" spellcheck="false">
+      </div>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
+      <div style="margin-top:16px;text-align:center;">
+        <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
+      </div>
     </div>
-    <div class="form-row">
-      <label>Or import seed (64 hex chars)</label>
-      <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex seed..." maxlength="64" spellcheck="false">
-    </div>
-    <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
-    <div style="margin-top:16px;text-align:center;">
-      <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
+    <!-- Step 2: Save your private key warning -->
+    <div id="walletStep2" style="display:none;">
+      <h3 style="color:var(--gold);">Save Your Private Key</h3>
+      <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px;margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:6px;">This is the ONLY way to recover your wallet.</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">If you lose this key, your funds are gone forever. No one can recover it for you. Copy it now and store it somewhere safe.</div>
+      </div>
+      <div class="form-row">
+        <label>Your Private Key</label>
+        <div style="position:relative;">
+          <input type="text" id="newWalletSeed" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:12px;padding-right:70px;background:var(--bg);user-select:all;">
+          <button class="btn btn-sm" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);" id="copyKeyBtn">Copy</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Your Address</label>
+        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);color:var(--cyan);">
+      </div>
+      <div class="form-row" style="margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text);font-size:13px;">
+          <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked;" style="width:16px;height:16px;accent-color:var(--accent);">
+          I have saved my private key in a safe place
+        </label>
+      </div>
+      <button class="btn" style="width:100%;padding:14px;margin-top:8px;" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Continue</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
     </div>
   </div>
 </div>
@@ -225,31 +280,108 @@ a:hover { text-decoration: underline; }
   <div class="tab-content" id="tab-create">
     <div class="create-form">
       <div class="form-card">
-        <h3>Launch Your Token</h3>
+        <h3>Create a new token</h3>
+
+        <!-- Image Upload -->
         <div class="form-row">
-          <label>Token Name</label>
-          <input type="text" id="createName" placeholder="e.g. Doge PIChain" maxlength="64">
-        </div>
-        <div class="form-row">
-          <label>Token Symbol</label>
-          <input type="text" id="createSymbol" placeholder="e.g. DOPI" maxlength="10" style="text-transform:uppercase;">
-        </div>
-        <div class="form-row">
-          <label>Image / Description URL (optional)</label>
-          <input type="text" id="createUri" placeholder="https://..." maxlength="256">
-          <div class="form-hint">Link to token logo or metadata (IPFS, HTTP, etc.)</div>
+          <label>Token Image</label>
+          <div class="image-upload-zone" id="imageUploadZone" onclick="document.getElementById('imageInput').click()">
+            <input type="file" id="imageInput" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp" style="display:none" onchange="handleImageUpload(event)">
+            <div class="image-preview" id="imagePreview" style="display:none;">
+              <img id="imagePreviewImg" src="" alt="Token image">
+              <button type="button" class="image-remove-btn" onclick="removeImage(event)" title="Remove image">&times;</button>
+            </div>
+            <div class="image-upload-prompt" id="imageUploadPrompt">
+              <div class="image-upload-icon">&#128247;</div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Drag & drop or click to upload</div>
+              <div style="font-size:12px;color:var(--dim);margin-top:4px;">PNG, JPG, GIF, SVG, WebP &bull; Max 150 KB</div>
+            </div>
+          </div>
         </div>
 
-        <div class="advanced-toggle" onclick="toggleAdvanced()">Advanced Settings &#9662;</div>
+        <!-- Name -->
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="createName" placeholder="e.g. Doge PIChain" maxlength="64">
+        </div>
+
+        <!-- Ticker -->
+        <div class="form-row">
+          <label>Ticker</label>
+          <input type="text" id="createSymbol" placeholder="e.g. DOPI" maxlength="10" style="text-transform:uppercase;">
+        </div>
+
+        <!-- Description -->
+        <div class="form-row">
+          <label>Description</label>
+          <textarea id="createDescription" placeholder="Tell the world about your token..." maxlength="500" rows="3" oninput="updateDescCount()"></textarea>
+          <div class="form-hint" style="display:flex;justify-content:space-between;"><span>What makes this token special?</span><span id="descCharCount">0/500</span></div>
+        </div>
+
+        <!-- Social & Links -->
+        <div class="social-toggle" onclick="toggleSocials()">Show more options &#9662;</div>
+        <div class="social-fields" id="socialFields">
+          <div class="form-row">
+            <label>Website</label>
+            <div class="input-with-icon">
+              <span class="input-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg></span>
+              <input type="url" id="createWebsite" placeholder="https://your-website.com">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Twitter / X</label>
+            <div class="input-with-icon">
+              <span class="input-icon"><svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></span>
+              <input type="text" id="createTwitter" placeholder="https://x.com/yourtoken">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Telegram</label>
+            <div class="input-with-icon">
+              <span class="input-icon"><svg viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></span>
+              <input type="text" id="createTelegram" placeholder="https://t.me/yourgroup">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Discord</label>
+            <div class="input-with-icon">
+              <span class="input-icon"><svg viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286z"/></svg></span>
+              <input type="text" id="createDiscord" placeholder="https://discord.gg/yourserver">
+            </div>
+          </div>
+        </div>
+
+        <!-- Dev Buy-In -->
+        <div class="form-row" style="margin-top:8px;">
+          <label>Initial Dev Buy (optional)</label>
+          <div class="input-with-icon">
+            <span class="input-icon" style="font-weight:700;color:var(--green);font-size:14px;">PI</span>
+            <input type="number" id="createDevBuy" placeholder="0.0" step="0.1" min="0" value="" oninput="updateCostPreview()">
+          </div>
+          <div class="form-hint">Amount of PI to buy your own token at launch. You'll be the first buyer on the bonding curve.</div>
+        </div>
+
+        <!-- Cost & Allocation Preview -->
+        <div id="costPreview" class="cost-preview">
+          <div class="cost-row"><span>Gas fee</span><span>~0.05 PI</span></div>
+          <div class="cost-row" id="devBuyCostRow" style="display:none;"><span>Dev buy-in</span><span id="devBuyCostVal">0 PI</span></div>
+          <div class="cost-row" id="devTokensRow" style="display:none;"><span>Est. tokens received</span><span id="devTokensVal" style="color:var(--green);">--</span></div>
+          <div class="cost-row cost-total"><span>Total cost</span><span id="totalCostVal">~0.05 PI</span></div>
+          <div class="cost-row" id="balanceRow" style="display:none;"><span>Your balance</span><span id="balanceVal" style="color:var(--cyan);">--</span></div>
+        </div>
+
+        <!-- Launch Settings (Advanced) -->
+        <div class="advanced-toggle" onclick="toggleAdvanced()">Launch Settings &#9662;</div>
         <div class="advanced-fields" id="advancedFields">
           <div class="form-row">
             <label>Decimals</label>
             <input type="number" id="createDecimals" value="9" min="0" max="18">
+            <div class="form-hint">Token decimal places (default: 9)</div>
           </div>
           <div class="form-row">
-            <label>Max Supply (tokens)</label>
+            <label>Max Supply</label>
             <input type="number" id="createMaxSupply" value="1000000000">
-            <div class="form-hint">Total supply cap (default: 1 billion)</div>
+            <div class="form-hint">Total supply cap (default: 1 billion tokens)</div>
           </div>
           <div class="form-row">
             <label>Tokens for Sale (%)</label>
@@ -264,13 +396,17 @@ a:hover { text-decoration: underline; }
           <div class="form-row">
             <label>Max per Address (PI)</label>
             <input type="number" id="createMaxPerAddr" value="10" step="0.1">
+            <div class="form-hint">Maximum PI any single address can spend</div>
           </div>
         </div>
 
-        <button class="btn" style="width:100%;padding:14px;" onclick="createTokenAndLaunch()" id="createBtn">
-          Launch Token
+        <button class="btn" style="width:100%;padding:16px;font-size:16px;font-weight:700;" onclick="createTokenAndLaunch()" id="createBtn">
+          Create Token
         </button>
         <div id="createStatus" style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center;"></div>
+      </div>
+      <div style="text-align:center;color:var(--dim);font-size:12px;margin-top:8px;">
+        No platform fees &bull; You only pay gas
       </div>
     </div>
   </div>
@@ -373,6 +509,8 @@ let accountNonce = 0;
 let piBalance = 0;
 let currentBaseFee = 1000;
 
+let pendingNewSeed = null;
+
 function initWallet(seed) {
   walletKeypair = nacl.sign.keyPair.fromSeed(seed);
   walletAddress = deriveAddress(walletKeypair.publicKey);
@@ -382,13 +520,58 @@ function initWallet(seed) {
   updateWalletUI();
   updateBalance();
   document.getElementById('walletModal').classList.remove('show');
+  resetWalletModal();
 }
 
-function createWallet() { initWallet(nacl.randomBytes(32)); showToast('Wallet created!', 'success'); }
+// Step 1: Generate key and show it to user
+function createWalletStep1() {
+  pendingNewSeed = nacl.randomBytes(32);
+  const seedHex = hexEncode(pendingNewSeed);
+  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  const addr = deriveAddress(kp.publicKey);
+  const addrHex = hexEncode(addr);
+
+  document.getElementById('newWalletSeed').value = seedHex;
+  document.getElementById('newWalletAddr').value = addrHex;
+  document.getElementById('savedKeyCheck').checked = false;
+  document.getElementById('confirmWalletBtn').disabled = true;
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'block';
+}
+
+// Step 2: User confirmed they saved the key
+function confirmNewWallet() {
+  if (!pendingNewSeed) return;
+  initWallet(pendingNewSeed);
+  pendingNewSeed = null;
+  showToast('Wallet created!', 'success');
+}
+
+function cancelNewWallet() {
+  pendingNewSeed = null;
+  resetWalletModal();
+}
+
+function resetWalletModal() {
+  document.getElementById('walletStep1').style.display = 'block';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('newWalletSeed').value = '';
+  document.getElementById('newWalletAddr').value = '';
+  document.getElementById('savedKeyCheck').checked = false;
+}
+
+function copyNewKey() {
+  const input = document.getElementById('newWalletSeed');
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copyKeyBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
 
 function importWallet() {
   const seed = document.getElementById('importSeedInput').value.trim();
-  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid seed. Must be 64 hex chars.','error');return;}
+  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
   initWallet(hexDecode(seed));
   showToast('Wallet imported!', 'success');
 }
@@ -398,7 +581,10 @@ function loadWallet() {
   if(saved && saved.length===64) initWallet(hexDecode(saved));
 }
 
-function showWalletModal() { document.getElementById('walletModal').classList.add('show'); }
+function showWalletModal() {
+  resetWalletModal();
+  document.getElementById('walletModal').classList.add('show');
+}
 
 function updateWalletUI() {
   const bar = document.getElementById('walletBar');
@@ -406,7 +592,7 @@ function updateWalletUI() {
     bar.innerHTML = `
       <span class="addr">${shortAddr(walletAddressHex)}</span>
       <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
-      <button class="btn btn-sm btn-outline" onclick="exportWallet()">Export</button>
+      <button class="btn btn-sm btn-outline" onclick="showPrivateKey()">Key</button>
       <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
     `;
   } else {
@@ -417,12 +603,38 @@ function updateWalletUI() {
   }
 }
 
-function exportWallet() {
-  const blob = new Blob([JSON.stringify({seed:walletSeedHex,address:walletAddressHex})],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'pichain-wallet.json';
-  a.click();
+function showPrivateKey() {
+  const key = walletSeedHex;
+  const modal = document.getElementById('walletModalContent');
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'none';
+  // Show a temporary key view
+  let keyView = document.getElementById('walletKeyView');
+  if (!keyView) {
+    keyView = document.createElement('div');
+    keyView.id = 'walletKeyView';
+    modal.appendChild(keyView);
+  }
+  keyView.style.display = 'block';
+  keyView.innerHTML = `
+    <h3>Your Private Key</h3>
+    <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:12px;margin-bottom:16px;">
+      <div style="font-size:12px;color:var(--gold);line-height:1.5;">Never share this key with anyone. Anyone with this key has full access to your wallet.</div>
+    </div>
+    <div class="form-row">
+      <label>Private Key</label>
+      <div style="position:relative;">
+        <input type="text" value="${key}" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:12px;padding-right:70px;background:var(--bg);user-select:all;">
+        <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${key}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Address</label>
+      <input type="text" value="${walletAddressHex}" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);color:var(--cyan);">
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:12px;" onclick="document.getElementById('walletKeyView').style.display='none';document.getElementById('walletModal').classList.remove('show');resetWalletModal();">Close</button>
+  `;
+  document.getElementById('walletModal').classList.add('show');
 }
 
 function disconnectWallet() {
@@ -505,10 +717,21 @@ function renderFeed() {
     return;
   }
 
-  grid.innerHTML = filtered.map(l => `
+  grid.innerHTML = filtered.map(l => {
+    let cardImg = '';
+    if (l.metadata_uri) {
+      try {
+        const m = JSON.parse(l.metadata_uri);
+        if (m.image) cardImg = `<img src="${escHtml(m.image)}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">`;
+      } catch(e) {}
+    }
+    return `
     <div class="token-card" onclick="viewToken('${l.mint_id}')">
       <div class="card-top">
-        <div class="card-symbol">$${escHtml(l.symbol||'???')}</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${cardImg}
+          <div class="card-symbol">$${escHtml(l.symbol||'???')}</div>
+        </div>
         <span class="badge badge-${l.state}">${l.state==='TargetReached'?'Target Reached':l.state}</span>
       </div>
       <div class="card-name">${escHtml(l.name||'Unknown Token')}</div>
@@ -522,8 +745,8 @@ function renderFeed() {
         <span>by ${shortAddr(l.creator)}</span>
         <span>${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -595,17 +818,47 @@ async function viewToken(mintId) {
         </div>`;
     }
 
+    // Parse metadata from metadata_uri (JSON or plain URL)
+    let meta = {};
+    if (l.metadata_uri) {
+      try { meta = JSON.parse(l.metadata_uri); } catch(e) { meta = { website: l.metadata_uri }; }
+    }
+
+    let metaHtml = '';
+    // Token image
+    if (meta.image) {
+      metaHtml += `<div style="margin:16px 0;"><img src="${escHtml(meta.image)}" alt="${escHtml(l.name)}" style="max-width:120px;max-height:120px;border-radius:12px;object-fit:cover;border:1px solid var(--border);"></div>`;
+    }
+    // Description
+    if (meta.description) {
+      metaHtml += `<div style="color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:16px;">${escHtml(meta.description)}</div>`;
+    }
+    // Social links
+    let socialLinks = '';
+    if (meta.website) socialLinks += `<a href="${escHtml(meta.website)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;margin-right:16px;font-size:13px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg> Website</a>`;
+    if (meta.twitter) socialLinks += `<a href="${escHtml(meta.twitter)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;margin-right:16px;font-size:13px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> Twitter</a>`;
+    if (meta.telegram) socialLinks += `<a href="${escHtml(meta.telegram)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;margin-right:16px;font-size:13px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg> Telegram</a>`;
+    if (meta.discord) socialLinks += `<a href="${escHtml(meta.discord)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;margin-right:16px;font-size:13px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286z"/></svg> Discord</a>`;
+    if (socialLinks) {
+      metaHtml += `<div style="margin-bottom:16px;">${socialLinks}</div>`;
+    }
+
     detail.innerHTML = `
       <button class="btn btn-outline btn-sm" onclick="hideDetail()" style="margin-bottom:16px;">&larr; Back to all tokens</button>
       <div class="detail-panel">
         <div class="detail-header">
-          <div>
-            <div class="detail-title">$${escHtml(l.symbol)} &mdash; ${escHtml(l.name)}</div>
-            <div class="detail-meta">Created by ${shortAddr(l.creator)} &bull; ${l.created_at_ms?timeAgo(l.created_at_ms):''}</div>
-            ${l.metadata_uri ? '<div class="detail-meta" style="margin-top:4px;"><a href="'+escHtml(l.metadata_uri)+'" target="_blank">'+escHtml(l.metadata_uri)+'</a></div>' : ''}
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            ${meta.image ? '<img src="'+escHtml(meta.image)+'" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">' : ''}
+            <div>
+              <div class="detail-title">$${escHtml(l.symbol)} &mdash; ${escHtml(l.name)}</div>
+              <div class="detail-meta">Created by ${shortAddr(l.creator)} &bull; ${l.created_at_ms?timeAgo(l.created_at_ms):''}</div>
+            </div>
           </div>
           <span class="badge badge-${l.state}" style="font-size:13px;padding:6px 14px;">${l.state==='TargetReached'?'Target Reached':l.state}</span>
         </div>
+
+        ${meta.description ? '<div style="color:var(--muted);font-size:14px;line-height:1.6;margin:12px 0 16px;">' + escHtml(meta.description) + '</div>' : ''}
+        ${socialLinks ? '<div style="margin-bottom:16px;">' + socialLinks + '</div>' : ''}
 
         <div class="progress-bar" style="height:10px;margin-bottom:8px;"><div class="progress-fill" style="width:${Math.min(100,l.percent_complete).toFixed(1)}%"></div></div>
         <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:24px;">
@@ -711,20 +964,175 @@ function deriveMintId(creatorAddress, mintNonce) {
   return BLAKE3.hash(data);
 }
 
+// ---- Image upload / drag-drop ----
+let uploadedImageDataUrl = null;
+
+function handleImageUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  processImageFile(file);
+}
+
+function processImageFile(file) {
+  if (!file.type.match(/^image\/(png|jpeg|gif|svg\+xml|webp)$/)) {
+    showToast('Please upload a PNG, JPG, GIF, SVG, or WebP image', 'error');
+    return;
+  }
+  if (file.size > 150 * 1024) {
+    showToast('Image must be under 150 KB', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    uploadedImageDataUrl = ev.target.result;
+    document.getElementById('imagePreviewImg').src = uploadedImageDataUrl;
+    document.getElementById('imagePreview').style.display = 'inline-block';
+    document.getElementById('imageUploadPrompt').style.display = 'none';
+    document.getElementById('imageUploadZone').classList.add('has-image');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeImage(e) {
+  e.stopPropagation();
+  uploadedImageDataUrl = null;
+  document.getElementById('imageInput').value = '';
+  document.getElementById('imagePreview').style.display = 'none';
+  document.getElementById('imageUploadPrompt').style.display = '';
+  document.getElementById('imageUploadZone').classList.remove('has-image');
+}
+
+// Drag and drop
+(function() {
+  const zone = document.getElementById('imageUploadZone');
+  if (!zone) return;
+  zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', function(e) { e.preventDefault(); zone.classList.remove('dragover'); });
+  zone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) processImageFile(file);
+  });
+})();
+
+// Description character counter
+function updateDescCount() {
+  const ta = document.getElementById('createDescription');
+  document.getElementById('descCharCount').textContent = (ta.value.length) + '/500';
+}
+
+// Cost preview (updates live as user types)
+function updateCostPreview() {
+  const devBuyFloat = parseFloat(document.getElementById('createDevBuy').value) || 0;
+  const gasCost = 0.05;
+  const totalCost = gasCost + devBuyFloat;
+
+  const devBuyRow = document.getElementById('devBuyCostRow');
+  const devTokensRow = document.getElementById('devTokensRow');
+  const balanceRow = document.getElementById('balanceRow');
+
+  if (devBuyFloat > 0) {
+    devBuyRow.style.display = '';
+    devTokensRow.style.display = '';
+    document.getElementById('devBuyCostVal').textContent = devBuyFloat.toFixed(2) + ' PI';
+
+    // Estimate tokens from bonding curve at position 0
+    const decimals = parseInt(document.getElementById('createDecimals').value) || 9;
+    const maxSupplyTokens = parseInt(document.getElementById('createMaxSupply').value) || 1000000000;
+    const salePct = parseInt(document.getElementById('createSalePct').value) || 80;
+    const targetPiFloat = parseFloat(document.getElementById('createTargetPi').value) || 100;
+
+    const maxSupply = BigInt(maxSupplyTokens) * BigInt(Math.pow(10, decimals));
+    const tokensForSale = maxSupply * BigInt(salePct) / 100n;
+    const targetPi = BigInt(Math.floor(targetPiFloat * 1e9));
+
+    let basePrice = Number(targetPi / (tokensForSale * 2n)) || 1;
+    let slope = 1;
+    const N = tokensForSale;
+    const baseTotal = BigInt(basePrice) * N;
+    if (targetPi > baseTotal && N > 1n) {
+      slope = Number(((targetPi - baseTotal) * 2n) / (N * (N - 1n))) || 1;
+    }
+    if (basePrice < 1) basePrice = 1;
+    if (slope < 1) slope = 1;
+
+    // Binary search: how many tokens for devBuy PI?
+    const bp = BigInt(basePrice);
+    const sl = BigInt(slope);
+    const piBase = BigInt(Math.floor(devBuyFloat * 1e9));
+    let lo = 0n, hi = tokensForSale;
+    while (lo < hi) {
+      const mid = (lo + hi + 1n) / 2n;
+      const cost = bp * mid + sl * mid * (mid - 1n) / 2n;
+      if (cost <= piBase) lo = mid; else hi = mid - 1n;
+    }
+    const pctOwned = tokensForSale > 0n ? (Number(lo * 10000n / maxSupply) / 100).toFixed(2) : '0';
+    document.getElementById('devTokensVal').textContent = formatTokens(Number(lo), decimals) + ' (' + pctOwned + '% of supply)';
+  } else {
+    devBuyRow.style.display = 'none';
+    devTokensRow.style.display = 'none';
+  }
+
+  document.getElementById('totalCostVal').textContent = '~' + totalCost.toFixed(2) + ' PI';
+
+  // Show balance if wallet connected
+  if (walletKeypair) {
+    balanceRow.style.display = '';
+    const balText = formatPI(piBalance) + ' PI';
+    const balEl = document.getElementById('balanceVal');
+    balEl.textContent = balText;
+    if (totalCost * 1e9 > piBalance) {
+      balEl.className = 'insufficient';
+      balEl.textContent = balText + ' (insufficient)';
+    } else {
+      balEl.style.color = 'var(--cyan)';
+      balEl.className = '';
+    }
+  } else {
+    balanceRow.style.display = 'none';
+  }
+}
+
+// Social links toggle
+function toggleSocials() {
+  const el = document.getElementById('socialFields');
+  el.classList.toggle('open');
+  const toggle = el.previousElementSibling;
+  toggle.innerHTML = el.classList.contains('open') ? 'Show fewer options &#9652;' : 'Show more options &#9662;';
+}
+
 async function createTokenAndLaunch() {
   if(!walletKeypair) { showWalletModal(); return; }
 
   const name = document.getElementById('createName').value.trim();
   const symbol = document.getElementById('createSymbol').value.trim().toUpperCase();
-  const metadataUri = document.getElementById('createUri').value.trim();
+  const description = document.getElementById('createDescription').value.trim();
+  const website = document.getElementById('createWebsite').value.trim();
+  const twitter = document.getElementById('createTwitter').value.trim();
+  const telegram = document.getElementById('createTelegram').value.trim();
+  const discord = document.getElementById('createDiscord').value.trim();
   const decimals = parseInt(document.getElementById('createDecimals').value) || 9;
   const maxSupplyTokens = parseInt(document.getElementById('createMaxSupply').value) || 1000000000;
   const salePct = parseInt(document.getElementById('createSalePct').value) || 80;
   const targetPiFloat = parseFloat(document.getElementById('createTargetPi').value) || 100;
   const maxPerAddrFloat = parseFloat(document.getElementById('createMaxPerAddr').value) || 10;
 
+  const devBuyFloat = parseFloat(document.getElementById('createDevBuy').value) || 0;
+
   if(!name || name.length > 64) { showToast('Name must be 1-64 characters','error'); return; }
-  if(!symbol || symbol.length > 10) { showToast('Symbol must be 1-10 characters','error'); return; }
+  if(!symbol || symbol.length > 10) { showToast('Ticker must be 1-10 characters','error'); return; }
+  if(devBuyFloat < 0) { showToast('Dev buy cannot be negative','error'); return; }
+
+  // Build metadata JSON for metadata_uri
+  const metadata = {};
+  if(description) metadata.description = description;
+  if(uploadedImageDataUrl) metadata.image = uploadedImageDataUrl;
+  if(website) metadata.website = website;
+  if(twitter) metadata.twitter = twitter;
+  if(telegram) metadata.telegram = telegram;
+  if(discord) metadata.discord = discord;
+  const metadataUri = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : '';
 
   const maxSupply = BigInt(maxSupplyTokens) * BigInt(Math.pow(10, decimals));
   const tokensForSale = maxSupply * BigInt(salePct) / 100n;
@@ -782,7 +1190,19 @@ async function createTokenAndLaunch() {
       max_per_address: Number(maxPerAddr)
     }, accountNonce+1, sig2, 75000);
 
-    // Submit both
+    // Tx 3: Dev buy-in (optional)
+    let hex3 = null;
+    if (devBuyFloat > 0) {
+      status.textContent = 'Signing dev buy-in...';
+      const devBuyBase = Math.floor(devBuyFloat * 1e9);
+      const canonical3 = buildParticipateCanonical(walletAddress, accountNonce+2, mintId, devBuyBase);
+      const sig3 = nacl.sign.detached(canonical3, walletKeypair.secretKey);
+      hex3 = buildSignedTxJson('ParticipateInLaunch', {
+        mint: Array.from(mintId), pi_amount: devBuyBase
+      }, accountNonce+2, sig3, 50000);
+    }
+
+    // Submit all transactions
     status.textContent = 'Submitting CreateToken...';
     const r1 = await submitTx(hex1);
     if(r1.status !== 'pending') { throw new Error('CreateToken failed: '+(r1.error||'unknown')); }
@@ -791,9 +1211,34 @@ async function createTokenAndLaunch() {
     const r2 = await submitTx(hex2);
     if(r2.status !== 'pending') { throw new Error('CreateLaunch failed: '+(r2.error||'unknown')); }
 
-    accountNonce += 2;
+    let txCount = 2;
+    if (hex3) {
+      status.textContent = 'Submitting dev buy-in...';
+      const r3 = await submitTx(hex3);
+      if(r3.status !== 'pending') {
+        // Dev buy failed but token+launch succeeded — warn but don't throw
+        showToast('Token launched but dev buy failed: '+(r3.error||'unknown'), 'info');
+      } else {
+        txCount = 3;
+      }
+    }
+
+    accountNonce += txCount;
     status.textContent = '';
-    showToast('Token $'+symbol+' launched!', 'success');
+    showToast('Token $'+symbol+' launched!' + (txCount===3 ? ' Dev buy confirmed.' : ''), 'success');
+
+    // Clear form
+    document.getElementById('createName').value = '';
+    document.getElementById('createSymbol').value = '';
+    document.getElementById('createDescription').value = '';
+    document.getElementById('createWebsite').value = '';
+    document.getElementById('createTwitter').value = '';
+    document.getElementById('createTelegram').value = '';
+    document.getElementById('createDiscord').value = '';
+    document.getElementById('createDevBuy').value = '';
+    updateDescCount();
+    updateCostPreview();
+    removeImage({stopPropagation:()=>{}});
 
     // Refresh and show detail
     setTimeout(async ()=>{
@@ -809,7 +1254,10 @@ async function createTokenAndLaunch() {
 }
 
 function toggleAdvanced() {
-  document.getElementById('advancedFields').classList.toggle('open');
+  const el = document.getElementById('advancedFields');
+  el.classList.toggle('open');
+  const toggle = el.previousElementSibling;
+  toggle.innerHTML = el.classList.contains('open') ? 'Launch Settings &#9652;' : 'Launch Settings &#9662;';
 }
 
 // =====================================================================

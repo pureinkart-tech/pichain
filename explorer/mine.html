@@ -634,6 +634,30 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
   </div>
 </div>
 
+<!-- CPU Usage Warning Modal -->
+<div class="modal-overlay" id="cpu-warning-modal">
+  <div class="modal">
+    <h3 style="color:#fbbf24;">CPU Usage Warning</h3>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:8px;">Mining uses your CPU to compute PI digits. This may:</p>
+    <ul style="color:var(--muted);font-size:13px;margin:0 0 12px 18px;line-height:2;">
+      <li>Slow down your browser and other applications</li>
+      <li>Cause your device to run hot and fans to spin up</li>
+      <li>Increase power consumption and reduce battery life</li>
+      <li>Make your system less responsive while mining</li>
+    </ul>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:4px;"><strong style="color:var(--text);">Your settings:</strong> <span id="cpu-warn-threads">2</span> thread(s), <span id="cpu-warn-batch">20</span> digits/batch</p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">Reduce threads or batch size for lighter CPU usage. You can stop mining at any time.</p>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+      <input type="checkbox" id="cpu-warn-ack" style="cursor:pointer;">
+      <label for="cpu-warn-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand the impact on my system and want to proceed</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="cancelMiningWarning()">Cancel</button>
+      <button class="btn btn-primary" id="cpu-warn-proceed" onclick="confirmStartMining()" disabled>Start Mining</button>
+    </div>
+  </div>
+</div>
+
 <div class="footer">PIChain &mdash; Computing the Infinite</div>
 
 <!-- Ed25519 library -->
@@ -929,7 +953,24 @@ function hideRoundProgress(){
   if(rp)rp.style.display='none';
 }
 
-function toggleMining(){if(isMining)stopMining();else startMining();}
+function toggleMining(){if(isMining)stopMining();else showMiningWarning();}
+
+function showMiningWarning(){
+  if(!walletKeypair)return;
+  const threads=document.getElementById('thread-count').value;
+  const batch=document.getElementById('batch-size').value;
+  document.getElementById('cpu-warn-threads').textContent=threads;
+  document.getElementById('cpu-warn-batch').textContent=batch;
+  document.getElementById('cpu-warn-ack').checked=false;
+  document.getElementById('cpu-warn-proceed').disabled=true;
+  document.getElementById('cpu-warning-modal').classList.add('active');
+}
+function cancelMiningWarning(){document.getElementById('cpu-warning-modal').classList.remove('active');}
+function confirmStartMining(){document.getElementById('cpu-warning-modal').classList.remove('active');startMining();}
+document.addEventListener('DOMContentLoaded',function(){
+  const ack=document.getElementById('cpu-warn-ack');
+  if(ack)ack.addEventListener('change',function(){document.getElementById('cpu-warn-proceed').disabled=!ack.checked;});
+});
 
 function stopMining(){
   isMining=false;workers.forEach(w=>w.terminate());workers=[];pendingWorkers=0;
@@ -965,9 +1006,10 @@ async function miningLoop(){
     currentStatus=await sr.json();
     await refreshBalance(); // balance only — nonce managed locally during mining
 
-    const batchSize=parseInt(document.getElementById('batch-size').value);
+    let batchSize=parseInt(document.getElementById('batch-size').value);
     const threadCount=parseInt(document.getElementById('thread-count').value);
     const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
+    const maxBatch=currentStatus.max_batch_at_position||Infinity;
 
     // On first round, compute a unique starting position for this browser miner.
     // BBP algorithm is O(n) per digit — at position 2M each digit takes ~0.7s in JS,

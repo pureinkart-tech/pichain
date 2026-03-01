@@ -160,6 +160,10 @@ struct MiningStatus {
     frontier_position: u64,
     total_digits_verified: u64,
     next_position: u64,
+    /// Maximum contiguous digits mineable at next_position before hitting
+    /// an existing range. Miners should cap batch size to this value.
+    #[serde(default = "default_max_batch")]
+    max_batch_at_position: u64,
     #[serde(default)]
     reward_per_digit: u64,
     #[serde(default)]
@@ -168,6 +172,10 @@ struct MiningStatus {
     difficulty_target_hex: String,
     #[serde(default)]
     anchor_block_hash: String,
+}
+
+fn default_max_batch() -> u64 {
+    u64::MAX
 }
 
 /// Transaction submission response.
@@ -339,6 +347,27 @@ async fn main() -> anyhow::Result<()> {
         .ok(); // Ignore if already initialized
 
     let profile_name = args.profile.as_deref().unwrap_or("auto");
+    let total_cores = num_cpus::get();
+
+    // CPU usage warning
+    let cpu_pct = if total_cores > 0 { num_threads * 100 / total_cores } else { 100 };
+    eprintln!();
+    eprintln!("  ====================== WARNING ======================");
+    eprintln!("  Mining uses significant CPU resources.");
+    eprintln!("  Profile: {profile_name} — {num_threads} / {total_cores} CPU threads (~{cpu_pct}% CPU)");
+    if cpu_pct > 75 {
+        eprintln!("  This will heavily load your system and may cause");
+        eprintln!("  slowdowns, high temperatures, and increased power");
+        eprintln!("  usage. Make sure your cooling is adequate.");
+    }
+    eprintln!("  Use --profile laptop for lighter CPU usage.");
+    eprintln!("  Use --max-cpu 50 to limit to ~50% CPU.");
+    eprintln!("  Press Ctrl+C at any time to stop mining.");
+    eprintln!("  By continuing, you accept responsibility for any");
+    eprintln!("  impact on your system's performance or hardware.");
+    eprintln!("  =====================================================");
+    eprintln!();
+
     info!(
         rpc = %args.rpc_url,
         profile = profile_name,
@@ -390,14 +419,40 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Calculate position to mine at
-        let position = if let Some(start) = args.start_at {
+        // Calculate position and effective batch size.
+        // Cap batch size to the available gap to avoid overlap with existing ranges
+        // (e.g., browser miners may have submitted small non-aligned ranges).
+        let (position, effective_batch_size) = if let Some(start) = args.start_at {
             // Manual override: mine sequentially from a fixed starting point
-            start.saturating_add(loop_count.saturating_mul(batch_size as u64))
+            let pos = start.saturating_add(loop_count.saturating_mul(batch_size as u64));
+            (pos, batch_size)
         } else {
             // Auto position: frontier + offset to avoid collisions with other miners
             let offset = (args.position_offset as u64).saturating_mul(batch_size as u64);
-            mining_status.next_position.saturating_add(offset)
+            let pos = mining_status.next_position.saturating_add(offset);
+            // Cap batch size to available gap
+            let max_gap = mining_status.max_batch_at_position;
+            let effective = if max_gap < batch_size as u64 && max_gap >= 10 {
+                // Gap is smaller than configured batch — use gap size
+                info!(
+                    configured = batch_size,
+                    available_gap = max_gap,
+                    "Capping batch size to fit available gap"
+                );
+                max_gap as u32
+            } else if max_gap < 10 {
+                // Gap too small for minimum proof size, skip ahead
+                warn!(
+                    gap = max_gap,
+                    position = pos,
+                    "Gap too small (< 10 digits), waiting for gap to grow..."
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                continue;
+            } else {
+                batch_size
+            };
+            (pos, effective)
         };
 
         // Parse difficulty target and anchor block hash
@@ -452,7 +507,7 @@ async fn main() -> anyhow::Result<()> {
                 Ok(resp) => match resp.json::<AccountResponse>().await {
                     Ok(acct) if acct.found => {
                         // Check balance covers gas
-                        let estimated_gas = 200_000 + batch_size as u64 * 100;
+                        let estimated_gas = 200_000 + effective_batch_size as u64 * 100;
                         let min_cost = estimated_gas * 1_100; // base_fee + priority_fee estimate
                         if acct.balance < min_cost {
                             warn!(
@@ -474,26 +529,34 @@ async fn main() -> anyhow::Result<()> {
         // 3. Compute PI digits (parallel across CPU cores)
         let compute_start = std::time::Instant::now();
 
+        // When the gap is smaller than batch_size * batch_count, reduce to 1 batch
+        // to avoid submitting at positions that overlap with existing ranges.
+        let effective_batch_count = if effective_batch_size < batch_size {
+            1 // Gap is constrained — only submit one batch at the gap
+        } else {
+            batch_count
+        };
+
         // Compute all concurrent batches in parallel using rayon
-        let batches: Vec<(u64, Vec<u8>)> = if batch_count == 1 {
+        let batches: Vec<(u64, u32, Vec<u8>)> = if effective_batch_count == 1 {
             // Single batch — parallelize within the batch
-            let digits = BbpComputer::compute_hex_digits_parallel(position, batch_size);
-            vec![(position, digits)]
+            let digits = BbpComputer::compute_hex_digits_parallel(position, effective_batch_size);
+            vec![(position, effective_batch_size, digits)]
         } else {
             // Multiple concurrent batches at different positions using rayon
             use rayon::prelude::*;
-            (0..batch_count)
+            (0..effective_batch_count)
                 .into_par_iter()
                 .map(|i| {
-                    let batch_pos = position.saturating_add((i as u64).saturating_mul(batch_size as u64));
-                    let digits = BbpComputer::compute_hex_digits_parallel(batch_pos, batch_size);
-                    (batch_pos, digits)
+                    let batch_pos = position.saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
+                    let digits = BbpComputer::compute_hex_digits_parallel(batch_pos, effective_batch_size);
+                    (batch_pos, effective_batch_size, digits)
                 })
                 .collect()
         };
         let compute_time = compute_start.elapsed();
 
-        let total_batch_digits = batch_count as u64 * batch_size as u64;
+        let total_batch_digits = effective_batch_count as u64 * effective_batch_size as u64;
         let digits_per_sec = if compute_time.as_millis() > 0 {
             total_batch_digits as f64 / compute_time.as_secs_f64()
         } else {
@@ -502,7 +565,7 @@ async fn main() -> anyhow::Result<()> {
 
         info!(
             digits = total_batch_digits,
-            batches = batch_count,
+            batches = effective_batch_count,
             position,
             elapsed_ms = compute_time.as_millis(),
             digits_per_sec = format!("{:.0}", digits_per_sec),
@@ -512,7 +575,7 @@ async fn main() -> anyhow::Result<()> {
 
         // 4. Find PoW nonce and submit all batches
         let mut current_nonce = nonce;
-        for (batch_pos, digits) in batches {
+        for (batch_pos, batch_digit_count, digits) in batches {
             // Find a PoW nonce that meets the difficulty target
             // Scale attempts to difficulty: need ~2^bits attempts on average.
             // Use 8x expected attempts for high success probability.
@@ -559,13 +622,13 @@ async fn main() -> anyhow::Result<()> {
                 nonce: current_nonce,
                 kind: TransactionKind::MiningProof {
                     start_position: batch_pos,
-                    digit_count: batch_size,
+                    digit_count: batch_digit_count,
                     digits,
                     proof: vec![],
                     pow_nonce: pn,
                     anchor_block_hash: anchor_block_hash.to_vec(),
                 },
-                gas_limit: 200_000u64.saturating_add((batch_size as u64).saturating_mul(100)),
+                gas_limit: 200_000u64.saturating_add((batch_digit_count as u64).saturating_mul(100)),
                 max_base_fee: 1_000,
                 max_priority_fee: 100,
                 chain_id: args.chain_id,
@@ -590,11 +653,11 @@ async fn main() -> anyhow::Result<()> {
                     Ok(result) => {
                         if result.status == "pending" {
                             proofs_accepted += 1;
-                            total_digits_computed += batch_size as u64;
+                            total_digits_computed += batch_digit_count as u64;
                             info!(
                                 tx_hash = %result.tx_hash,
                                 position = batch_pos,
-                                digits = batch_size,
+                                digits = batch_digit_count,
                                 total_digits = total_digits_computed,
                                 accepted = proofs_accepted,
                                 "Mining proof submitted successfully"
