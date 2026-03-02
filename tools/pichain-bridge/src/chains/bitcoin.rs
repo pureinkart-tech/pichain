@@ -33,11 +33,13 @@ struct BtcTxStatus {
 struct BtcVout {
     scriptpubkey: Option<String>,
     scriptpubkey_address: Option<String>,
+    #[allow(dead_code)]
     scriptpubkey_asm: Option<String>,
     scriptpubkey_type: Option<String>,
     value: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct BlockTip {
     height: u64,

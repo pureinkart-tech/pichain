@@ -185,12 +185,7 @@ pub fn find_nonce(
     max_attempts: u64,
     miner: &[u8; 20],
 ) -> Option<u64> {
-    for nonce in 0..max_attempts {
-        if check_proof_difficulty(digits, nonce, anchor_block_hash, target, miner) {
-            return Some(nonce);
-        }
-    }
-    None
+    (0..max_attempts).find(|&nonce| check_proof_difficulty(digits, nonce, anchor_block_hash, target, miner))
 }
 
 /// Find a nonce in parallel using rayon.
@@ -209,7 +204,7 @@ pub fn find_nonce_parallel(
 
     // Search in chunks to allow early termination
     let chunk_size = 10_000u64;
-    let chunks = (max_attempts + chunk_size - 1) / chunk_size;
+    let chunks = max_attempts.div_ceil(chunk_size);
 
     (0..chunks).into_par_iter().for_each(|chunk_idx| {
         if found.load(Ordering::Acquire) {
@@ -282,7 +277,7 @@ fn multiply_target(target: &[u8; 32], factor: f64) -> [u8; 32] {
 
     // Position shift: negative = grew (easier), positive = shrunk (harder)
     let shift = scaled_first as i32 - orig_first_in_buf as i32;
-    let new_pos = (first_nz as i32 + shift).max(0).min(31) as usize;
+    let new_pos = (first_nz as i32 + shift).clamp(0, 31) as usize;
 
     // Write the significant bytes of the scaled value
     let mut result = [0u8; 32];
@@ -325,9 +320,7 @@ fn multiply_target_int(target: &[u8; 32], numerator: u64, denominator: u64) -> [
     let value = u64::from_be_bytes(buf);
 
     // Scale using u128 to prevent overflow: (value * numerator) / denominator
-    let scaled_128 = (value as u128)
-        .checked_mul(numerator as u128)
-        .unwrap_or(u128::MAX)
+    let scaled_128 = (value as u128).saturating_mul(numerator as u128)
         / (denominator as u128);
     let scaled = if scaled_128 > u64::MAX as u128 {
         u64::MAX
@@ -347,7 +340,7 @@ fn multiply_target_int(target: &[u8; 32], numerator: u64, denominator: u64) -> [
 
     // Position shift: negative = grew (easier), positive = shrunk (harder)
     let shift = scaled_first as i32 - orig_first_in_buf as i32;
-    let new_pos = (first_nz as i32 + shift).max(0).min(31) as usize;
+    let new_pos = (first_nz as i32 + shift).clamp(0, 31) as usize;
 
     // Write the significant bytes of the scaled value
     let mut result = [0u8; 32];

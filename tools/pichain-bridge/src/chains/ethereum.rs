@@ -37,6 +37,7 @@ struct JsonRpcError {
 
 #[derive(Deserialize, Debug)]
 struct EthBlock {
+    #[allow(dead_code)]
     number: Option<String>,
     transactions: Vec<EthTransaction>,
 }

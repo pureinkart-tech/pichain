@@ -82,6 +82,7 @@ impl NftCollection {
     pub const MAX_ROYALTY_BPS: u16 = 5000;
 
     /// Create a new NFT collection.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: CollectionId,
         name: String,

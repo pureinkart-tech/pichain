@@ -36,7 +36,7 @@ fn is_loopback_ip(ip: IpAddr) -> bool {
         IpAddr::V4(v4) => v4.is_loopback(),
         IpAddr::V6(v6) => {
             v6.is_loopback()
-                || v6.to_ipv4_mapped().map_or(false, |v4| v4.is_loopback())
+                || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
         }
     }
 }
@@ -1201,7 +1201,7 @@ async fn submit_transaction(
     }
 
     // Decode the hex-encoded signed transaction
-    let tx_bytes = match hex::decode(&req.signed_tx_hex) {
+    let tx_bytes = match hex::decode(req.signed_tx_hex) {
         Ok(b) => b,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
@@ -1671,8 +1671,8 @@ async fn activate_wallet(
     // Uses SHA-256 so browsers can solve via native crypto.subtle (no CDN/WASM deps)
     use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
-    hasher.update(&entry.challenge);
-    hasher.update(&req.nonce.to_le_bytes());
+    hasher.update(entry.challenge);
+    hasher.update(req.nonce.to_le_bytes());
     let result = hasher.finalize();
     let hash_slice: &[u8] = result.as_ref();
     let hash_bytes: &[u8; 32] = hash_slice.try_into().expect("sha256 is 32 bytes");
@@ -1842,7 +1842,7 @@ async fn get_block_range(
     axum::extract::Query(query): axum::extract::Query<BlockRangeQuery>,
 ) -> Json<BlockListResponse> {
     if let Some(provider) = state.state_provider.clone() {
-        let limit = query.limit.min(MAX_BLOCK_RANGE).max(1); // clamp to [1, 50]
+        let limit = query.limit.clamp(1, MAX_BLOCK_RANGE); // clamp to [1, 50]
 
         // Acquire semaphore permit to limit concurrent blocking tasks
         let _permit = match state.blocking_semaphore.acquire().await {
@@ -2680,12 +2680,11 @@ async fn get_launch_detail(
                     arr.copy_from_slice(&bytes);
                     let mint = pichain_types::MintId(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
-                    if let Ok(result) = tokio::task::spawn_blocking(move || {
+                    if let Ok(Some((launch, token))) = tokio::task::spawn_blocking(move || {
                         let launch = provider.get_launch_by_mint(&mint)?;
                         let token = provider.get_token_mint(&mint);
                         Some((launch, token))
                     }).await {
-                        if let Some((launch, token)) = result {
                             let (lt_name, bp, sl, ps) = match &launch.launch_type {
                                 pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
                                     ("FairLaunch", *price_per_token, 0u64, 1u64),
@@ -2724,7 +2723,6 @@ async fn get_launch_detail(
                                 "metadata_uri": token.as_ref().map(|t| t.metadata_uri.as_str()).unwrap_or(""),
                                 "decimals": token.as_ref().map(|t| t.decimals).unwrap_or(9),
                             })));
-                        }
                     }
                 }
             }
@@ -2869,7 +2867,7 @@ async fn get_address_transactions(
     if address_hex.len() != 40 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
     }
-    let Ok(addr_bytes) = hex::decode(&address_hex) else {
+    let Ok(addr_bytes) = hex::decode(address_hex) else {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid hex"})));
     };
     let before_height = params.get("before").and_then(|s| s.parse::<u64>().ok());
@@ -2904,7 +2902,7 @@ async fn query_events(
             if topic_hex.len() != 64 {
                 return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "topic must be 64 hex chars"})));
             }
-            if let Ok(bytes) = hex::decode(&topic_hex) {
+            if let Ok(bytes) = hex::decode(topic_hex) {
                 let mut topic = [0u8; 32];
                 topic.copy_from_slice(&bytes);
                 let entries = provider.query_events_by_topic(&topic, limit);
@@ -2920,7 +2918,7 @@ async fn query_events(
             if addr_hex.len() != 40 {
                 return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
             }
-            if let Ok(bytes) = hex::decode(&addr_hex) {
+            if let Ok(bytes) = hex::decode(addr_hex) {
                 let mut address = [0u8; 20];
                 address.copy_from_slice(&bytes);
                 let addr = pichain_crypto::ed25519::Address(address);
@@ -2959,7 +2957,7 @@ async fn get_delegations(
     if address_hex.len() != 40 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
     }
-    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+    if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
@@ -2980,7 +2978,7 @@ async fn get_staking_rewards(
     if address_hex.len() != 40 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
     }
-    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+    if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
@@ -3022,7 +3020,7 @@ async fn get_collection_items(
     if cid_hex.len() != 64 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "collection_id must be 64 hex chars"})));
     }
-    if let (Ok(bytes), Some(provider)) = (hex::decode(&cid_hex), &state.state_provider) {
+    if let (Ok(bytes), Some(provider)) = (hex::decode(cid_hex), &state.state_provider) {
         let mut id = [0u8; 32];
         id.copy_from_slice(&bytes);
         let collection_id = pichain_types::CollectionId(id);
@@ -3047,7 +3045,7 @@ async fn get_nfts_by_owner(
     if address_hex.len() != 40 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
     }
-    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+    if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
@@ -3074,14 +3072,14 @@ async fn get_account_proof(
     if address_hex.len() != 40 {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
     }
-    if let (Ok(bytes), Some(provider)) = (hex::decode(&address_hex), &state.state_provider) {
+    if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         if let Some(proof_bytes) = provider.get_account_proof(&addr) {
             return (StatusCode::OK, Json(serde_json::json!({
                 "address": address_hex,
-                "proof": hex::encode(&proof_bytes),
+                "proof": hex::encode(proof_bytes),
                 "state_root": provider.state_root_hex(),
             })));
         }

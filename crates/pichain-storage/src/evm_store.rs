@@ -135,7 +135,7 @@ impl<'a> EvmStore<'a> {
         let iter = self.db.inner().iterator_cf(&cf, IteratorMode::From(&prefix, rocksdb::Direction::Forward));
         for item in iter {
             let (key, value) = item?;
-            if key.len() < 1 || key[0] != PREFIX_ACCOUNT {
+            if key.is_empty() || key[0] != PREFIX_ACCOUNT {
                 break;
             }
             if key.len() != 21 {

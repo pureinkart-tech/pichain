@@ -85,7 +85,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 
 # WASM VM
-wasmtime = "29"
+wasmtime = "36"
 
 # Config
 toml = "0.8"

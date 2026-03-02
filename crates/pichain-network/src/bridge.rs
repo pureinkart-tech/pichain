@@ -290,7 +290,7 @@ impl CircuitBreaker {
     pub fn status(&self, current_height: u64) -> CircuitBreakerStatus {
         let rolling_volume = self.rolling_volume(current_height);
         let utilization_bps = if self.max_hourly_volume > 0 {
-            ((rolling_volume as u128).saturating_mul(10_000) / self.max_hourly_volume) as u64
+            (rolling_volume.saturating_mul(10_000) / self.max_hourly_volume) as u64
         } else {
             0
         };

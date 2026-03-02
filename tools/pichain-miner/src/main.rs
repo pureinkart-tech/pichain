@@ -174,6 +174,7 @@ struct MiningStatus {
     #[serde(default)]
     anchor_block_hash: String,
     #[serde(default)]
+    #[allow(dead_code)]
     unique_miners: u64,
 }
 

@@ -101,6 +101,7 @@ impl LaunchpadExecutor {
     }
 
     /// Create a new token launch.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_launch(
         &self,
         sender: Address,
@@ -217,11 +218,7 @@ impl LaunchpadExecutor {
         if actual_cost == 0 {
             return launchpad_error("cost calculation returned zero — tokens cannot be free");
         }
-        let refund = if actual_cost < pi_amount {
-            pi_amount - actual_cost
-        } else {
-            0
-        };
+        let refund = pi_amount.saturating_sub(actual_cost);
 
         // Check per-address limit using actual_cost (not pi_amount).
         // Using pi_amount would over-count contributions when bonding curves charge less
@@ -449,13 +446,12 @@ impl LaunchpadExecutor {
         }
 
         // Revert TargetReached if we're now below target
-        if launch.state == LaunchState::TargetReached {
-            if launch.pi_raised < launch.target_pi
+        if launch.state == LaunchState::TargetReached
+            && launch.pi_raised < launch.target_pi
                 && launch.tokens_sold < launch.tokens_for_sale
             {
                 launch.state = LaunchState::Active;
             }
-        }
 
         let launch = launch.clone();
         drop(launch_ref);
@@ -527,13 +523,12 @@ impl LaunchpadExecutor {
                 }
             }
             // Revert state back to Active if we undid a TargetReached transition
-            if launch_ref.state == LaunchState::TargetReached {
-                if launch_ref.pi_raised < launch_ref.target_pi
+            if launch_ref.state == LaunchState::TargetReached
+                && launch_ref.pi_raised < launch_ref.target_pi
                     && launch_ref.tokens_sold < launch_ref.tokens_for_sale
                 {
                     launch_ref.state = LaunchState::Active;
                 }
-            }
         }
     }
 }

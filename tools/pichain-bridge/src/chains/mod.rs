@@ -17,6 +17,7 @@ pub struct Deposit {
     pub amount: u64,
     /// Wrapped token symbol to mint (e.g., "WETH", "WSOL", "WBTC", "WUSDT")
     pub symbol: String,
+    #[allow(dead_code)]
     /// Number of confirmations on the external chain
     pub confirmations: u64,
 }

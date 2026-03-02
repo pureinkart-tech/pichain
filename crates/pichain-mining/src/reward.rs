@@ -102,8 +102,8 @@ impl RewardCalculator {
             return 1;
         }
         let elapsed = block_timestamp_ms - self.genesis_timestamp_ms;
-        let year = (elapsed / MS_PER_YEAR) as u32 + 1;
-        year
+        
+        (elapsed / MS_PER_YEAR) as u32 + 1
     }
 
     /// Determine the emission year from a block height.
@@ -116,8 +116,8 @@ impl RewardCalculator {
     ///
     /// Returns at least 1 (never year 0).
     pub fn year_from_height(&self, block_height: u64) -> u32 {
-        let year = (block_height / BLOCKS_PER_YEAR) as u32 + 1;
-        year
+        
+        (block_height / BLOCKS_PER_YEAR) as u32 + 1
     }
 
     /// Calculate the mining reward per digit for a given year.

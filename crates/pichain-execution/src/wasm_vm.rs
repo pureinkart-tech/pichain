@@ -205,6 +205,7 @@ impl WasmVM {
     }
 
     /// Execute a contract call.
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
         bytecode: &[u8],
@@ -385,7 +386,7 @@ impl WasmVM {
                 };
             }
             let deficit = required_end - current_size;
-            let pages_needed = ((deficit + 65535) / 65536) as u64;
+            let pages_needed = deficit.div_ceil(65536) as u64;
             if let Err(e) = memory.grow(&mut store, pages_needed) {
                 let state = store.into_data();
                 return WasmExecutionResult {

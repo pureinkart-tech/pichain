@@ -85,8 +85,8 @@ impl AccountState {
     /// Formula: data_bytes * 1_000 base units (= data_bytes * 0.000001 PI)
     pub fn minimum_balance(&self) -> PiAmount {
         // Minimum 1 KB worth = 1_000_000 base units (0.001 PI)
-        let data_cost = self.data_size.max(1024).saturating_mul(1_000);
-        data_cost
+        
+        self.data_size.max(1024).saturating_mul(1_000)
     }
 
     /// Check if balance is above state rent minimum.

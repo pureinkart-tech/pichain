@@ -135,7 +135,7 @@ impl LiquidityPool {
         // R28-FIX: Use ceiling division to prevent zero-fee micro-swaps.
         // Without this, swaps with amount_in <= 333 (at 30bps) pay zero fees,
         // enabling fee-free arbitrage via many small swaps.
-        let fee_amount = (amount_in * self.fee_bps as u128 + 9_999) / 10_000;
+        let fee_amount = (amount_in * self.fee_bps as u128).div_ceil(10_000);
         let amount_in_after_fee = amount_in.checked_sub(fee_amount)?;
 
         // Constant product: x * y = k
@@ -228,7 +228,7 @@ impl LiquidityPool {
         } else if self.reserve_a == 0 || self.reserve_b == 0 {
             // One reserve is zero but not both — corrupted/drained pool state.
             // Cannot calculate LP proportionally; reject to prevent division by zero.
-            return None;
+            None
         } else {
             // Subsequent liquidity — maintain ratio
             let reserve_a = self.reserve_a as u128;
@@ -287,7 +287,7 @@ pub fn isqrt(n: u128) -> u128 {
         return 0;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = (x + n / x) / 2;

@@ -147,12 +147,8 @@ impl DigitRegistry {
     /// The frontier is the highest position where all digits from 0..frontier are verified.
     fn update_frontier(&mut self) {
         let mut pos = self.frontier;
-        loop {
-            if let Some(range) = self.ranges.get(&pos) {
-                pos += range.count as u64;
-            } else {
-                break;
-            }
+        while let Some(range) = self.ranges.get(&pos) {
+            pos += range.count as u64;
         }
         if pos > self.frontier {
             debug!(old = self.frontier, new = pos, "frontier advanced");

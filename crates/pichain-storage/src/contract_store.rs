@@ -7,6 +7,9 @@ use crate::db::PiChainDB;
 use crate::StorageError;
 use pichain_crypto::ed25519::Address;
 
+type KvScanResult = Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError>;
+type FullScanResult = Result<Vec<(Address, Vec<u8>, Vec<u8>)>, StorageError>;
+
 const CONTRACT_STORAGE_PREFIX: u8 = b'W';
 
 /// WASM contract storage store.
@@ -75,7 +78,7 @@ impl<'a> ContractStorageStore<'a> {
     ///
     /// Callers must parse the 4-byte length prefix to extract the actual
     /// storage key. See `scan_all()` for an example of this parsing.
-    pub fn scan_contract(&self, contract: &Address) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError> {
+    pub fn scan_contract(&self, contract: &Address) -> KvScanResult {
         let prefix = Self::contract_prefix(contract);
         let entries = self.db.scan_state_prefix(&prefix)?;
         Ok(entries)
@@ -83,7 +86,7 @@ impl<'a> ContractStorageStore<'a> {
 
     /// Scan all contract storage entries (for startup reload).
     /// Returns (contract_address, storage_key, value) tuples.
-    pub fn scan_all(&self) -> Result<Vec<(Address, Vec<u8>, Vec<u8>)>, StorageError> {
+    pub fn scan_all(&self) -> FullScanResult {
         let prefix = &[CONTRACT_STORAGE_PREFIX];
         let entries = self.db.scan_state_prefix(prefix)?;
         let mut result = Vec::new();

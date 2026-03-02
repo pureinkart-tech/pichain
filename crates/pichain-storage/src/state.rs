@@ -21,6 +21,8 @@ use crate::db::PiChainDB;
 use crate::jmt::JellyfishMerkleTree;
 use crate::StorageError;
 
+type PrepareResult = Result<(rocksdb::WriteBatch, pichain_crypto::poseidon::PoseidonHash, Vec<([u8; 32], Vec<u8>)>), StorageError>;
+
 /// High-level state store combining JMT for authenticated state and RocksDB for raw data.
 pub struct StateStore {
     db: PiChainDB,
@@ -61,7 +63,7 @@ impl StateStore {
     /// Used during node restart to pre-load staked accounts into the executor cache
     /// so that anti-concentration tracking is accurate from the first block.
     pub fn scan_staked_accounts(&self) -> Result<Vec<Account>, StorageError> {
-        let entries = self.db.scan_state_prefix(&[b'a'])?;
+        let entries = self.db.scan_state_prefix(b"a")?;
         let mut staked = Vec::new();
         for (key_suffix, data) in &entries {
             if key_suffix.len() == 20 {
@@ -300,7 +302,7 @@ impl StateStore {
     /// only rebuild accounts, post-crash state roots diverge from pre-crash
     /// state roots, causing consensus failures.
     pub fn rebuild_jmt(&mut self) -> Result<usize, StorageError> {
-        let entries = self.db.scan_state_prefix(&[b'a'])?;
+        let entries = self.db.scan_state_prefix(b"a")?;
         let mut count = 0;
         for (key_suffix, data) in &entries {
             if key_suffix.len() == 20 {
@@ -377,7 +379,7 @@ impl StateStore {
         txs_and_receipts: &[(pichain_crypto::Hash, &pichain_types::SignedTransaction, Option<&pichain_types::TransactionEffect>)],
         state_changes: &[(pichain_crypto::ed25519::Address, &pichain_types::account::AccountState)],
         object_changes: &[(pichain_types::ObjectId, &[u8])],
-    ) -> Result<(rocksdb::WriteBatch, pichain_crypto::poseidon::PoseidonHash, Vec<([u8; 32], Vec<u8>)>), StorageError> {
+    ) -> PrepareResult {
         let mut batch = self.db.new_batch();
 
         // 1. State changes (accounts) — compute JMT updates in a temporary tree

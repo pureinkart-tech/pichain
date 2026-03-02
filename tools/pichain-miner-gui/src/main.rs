@@ -306,8 +306,8 @@ fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
         let hash = pichain_crypto::hash_concat(&[challenge, &nonce.to_le_bytes()]);
         let h = hash.as_bytes();
         let mut ok = true;
-        for i in 0..full_bytes {
-            if h[i] != 0 {
+        for byte in h.iter().take(full_bytes) {
+            if *byte != 0 {
                 ok = false;
                 break;
             }

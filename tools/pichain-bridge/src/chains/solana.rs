@@ -39,6 +39,7 @@ struct RpcError {
 #[derive(Deserialize, Debug)]
 struct SignatureInfo {
     signature: String,
+    #[allow(dead_code)]
     slot: Option<u64>,
     err: Option<serde_json::Value>,
     memo: Option<String>,
@@ -48,6 +49,7 @@ struct SignatureInfo {
 
 #[derive(Deserialize, Debug)]
 struct TransactionResponse {
+    #[allow(dead_code)]
     slot: u64,
     meta: Option<TransactionMeta>,
     transaction: Option<TransactionData>,
@@ -67,6 +69,7 @@ struct TransactionMeta {
 #[derive(Deserialize, Debug)]
 struct TransactionData {
     message: TransactionMessage,
+    #[allow(dead_code)]
     signatures: Vec<String>,
 }
 

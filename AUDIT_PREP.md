@@ -35,11 +35,12 @@ This document provides auditors with the information needed to conduct a thoroug
 
 ### Active issues
 1. **ring 0.16.20** (RUSTSEC-2025-0009): AES panic with overflow checking. Transitive via libp2p → rcgen. Risk: LOW (we don't use ring's AES directly).
-2. **wasmtime 29.0.1** (RUSTSEC-2026-0020, 0021, 2025-0046, 0118, 2026-0006): Multiple WASI issues. Risk: MEDIUM (WASM VM is sandboxed, but guest contracts could trigger these).
+
+### Resolved
+- **wasmtime**: Upgraded from v29 → v36.0.6 (LTS). All 5 advisories (RUSTSEC-2026-0020, 0021, 2025-0046, 0118, 2026-0006) resolved.
 
 ### Mitigation plan
 - `ring`: Awaiting libp2p upgrade to ring 0.17+
-- `wasmtime`: Upgrade planned to v36+. Currently mitigated by: WASM gas metering limits execution time, no WASI filesystem access exposed, and memory limits enforced by the host.
 
 ## Security Model
 
@@ -123,7 +124,7 @@ Total:                 546+ tests
 # Full test suite
 cargo test --workspace
 
-# Clippy (pre-existing warnings in types crate)
+# Clippy (zero warnings)
 cargo clippy --workspace
 
 # Audit

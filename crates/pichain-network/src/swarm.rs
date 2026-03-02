@@ -602,13 +602,15 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
 
     // Kademlia configuration
     let peer_id = PeerId::from(local_key.public());
-    let mut store_config = kad::store::MemoryStoreConfig::default();
-    store_config.max_records = 65_536; // Cap DHT records to prevent memory exhaustion
-    store_config.max_provided_keys = 4_096;
-    store_config.max_value_bytes = 8_192; // 8 KiB max per record value
+    let store_config = kad::store::MemoryStoreConfig {
+        max_records: 65_536, // Cap DHT records to prevent memory exhaustion
+        max_provided_keys: 4_096,
+        max_value_bytes: 8_192, // 8 KiB max per record value
+        ..Default::default()
+    };
     let store = MemoryStore::with_config(peer_id, store_config);
     let mut kademlia_config = kad::Config::new(
-        libp2p::StreamProtocol::try_from_owned(format!("/pichain/kad/1.0.0"))
+        libp2p::StreamProtocol::try_from_owned("/pichain/kad/1.0.0".to_string())
             .expect("valid protocol"),
     );
     kademlia_config.set_query_timeout(Duration::from_secs(60));
@@ -762,7 +764,7 @@ async fn run_swarm_loop(
                         // to prevent eclipse attacks and amplification/reflection.
                         let valid_addrs: Vec<Multiaddr> = info.listen_addrs
                             .into_iter()
-                            .filter(|addr| is_routable_address(addr))
+                            .filter(is_routable_address)
                             .take(8)
                             .collect();
 
@@ -820,27 +822,24 @@ async fn run_swarm_loop(
                             let _ = inbound_tx.send(SwarmMessage::PeerDisconnected(peer_id)).await;
                         }
                     }
-                    SwarmEvent::Behaviour(PiChainBehaviourEvent::Autonat(event)) => {
-                        match event {
-                            autonat::Event::StatusChanged { old, new } => {
-                                info!(
-                                    old_status = ?old,
-                                    new_status = ?new,
-                                    "AutoNAT status changed"
-                                );
-                                match new {
-                                    autonat::NatStatus::Public(addr) => {
-                                        info!(%addr, "NAT status: PUBLIC — reachable from the internet");
-                                    }
-                                    autonat::NatStatus::Private => {
-                                        warn!("NAT status: PRIVATE — behind NAT, consider using a relay peer");
-                                    }
-                                    autonat::NatStatus::Unknown => {
-                                        debug!("NAT status: UNKNOWN — probing in progress");
-                                    }
-                                }
+                    SwarmEvent::Behaviour(PiChainBehaviourEvent::Autonat(
+                        autonat::Event::StatusChanged { old, new }
+                    )) => {
+                        info!(
+                            old_status = ?old,
+                            new_status = ?new,
+                            "AutoNAT status changed"
+                        );
+                        match new {
+                            autonat::NatStatus::Public(addr) => {
+                                info!(%addr, "NAT status: PUBLIC — reachable from the internet");
                             }
-                            _ => {}
+                            autonat::NatStatus::Private => {
+                                warn!("NAT status: PRIVATE — behind NAT, consider using a relay peer");
+                            }
+                            autonat::NatStatus::Unknown => {
+                                debug!("NAT status: UNKNOWN — probing in progress");
+                            }
                         }
                     }
                     _ => {}

@@ -22,7 +22,7 @@ fn isqrt_u32(x: u32) -> u32 {
         return x;
     }
     // Initial guess: 2^(ceil(log2(x))/2) -- always >= true sqrt
-    let shift = (32 - x.leading_zeros() + 1) / 2;
+    let shift = (32 - x.leading_zeros()).div_ceil(2);
     let mut r = 1u32 << shift;
     // Newton's method: r = (r + x/r) / 2, converges in ~5 iterations for u32
     loop {

@@ -250,6 +250,7 @@ impl ContractRegistry {
     }
 
     /// Register a new contract deployment.
+    #[allow(clippy::too_many_arguments)]
     pub fn deploy(
         &mut self,
         contract_addr: Address,
@@ -285,7 +286,7 @@ impl ContractRegistry {
         self.by_deployer.entry(deployer).or_default().push(contract_addr);
 
         self.contracts.get(&contract_addr)
-            .ok_or_else(|| ContractError::NotFound(contract_addr))
+            .ok_or(ContractError::NotFound(contract_addr))
     }
 
     /// Upgrade a contract (replace bytecode, keep state).

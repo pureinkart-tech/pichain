@@ -187,17 +187,14 @@ impl TokenLaunch {
                 let sl = *slope as u128;
 
                 // Cost = (base_price * a + slope * a * (2*s + a - 1) / 2) / price_scale
-                let linear_cost = match bp.checked_mul(a) {
-                    Some(v) => v,
-                    None => return None,
-                };
+                let linear_cost = bp.checked_mul(a)?;
                 let inner = match (2u128.checked_mul(s))
                     .and_then(|v| v.checked_add(a))
                     .and_then(|v| v.checked_sub(1))
                     .and_then(|v| v.checked_mul(a))
                     .and_then(|v| v.checked_mul(sl))
                 {
-                    Some(v) => (v + 1) / 2,
+                    Some(v) => v.div_ceil(2),
                     None => return None,
                 };
 
@@ -246,7 +243,7 @@ impl TokenLaunch {
                 let mut hi = remaining;
 
                 while lo < hi {
-                    let mid = lo + (hi - lo + 1) / 2;
+                    let mid = lo + (hi - lo).div_ceil(2);
                     match self.calculate_cost(mid) {
                         Some(cost) if cost <= pi_amount => lo = mid,
                         _ => hi = mid - 1,
@@ -322,7 +319,7 @@ impl TokenLaunch {
                     .checked_sub(1)?
                     .checked_mul(a)?
                     .checked_mul(sl)?;
-                let inner = (inner + 1) / 2;
+                let inner = inner.div_ceil(2);
                 let total = linear.checked_add(inner)? / ps;
 
                 if total > u64::MAX as u128 { None } else { Some(total as u64) }

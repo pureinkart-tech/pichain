@@ -309,7 +309,7 @@ impl EvmExecutor {
         // Debit sender (checked arithmetic; balance already validated above)
         let sender = self.accounts.entry(tx.from).or_default();
         let gas_cost = gas_used as u128 * tx.gas_price;
-        let total_debit = tx.value.checked_add(gas_cost).unwrap_or(u128::MAX);
+        let total_debit = tx.value.saturating_add(gas_cost);
         if sender.balance < total_debit {
             return EvmResult {
                 success: false,

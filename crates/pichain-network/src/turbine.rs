@@ -82,7 +82,7 @@ pub fn shred_block(block_data: &[u8], config: &TurbineConfig, block_height: u64)
     ]);
 
     // Calculate chunk size (padded to equal sizes)
-    let chunk_size = (block_data.len() + data_count - 1) / data_count;
+    let chunk_size = block_data.len().div_ceil(data_count);
     let chunk_size = chunk_size.max(1); // at least 1 byte per shard
 
     // Create data shards (padded with zeros if needed)
@@ -209,8 +209,8 @@ pub fn reconstruct_block(shreds: &[Shred], config: &TurbineConfig) -> Option<Vec
 
     if all_data_present {
         let mut block = Vec::with_capacity(data_count * chunk_size);
-        for i in 0..data_count {
-            block.extend_from_slice(shard_opts[i].as_ref().unwrap());
+        for shard in shard_opts.iter().take(data_count) {
+            block.extend_from_slice(shard.as_ref().unwrap());
         }
         block.truncate(original_size);
 

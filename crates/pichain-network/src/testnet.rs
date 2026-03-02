@@ -299,11 +299,10 @@ impl LocalTestnet {
 
         // Add this node back to other nodes' peer lists
         for i in 0..self.nodes.len() {
-            if i != node_index && self.nodes[i].running && !self.nodes[i].partitioned {
-                if !self.nodes[i].connected_peers.contains(&node_index) {
+            if i != node_index && self.nodes[i].running && !self.nodes[i].partitioned
+                && !self.nodes[i].connected_peers.contains(&node_index) {
                     self.nodes[i].connected_peers.push(node_index);
                 }
-            }
         }
 
         // Catch up to global height

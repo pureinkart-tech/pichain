@@ -175,7 +175,7 @@ impl BlockSTM {
         }
 
         // Fall back to base state
-        let state = self.base_state.get(key).map(|v| v.clone()).unwrap_or_else(AccountState::new);
+        let state = self.base_state.get(key).map(|v| v.clone()).unwrap_or_default();
         (state, None)
     }
 
@@ -206,6 +206,7 @@ impl BlockSTM {
 
     /// Execute the block using the Block-STM algorithm.
     /// Returns the final execution results for each transaction in order.
+    #[allow(clippy::needless_range_loop)]
     pub fn execute_block<F>(
         &self,
         tx_count: usize,

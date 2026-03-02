@@ -557,7 +557,7 @@ impl NodeState {
         // 2. Fund bridge operator with gas PI (10 PI for tx fees)
         let gas_amount: u64 = 10 * base;
         let bridge_state = self.executor.get_account(&bridge_operator)
-            .unwrap_or_else(|| pichain_types::account::AccountState::default());
+            .unwrap_or_default();
         let mut bridge_acct = Account { address: bridge_operator, state: bridge_state };
         bridge_acct.state.balance = bridge_acct.state.balance.checked_add(gas_amount)
             .ok_or_else(|| anyhow::anyhow!("bridge operator balance overflow"))?;
@@ -806,16 +806,16 @@ impl NodeState {
 
             // Token mints + accounts
             let token_store = pichain_storage::TokenStore::new(db);
-            for (_, mint) in &sub_state.mints {
+            for mint in sub_state.mints.values() {
                 token_store.batch_put_mint(&mut batch, mint)?;
             }
-            for (_, account) in &sub_state.token_accounts {
+            for account in sub_state.token_accounts.values() {
                 token_store.batch_put_token_account(&mut batch, account)?;
             }
 
             // DEX pools + LP balances
             let dex_store = pichain_storage::DexStore::new(db);
-            for (_, pool) in &sub_state.pools {
+            for pool in sub_state.pools.values() {
                 dex_store.batch_put_pool(&mut batch, pool)?;
             }
             for ((pool_id, address), balance) in &sub_state.lp_balances {
@@ -824,16 +824,16 @@ impl NodeState {
 
             // NFT collections + NFTs
             let nft_store = pichain_storage::NftStore::new(db);
-            for (_, collection) in &sub_state.collections {
+            for collection in sub_state.collections.values() {
                 nft_store.batch_put_collection(&mut batch, collection)?;
             }
-            for (_, nft) in &sub_state.nfts {
+            for nft in sub_state.nfts.values() {
                 nft_store.batch_put_nft(&mut batch, nft)?;
             }
 
             // Launchpad launches
             let launchpad_store = pichain_storage::LaunchpadStore::new(db);
-            for (_, launch) in &sub_state.launches {
+            for launch in sub_state.launches.values() {
                 launchpad_store.batch_put_launch(&mut batch, launch)?;
             }
 
@@ -1546,7 +1546,7 @@ impl StateProvider for NodeState {
         // Prepare token account update
         let key = token_account_key(recipient, &mint_id);
         let mut acct = self.executor.token_executor().get_token_account(recipient, &mint_id)
-            .unwrap_or_else(|| TokenAccount {
+            .unwrap_or(TokenAccount {
                 key,
                 owner: *recipient,
                 mint: mint_id,
@@ -1642,7 +1642,7 @@ impl StateProvider for NodeState {
         transfers
             .iter()
             .rev()
-            .filter(|t| chain.map_or(true, |c| t.chain == c))
+            .filter(|t| chain.is_none_or(|c| t.chain == c))
             .take(limit)
             .map(|t| pichain_rpc::BridgeTransferInfo {
                 chain: t.chain.clone(),
@@ -1810,7 +1810,7 @@ impl StateProvider for NodeState {
 
     fn get_richlist(&self, limit: usize) -> Vec<(Address, u64)> {
         let store = self.store.read();
-        let entries = match store.db().scan_state_prefix(&[b'a']) {
+        let entries = match store.db().scan_state_prefix(b"a") {
             Ok(e) => e,
             Err(_) => return vec![],
         };

@@ -429,16 +429,15 @@ impl StateSyncManager {
 
                 // Check if we have enough headers to start downloading blocks
                 let headers_ahead = self.pending_headers.len() as u64;
-                if headers_ahead >= MAX_HEADERS_PER_REQUEST as u64 ||
-                   self.pending_headers.keys().last().copied().unwrap_or(0) >= self.target_height {
-                    if self.mode != SyncMode::Light {
+                if (headers_ahead >= MAX_HEADERS_PER_REQUEST as u64 ||
+                   self.pending_headers.keys().last().copied().unwrap_or(0) >= self.target_height)
+                    && self.mode != SyncMode::Light {
                         self.state = SyncState::DownloadingBlocks {
                             target_height: self.target_height,
                             current_height: self.local_height,
                         };
                         return self.generate_block_requests();
                     }
-                }
 
                 self.generate_header_requests()
             }

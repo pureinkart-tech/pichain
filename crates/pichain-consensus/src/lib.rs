@@ -12,7 +12,7 @@ pub mod fast_path;
 pub mod staking;
 pub mod validator;
 
-pub use dag::{Certificate, DagMempool, DagRound, EquivocationEvidence, Header};
+pub use dag::{Certificate, DagMempool, DagRound, EquivocationEvidence, Header, ValidatorKeyMap};
 pub use engine::{ConsensusConfig, ConsensusEngine, ConsensusMetrics, FinalityStatus};
 pub use fast_path::AvalancheFastPath;
 pub use staking::{StakingManager, StakeEntry, Delegation, SlashEvent, SlashReason, StakingError};

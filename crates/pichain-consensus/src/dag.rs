@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ConsensusError;
 
+pub type ValidatorKeyMap = HashMap<Address, pichain_crypto::bls::BlsPublicKey>;
+
 /// Evidence of equivocation: a validator produced two different certificates
 /// in the same round. This is cryptographic proof of misbehavior for slashing.
 #[derive(Clone, Debug)]
@@ -107,6 +109,7 @@ impl DagRound {
     /// Insert a certificate into this round.
     /// Returns `Ok(())` on success, or `Err(existing_cert)` if this author
     /// already has a certificate in this round (equivocation evidence).
+    #[allow(clippy::result_large_err)]
     pub fn insert(&mut self, cert: Certificate) -> Result<(), Certificate> {
         use std::collections::hash_map::Entry;
         match self.certificates.entry(cert.author()) {
@@ -258,7 +261,7 @@ impl DagMempool {
     pub fn insert_certificate(
         &mut self,
         cert: Certificate,
-        validator_keys: Option<&HashMap<Address, pichain_crypto::bls::BlsPublicKey>>,
+        validator_keys: Option<&ValidatorKeyMap>,
     ) -> Result<(), ConsensusError> {
         let round = cert.round();
 
@@ -541,9 +544,8 @@ impl DagMempool {
     /// Called externally after the commit loop completes to avoid pruning causal
     /// history that subsequent commits in the same loop iteration may still need.
     pub fn prune_committed_rounds(&mut self) {
-        let committed = match self.committed_round {
-            Some(r) => r,
-            None => return, // Nothing committed yet, nothing to prune
+        let Some(committed) = self.committed_round else {
+            return;
         };
         let cutoff = committed.saturating_sub(1);
         let stale_rounds: Vec<u64> = self.rounds.keys()
@@ -578,10 +580,9 @@ impl DagMempool {
             if let Some(parent_cert) = self.find_certificate(&hash) {
                 // Include all uncommitted ancestors. If nothing has been committed yet
                 // (committed_round == None), all ancestors are uncommitted.
-                let dominated = match self.committed_round {
-                    Some(cr) => parent_cert.round() > cr,
-                    None => true,
-                };
+                let dominated = self
+                    .committed_round
+                    .is_none_or(|cr| parent_cert.round() > cr);
                 if dominated {
                     // Enqueue this cert's parents for further traversal
                     for grandparent in &parent_cert.header.parents {

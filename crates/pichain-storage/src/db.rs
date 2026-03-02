@@ -35,6 +35,7 @@ const ALL_CFS: &[&str] = &[
 ];
 
 type DB = DBWithThreadMode<MultiThreaded>;
+type ScanResult = Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError>;
 
 /// PIChain database backed by RocksDB.
 pub struct PiChainDB {
@@ -227,7 +228,7 @@ impl PiChainDB {
             }
         }
 
-        if batch.len() > 0 {
+        if !batch.is_empty() {
             self.db.write(batch)?;
         }
 
@@ -337,7 +338,7 @@ impl PiChainDB {
 
     /// Scan all state entries with a given prefix.
     /// Returns (key_suffix, value) pairs where key_suffix has the prefix stripped.
-    pub fn scan_state_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError> {
+    pub fn scan_state_prefix(&self, prefix: &[u8]) -> ScanResult {
         use rocksdb::IteratorMode;
         let cf = self.cf(CF_STATE);
         let mut result = Vec::new();
@@ -354,7 +355,7 @@ impl PiChainDB {
 
     /// Scan all objects in the objects column family.
     /// Returns (key, value) pairs where key is the 32-byte object ID.
-    pub fn scan_all_objects(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError> {
+    pub fn scan_all_objects(&self) -> ScanResult {
         use rocksdb::IteratorMode;
         let cf = self.cf(CF_OBJECTS);
         let mut result = Vec::new();
@@ -368,7 +369,7 @@ impl PiChainDB {
 
     /// Scan all metadata entries with a given prefix.
     /// Returns (key_suffix, value) pairs where key_suffix has the prefix stripped.
-    pub fn scan_metadata_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError> {
+    pub fn scan_metadata_prefix(&self, prefix: &[u8]) -> ScanResult {
         use rocksdb::IteratorMode;
         let cf = self.cf(CF_METADATA);
         let mut result = Vec::new();

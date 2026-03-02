@@ -104,7 +104,7 @@ fn validate_string_field(value: &str, field_name: &str, max_len: usize) -> Resul
         return Err(format!("{field_name} cannot be empty"));
     }
     for b in value.bytes() {
-        if b < 0x20 || b > 0x7E {
+        if !(0x20..=0x7E).contains(&b) {
             return Err(format!("{field_name} contains non-printable or non-ASCII characters"));
         }
         if b == b'<' || b == b'>' || b == b'&' || b == b'"' || b == b'\'' {
@@ -355,8 +355,7 @@ impl TransactionExecutor {
     ) -> (TransactionStatus, Vec<TransactionEvent>) {
         if dex_result.status == TransactionStatus::Success {
             // Snapshot pool state so we can rollback on token delta failure
-            let pool_snapshots: Vec<_> = dex_result.pool_changes.iter()
-                .map(|(pool_id, _)| (*pool_id, self.dex_executor.get_pool(pool_id)))
+            let pool_snapshots: Vec<_> = dex_result.pool_changes.keys().map(|pool_id| (*pool_id, self.dex_executor.get_pool(pool_id)))
                 .collect();
             let lp_snapshots: Vec<_> = dex_result.lp_changes.iter()
                 .map(|((pool_id, addr), _)| ((*pool_id, *addr), self.dex_executor.get_lp_balance(pool_id, addr)))
@@ -420,7 +419,7 @@ impl TransactionExecutor {
             return Ok(());
         }
         let state = state_changes.entry(owner).or_insert_with(|| {
-            state_cache.get(&owner).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+            state_cache.get(&owner).map(|v| v.clone()).unwrap_or_default()
         });
         if amount > 0 {
             let credit = u64::try_from(amount)
@@ -469,7 +468,7 @@ impl TransactionExecutor {
 
         // Check max_supply before committing the supply increase
         let pool_mint_exceeded = if let Some(mint_ref) = self.token_executor.get_mint_mut(mint) {
-            let new_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
+            let new_supply = mint_ref.total_supply.saturating_add(seed.token_amount);
             mint_ref.max_supply > 0 && new_supply > mint_ref.max_supply
         } else {
             false
@@ -483,7 +482,7 @@ impl TransactionExecutor {
 
         // Commit total_supply increase
         if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-            mint_ref.total_supply = mint_ref.total_supply.saturating_add(seed.token_amount as u64);
+            mint_ref.total_supply = mint_ref.total_supply.saturating_add(seed.token_amount);
         }
 
         // Step 3: Add initial liquidity
@@ -493,7 +492,7 @@ impl TransactionExecutor {
         if liq_result.status != TransactionStatus::Success {
             let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
             if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
+                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount);
             }
             self.dex_executor.rollback_pool(&pool_id, None);
             self.launchpad_executor.rollback_finalization(&launch_id);
@@ -505,7 +504,7 @@ impl TransactionExecutor {
             self.dex_executor.rollback_pool(&pool_id, None);
             let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
             if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount as u64);
+                mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount);
             }
             self.launchpad_executor.rollback_finalization(&launch_id);
             return Err(format!("pool token debit error: {e}"));
@@ -514,7 +513,7 @@ impl TransactionExecutor {
         // Credit creator's PI share
         if seed.creator_pi > 0 {
             let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
-                self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+                self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_default()
             });
             creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
         }
@@ -626,7 +625,7 @@ impl TransactionExecutor {
     /// Creates the account if it doesn't exist.
     /// Uses entry().or_insert_with() for atomic read-modify-write (prevents TOCTOU race).
     pub fn credit_account(&self, address: Address, amount: PiAmount) {
-        let mut entry = self.state_cache.entry(address).or_insert_with(AccountState::new);
+        let mut entry = self.state_cache.entry(address).or_default();
         entry.balance = entry.balance.saturating_add(amount);
     }
 
@@ -815,7 +814,7 @@ impl TransactionExecutor {
             .state_cache
             .get(&tx.data.sender)
             .map(|v| v.clone())
-            .unwrap_or_else(AccountState::new);
+            .unwrap_or_default();
 
         // Validate nonce (prevent transaction replay and enforce ordering)
         if tx.data.nonce != sender_state.nonce {
@@ -1155,7 +1154,7 @@ impl TransactionExecutor {
                 let mut recipient_state = self
                     .state_cache
                     .entry(*recipient)
-                    .or_insert_with(AccountState::new)
+                    .or_default()
                     .clone();
                 recipient_state.balance = match recipient_state.balance.checked_add(*amount) {
                     Some(v) => v,
@@ -1415,8 +1414,7 @@ impl TransactionExecutor {
                         TransactionStatus::Reverted("unstake amount must be > 0".to_string()),
                         vec![],
                     )
-                } else
-                if sender.staked < *amount {
+                } else if sender.staked < *amount {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (
                         TransactionStatus::Reverted("insufficient staked amount".to_string()),
@@ -2094,7 +2092,7 @@ impl TransactionExecutor {
                                 // SECURITY: Validate max_supply BEFORE incrementing to prevent
                                 // launchpad from issuing tokens beyond the mint's declared maximum.
                                 if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                    let new_supply = mint_ref.total_supply.checked_add(tokens_received as u64);
+                                    let new_supply = mint_ref.total_supply.checked_add(tokens_received);
                                     match new_supply {
                                         Some(supply) if mint_ref.max_supply == 0 || supply <= mint_ref.max_supply => {
                                             mint_ref.total_supply = supply;
@@ -2219,7 +2217,7 @@ impl TransactionExecutor {
                             // No pool seeding needed — just credit creator PI
                             if seed.creator_pi > 0 {
                                 let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
-                                    self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_else(AccountState::new)
+                                    self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_default()
                                 });
                                 creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
                             }
@@ -2480,7 +2478,7 @@ impl TransactionExecutor {
                                 self.state_cache
                                     .get(to)
                                     .map(|v| v.clone())
-                                    .unwrap_or_else(AccountState::new)
+                                    .unwrap_or_default()
                             });
                         match to_state.balance.checked_add(*amount) {
                             Some(new_balance) => {

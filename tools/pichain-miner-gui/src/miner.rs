@@ -26,6 +26,7 @@ pub struct MiningStatus {
     #[serde(default)]
     pub anchor_block_hash: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub unique_miners: u64,
 }
 

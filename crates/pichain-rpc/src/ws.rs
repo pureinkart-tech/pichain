@@ -210,7 +210,7 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
                         };
                         if should_send {
                             if let Ok(json) = serde_json::to_string(&event) {
-                                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                                if ws_sender.send(Message::Text(json)).await.is_err() {
                                     break; // Client disconnected
                                 }
                                 last_activity = tokio::time::Instant::now();
@@ -231,7 +231,7 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
                     break;
                 }
                 // Send a ping frame to detect dead connections
-                if ws_sender.send(Message::Ping(vec![].into())).await.is_err() {
+                if ws_sender.send(Message::Ping(vec![])).await.is_err() {
                     break; // Client gone
                 }
             }

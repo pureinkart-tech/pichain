@@ -646,7 +646,7 @@ impl StakingManager {
         // different epochs doesn't reset the count for either epoch.
         let epoch_set = self.epoch_slashed_validators
             .entry(evidence_epoch)
-            .or_insert_with(std::collections::HashSet::new);
+            .or_default();
 
         // M8-FIX: Collect previously-slashed validators BEFORE inserting the current one.
         // We need this list to retroactively increase their penalties below.
@@ -692,7 +692,7 @@ impl StakingManager {
                 // Apply the incremental correlated penalty (one additional CORRELATED_SLASH_MULTIPLIER_BPS)
                 // capped so total effective rate for this validator doesn't exceed 100%.
                 let incremental_bps = CORRELATED_SLASH_MULTIPLIER_BPS.min(10_000);
-                let additional_slash = ((prev_stake as u128 * incremental_bps as u128 + 9_999) / 10_000) as u64;
+                let additional_slash = (prev_stake as u128 * incremental_bps as u128).div_ceil(10_000) as u64;
                 if additional_slash == 0 {
                     continue;
                 }
@@ -710,7 +710,7 @@ impl StakingManager {
         }
 
         // Round UP so the offender doesn't benefit from integer truncation.
-        let amount_slashed = ((total_stake as u128 * effective_rate as u128 + 9_999) / 10_000) as u64;
+        let amount_slashed = (total_stake as u128 * effective_rate as u128).div_ceil(10_000) as u64;
 
         // Slash self-stake first, then delegated stake.
         // Scoped block to release the mutable borrow before delegator iteration.
@@ -752,8 +752,7 @@ impl StakingManager {
                             slash_for_delegators.saturating_sub(total_deducted)
                                 .min(delegation.amount)
                         } else {
-                            ((delegation.amount as u128 * slash_for_delegators as u128
-                                + old_delegated as u128 - 1) / old_delegated as u128) as u64
+                            (delegation.amount as u128 * slash_for_delegators as u128).div_ceil(old_delegated as u128) as u64
                         };
                         delegation.amount = delegation.amount.saturating_sub(delegator_slash);
                         total_deducted = total_deducted.saturating_add(delegator_slash);
@@ -801,7 +800,7 @@ impl StakingManager {
         for unbonding in &mut self.unbonding {
             if unbonding.validator == validator && unbonding.completion_epoch > self.current_epoch {
                 // Round UP to match the main slash calculation. Use effective rate (correlated).
-                let unbond_slash = ((unbonding.amount as u128 * effective_rate as u128 + 9_999) / 10_000) as u64;
+                let unbond_slash = (unbonding.amount as u128 * effective_rate as u128).div_ceil(10_000) as u64;
                 unbonding.amount = unbonding.amount.saturating_sub(unbond_slash);
             }
         }
