@@ -2787,22 +2787,42 @@ async fn get_all_tokens(
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
         if let Ok(mints) = tokio::task::spawn_blocking(move || {
-            provider.scan_all_mints()
+            let mints = provider.scan_all_mints();
+            let pools = provider.scan_all_pools();
+            let launches = provider.scan_all_launches();
+            (mints, pools, launches)
         }).await {
-            let items: Vec<serde_json::Value> = mints.iter().map(|m| {
-                serde_json::json!({
-                    "mint_id": hex::encode(m.id.0),
-                    "name": m.name,
-                    "symbol": m.symbol,
-                    "decimals": m.decimals,
-                    "total_supply": m.total_supply,
-                    "max_supply": m.max_supply,
-                    "creator": hex::encode(m.creator.0),
-                    "metadata_uri": m.metadata_uri,
-                    "has_mint_authority": m.mint_authority.is_some(),
-                    "active": m.active,
-                })
-            }).collect();
+            let (mints, pools, launches) = mints;
+
+            // Build set of mint IDs that have DEX liquidity pools
+            let pool_mints: std::collections::HashSet<[u8; 32]> = pools.iter()
+                .flat_map(|p| [p.mint_a.0, p.mint_b.0])
+                .collect();
+
+            // Build set of mint IDs that have an active (non-finalized) launch
+            let ungraduated_mints: std::collections::HashSet<[u8; 32]> = launches.iter()
+                .filter(|l| l.state != pichain_types::launchpad::LaunchState::Finalized)
+                .map(|l| l.mint.0)
+                .collect();
+
+            // Only show tokens that: have a pool, OR have no active launch
+            // (filters out tokens still on bonding curve that haven't graduated)
+            let items: Vec<serde_json::Value> = mints.iter()
+                .filter(|m| pool_mints.contains(&m.id.0) || !ungraduated_mints.contains(&m.id.0))
+                .map(|m| {
+                    serde_json::json!({
+                        "mint_id": hex::encode(m.id.0),
+                        "name": m.name,
+                        "symbol": m.symbol,
+                        "decimals": m.decimals,
+                        "total_supply": m.total_supply,
+                        "max_supply": m.max_supply,
+                        "creator": hex::encode(m.creator.0),
+                        "metadata_uri": m.metadata_uri,
+                        "has_mint_authority": m.mint_authority.is_some(),
+                        "active": m.active,
+                    })
+                }).collect();
             return (StatusCode::OK, Json(serde_json::json!({ "tokens": items })));
         }
     }
