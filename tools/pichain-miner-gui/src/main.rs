@@ -275,6 +275,82 @@ async fn get_system_info() -> Result<serde_json::Value, String> {
     }))
 }
 
+// ---------- Update checker ----------
+
+#[tauri::command]
+async fn check_for_updates(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let current = env!("CARGO_PKG_VERSION");
+    let resp = state
+        .http_client
+        .get("https://api.github.com/repos/pureinkart-tech/pichain/releases/latest")
+        .header("User-Agent", "PIChain-Miner")
+        .send()
+        .await
+        .map_err(|e| format!("{e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub returned HTTP {}", resp.status()));
+    }
+
+    let release: serde_json::Value = resp.json().await.map_err(|e| format!("{e}"))?;
+    let tag = release["tag_name"].as_str().unwrap_or("");
+    let latest = tag.trim_start_matches('v');
+
+    Ok(serde_json::json!({
+        "has_update": is_newer_version(latest, current),
+        "latest_version": latest,
+        "current_version": current,
+        "release_url": release["html_url"].as_str().unwrap_or(""),
+    }))
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let parse = |s: &str| -> (u32, u32, u32) {
+        let mut parts = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+        (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        )
+    };
+    parse(latest) > parse(current)
+}
+
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Only HTTPS URLs are allowed".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+
+    Ok(())
+}
+
 // ---------- Entry point ----------
 
 fn main() {
@@ -295,6 +371,8 @@ fn main() {
             reset_wallet,
             activate_wallet,
             get_system_info,
+            check_for_updates,
+            open_url,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
