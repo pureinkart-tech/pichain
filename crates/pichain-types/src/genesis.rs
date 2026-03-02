@@ -212,6 +212,31 @@ impl GenesisConfig {
         Address(bytes)
     }
 
+    /// Compute a deterministic hash of the genesis configuration.
+    /// All validators must agree on this hash before launching mainnet.
+    /// The hash covers: chain_id, timestamp, all allocations (address+amount+label+virtual),
+    /// and all validators (address+stake+name).
+    pub fn genesis_hash(&self) -> pichain_crypto::Hash {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"pichain-genesis-v1:");
+        data.extend_from_slice(&self.chain_id.to_le_bytes());
+        data.extend_from_slice(&self.timestamp_ms.to_le_bytes());
+        data.extend_from_slice(&(self.allocations.len() as u32).to_le_bytes());
+        for alloc in &self.allocations {
+            data.extend_from_slice(&alloc.address.0);
+            data.extend_from_slice(&alloc.amount.to_le_bytes());
+            data.extend_from_slice(alloc.label.as_bytes());
+            data.push(if alloc.virtual_pool { 1 } else { 0 });
+        }
+        data.extend_from_slice(&(self.validators.len() as u32).to_le_bytes());
+        for val in &self.validators {
+            data.extend_from_slice(&val.address.0);
+            data.extend_from_slice(&val.stake.to_le_bytes());
+            data.extend_from_slice(val.name.as_bytes());
+        }
+        pichain_crypto::hash(&data)
+    }
+
     /// Verify that total allocations equal the fixed supply.
     pub fn verify_supply(&self) -> bool {
         let total: u128 = self
@@ -301,5 +326,25 @@ mod tests {
             .map(|a| a.amount as u128)
             .sum();
         assert_eq!(total, TOTAL_SUPPLY, "Devnet supply must equal TOTAL_SUPPLY");
+    }
+
+    #[test]
+    fn genesis_hash_deterministic() {
+        let g1 = GenesisConfig::pichain_mainnet();
+        let g2 = GenesisConfig::pichain_mainnet();
+        assert_eq!(g1.genesis_hash(), g2.genesis_hash());
+
+        // Different config should produce different hash
+        let g3 = GenesisConfig::devnet();
+        assert_ne!(g1.genesis_hash(), g3.genesis_hash());
+    }
+
+    #[test]
+    fn genesis_hash_changes_with_timestamp() {
+        let mut g1 = GenesisConfig::pichain_mainnet();
+        let mut g2 = GenesisConfig::pichain_mainnet();
+        g1.timestamp_ms = 1000;
+        g2.timestamp_ms = 2000;
+        assert_ne!(g1.genesis_hash(), g2.genesis_hash());
     }
 }

@@ -5753,7 +5753,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-bridge"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5773,7 +5773,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-cli"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5790,7 +5790,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-consensus"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5812,7 +5812,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-crypto"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "blake3",
  "blst",
@@ -5826,7 +5826,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-execution"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5850,7 +5850,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-miner"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5871,7 +5871,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-miner-gui"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5900,7 +5900,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-mining"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5918,7 +5918,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-network"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -5937,7 +5937,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-node"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5963,7 +5963,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-rpc"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5987,7 +5987,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-storage"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6005,7 +6005,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-types"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "blake3",
  "chrono",

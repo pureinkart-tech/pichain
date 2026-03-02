@@ -163,8 +163,18 @@ const DEFAULT_MAX_HOURLY_VOLUME: u128 = 1_000_000_000_000_000_000;
 /// Number of blocks in one hour (~314ms per block).
 const BLOCKS_PER_HOUR: u64 = 11_465;
 
+/// Cooldown period after circuit breaker trips before auto-recovery.
+/// ~30 minutes at 314ms blocks. The bridge stays paused for this many blocks
+/// after tripping, then auto-recovers IF rolling volume has dropped below the threshold.
+const CIRCUIT_BREAKER_COOLDOWN_BLOCKS: u64 = 5_732;
+
+/// Maximum single transfer as a percentage of the hourly volume cap (basis points).
+/// A single transfer cannot exceed 10% of the hourly limit, preventing a single
+/// large transfer from immediately tripping the circuit breaker.
+const MAX_SINGLE_TRANSFER_BPS: u128 = 1_000; // 10%
+
 /// Circuit breaker state — automatically pauses bridge when volume exceeds thresholds.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitBreaker {
     /// Maximum volume allowed per rolling hour window.
     pub max_hourly_volume: u128,
@@ -176,6 +186,10 @@ pub struct CircuitBreaker {
     pub paused_at: Option<u64>,
     /// Manual override — admin can force-pause/resume.
     pub admin_paused: bool,
+    /// Number of times the circuit breaker has tripped (lifetime counter).
+    pub trip_count: u64,
+    /// Block height of last auto-recovery.
+    pub last_recovery_height: Option<u64>,
 }
 
 impl CircuitBreaker {
@@ -186,7 +200,16 @@ impl CircuitBreaker {
             paused: false,
             paused_at: None,
             admin_paused: false,
+            trip_count: 0,
+            last_recovery_height: None,
         }
+    }
+
+    /// Check if a single transfer amount exceeds the per-transfer size limit.
+    pub fn exceeds_single_transfer_limit(&self, amount: u128) -> bool {
+        let max_single = self.max_hourly_volume
+            .saturating_mul(MAX_SINGLE_TRANSFER_BPS) / 10_000;
+        amount > max_single
     }
 
     /// Record a transfer volume and check if we should trip.
@@ -198,10 +221,43 @@ impl CircuitBreaker {
         if total > self.max_hourly_volume {
             self.paused = true;
             self.paused_at = Some(height);
+            self.trip_count = self.trip_count.saturating_add(1);
             true // tripped
         } else {
             false
         }
+    }
+
+    /// Try auto-recovery: if cooldown has elapsed AND rolling volume is below threshold,
+    /// automatically resume the bridge. Called on each new block.
+    /// Returns true if the bridge was auto-recovered.
+    pub fn try_auto_recover(&mut self, current_height: u64) -> bool {
+        // Only auto-recover from automatic trips, not admin pauses
+        if !self.paused || self.admin_paused {
+            return false;
+        }
+
+        let paused_at = match self.paused_at {
+            Some(h) => h,
+            None => return false,
+        };
+
+        // Must wait at least COOLDOWN_BLOCKS after trip
+        if current_height < paused_at.saturating_add(CIRCUIT_BREAKER_COOLDOWN_BLOCKS) {
+            return false;
+        }
+
+        // Only recover if rolling volume has dropped below 50% of the limit
+        // (using 50% instead of 100% to provide margin and prevent flapping)
+        let current_volume = self.rolling_volume(current_height);
+        if current_volume > self.max_hourly_volume / 2 {
+            return false;
+        }
+
+        self.paused = false;
+        self.paused_at = None;
+        self.last_recovery_height = Some(current_height);
+        true
     }
 
     /// Get rolling volume for the last hour of blocks.
@@ -229,6 +285,52 @@ impl CircuitBreaker {
         self.paused = false;
         self.paused_at = None;
     }
+
+    /// Get circuit breaker status for RPC.
+    pub fn status(&self, current_height: u64) -> CircuitBreakerStatus {
+        let rolling_volume = self.rolling_volume(current_height);
+        let utilization_bps = if self.max_hourly_volume > 0 {
+            ((rolling_volume as u128).saturating_mul(10_000) / self.max_hourly_volume) as u64
+        } else {
+            0
+        };
+        let cooldown_remaining = if self.paused {
+            self.paused_at
+                .map(|h| h.saturating_add(CIRCUIT_BREAKER_COOLDOWN_BLOCKS).saturating_sub(current_height))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        CircuitBreakerStatus {
+            paused: self.is_paused(),
+            auto_paused: self.paused,
+            admin_paused: self.admin_paused,
+            rolling_volume,
+            max_hourly_volume: self.max_hourly_volume,
+            utilization_bps,
+            trip_count: self.trip_count,
+            paused_at_height: self.paused_at,
+            cooldown_remaining_blocks: cooldown_remaining,
+            last_recovery_height: self.last_recovery_height,
+        }
+    }
+}
+
+/// Circuit breaker status for RPC responses.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CircuitBreakerStatus {
+    pub paused: bool,
+    pub auto_paused: bool,
+    pub admin_paused: bool,
+    pub rolling_volume: u128,
+    pub max_hourly_volume: u128,
+    /// Volume utilization in basis points (0-10000+).
+    pub utilization_bps: u64,
+    pub trip_count: u64,
+    pub paused_at_height: Option<u64>,
+    pub cooldown_remaining_blocks: u64,
+    pub last_recovery_height: Option<u64>,
 }
 
 /// The bridge manager — coordinates cross-chain transfers.
@@ -276,9 +378,16 @@ impl BridgeManager {
         }
     }
 
-    /// Set the current block height.
+    /// Set the current block height and attempt auto-recovery of circuit breaker.
     pub fn set_height(&mut self, height: u64) {
         self.current_height = height;
+        // Try auto-recovery on each height advance
+        self.circuit_breaker.try_auto_recover(height);
+    }
+
+    /// Get circuit breaker status for monitoring/RPC.
+    pub fn circuit_breaker_status(&self) -> CircuitBreakerStatus {
+        self.circuit_breaker.status(self.current_height)
     }
 
     /// Register a bridge relayer with their public key for signature verification.
@@ -327,6 +436,18 @@ impl BridgeManager {
         // Circuit breaker — reject transfers when bridge is paused
         if self.circuit_breaker.is_paused() {
             return Err(BridgeError::BridgePaused);
+        }
+
+        // Per-transfer size limit — no single transfer can exceed 10% of the hourly cap.
+        // This prevents a single large transfer from immediately tripping the circuit breaker
+        // and blocking all other users.
+        if self.circuit_breaker.exceeds_single_transfer_limit(amount) {
+            let max_single = self.circuit_breaker.max_hourly_volume
+                .saturating_mul(MAX_SINGLE_TRANSFER_BPS) / 10_000;
+            return Err(BridgeError::TransferTooLarge {
+                amount,
+                max_single_transfer: max_single,
+            });
         }
 
         // Reject new transfers when pending count is at capacity (Fix NET-226).
@@ -618,6 +739,8 @@ pub enum BridgeError {
     TooManyPendingTransfers { current: usize, max: usize },
     #[error("bridge is paused (circuit breaker tripped or admin pause)")]
     BridgePaused,
+    #[error("transfer too large: {amount} exceeds single-transfer limit of {max_single_transfer}")]
+    TransferTooLarge { amount: u128, max_single_transfer: u128 },
 }
 
 #[cfg(test)]
@@ -892,26 +1015,24 @@ mod tests {
     #[test]
     fn circuit_breaker_trips_on_excess_volume() {
         let (mut mgr, _) = setup_bridge();
-        // Set a very low hourly limit for testing
-        mgr.circuit_breaker.max_hourly_volume = 10_000_000_000; // 10 PI
+        // Set hourly limit to 100 PI; per-transfer max = 10% = 10 PI
+        mgr.circuit_breaker.max_hourly_volume = 100_000_000_000; // 100 PI
 
         mgr.set_height(100);
 
-        // First transfer: 5 PI — should work
-        mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
-        assert!(!mgr.circuit_breaker.is_paused());
-
-        // Second transfer: 6 PI — total 11 PI > 10 PI limit, trips breaker
-        mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![21u8; 20], 6_000_000_000,
-        ).unwrap();
+        // Send many transfers to exceed the hourly limit
+        for i in 0u8..11 {
+            // Each transfer is ~10 PI (at the per-transfer limit)
+            mgr.initiate_transfer(
+                Address([10u8; 20]), BridgeChain::Ethereum, vec![20 + i; 20], 10_000_000_000,
+            ).unwrap();
+        }
+        // 11 * 10 PI = 110 PI > 100 PI limit — breaker should have tripped
         assert!(mgr.circuit_breaker.is_paused());
 
-        // Third transfer should be rejected
+        // Next transfer should be rejected (bridge paused)
         let result = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![22u8; 20], 1_000_000_000,
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![99u8; 20], 1_000_000_000,
         );
         assert!(result.is_err());
     }
@@ -945,5 +1066,106 @@ mod tests {
         cb.reset();
         assert!(!cb.paused);
         assert!(!cb.is_paused());
+    }
+
+    #[test]
+    fn circuit_breaker_auto_recovery() {
+        let mut cb = CircuitBreaker::new(100);
+        // Trip the breaker at height 1000
+        cb.record_volume(1000, 200);
+        assert!(cb.paused);
+        assert_eq!(cb.trip_count, 1);
+
+        // Too early for recovery (before cooldown)
+        assert!(!cb.try_auto_recover(1000 + 100));
+        assert!(cb.paused);
+
+        // After cooldown, volume has dropped (old entries fell off window)
+        let recovery_height = 1000 + CIRCUIT_BREAKER_COOLDOWN_BLOCKS + BLOCKS_PER_HOUR + 1;
+        assert!(cb.try_auto_recover(recovery_height));
+        assert!(!cb.paused);
+        assert_eq!(cb.last_recovery_height, Some(recovery_height));
+    }
+
+    #[test]
+    fn circuit_breaker_no_recovery_when_volume_high() {
+        let mut cb = CircuitBreaker::new(100);
+        cb.record_volume(1000, 200);
+        assert!(cb.paused);
+
+        // After cooldown, but add fresh volume that keeps it above 50% threshold
+        let recovery_height = 1000 + CIRCUIT_BREAKER_COOLDOWN_BLOCKS + 1;
+        cb.record_volume(recovery_height - 1, 60); // 60 > 50 (50% of 100)
+        assert!(!cb.try_auto_recover(recovery_height));
+        assert!(cb.paused);
+    }
+
+    #[test]
+    fn circuit_breaker_no_auto_recovery_when_admin_paused() {
+        let mut cb = CircuitBreaker::new(100);
+        cb.admin_paused = true;
+        cb.paused = true;
+        cb.paused_at = Some(1000);
+        // Even after cooldown, admin pause blocks auto-recovery
+        let recovery_height = 1000 + CIRCUIT_BREAKER_COOLDOWN_BLOCKS + BLOCKS_PER_HOUR + 1;
+        assert!(!cb.try_auto_recover(recovery_height));
+    }
+
+    #[test]
+    fn single_transfer_size_limit() {
+        let (mut mgr, _) = setup_bridge();
+        // Default max hourly = 1e18, so max single = 10% = 1e17
+        let max_single = DEFAULT_MAX_HOURLY_VOLUME / 10;
+        let too_large = max_single + 1;
+
+        let result = mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], too_large,
+        );
+        assert!(matches!(result, Err(BridgeError::TransferTooLarge { .. })));
+
+        // Just under the limit should work
+        let ok_amount = max_single;
+        mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![21u8; 20], ok_amount,
+        ).unwrap();
+    }
+
+    #[test]
+    fn circuit_breaker_status_reporting() {
+        let (mut mgr, _) = setup_bridge();
+        // Use a smaller hourly limit so utilization_bps is measurable
+        mgr.circuit_breaker.max_hourly_volume = 100_000_000_000; // 100 PI
+        mgr.set_height(1000);
+        mgr.initiate_transfer(
+            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
+        ).unwrap();
+
+        let status = mgr.circuit_breaker_status();
+        assert!(!status.paused);
+        assert_eq!(status.rolling_volume, 5_000_000_000);
+        assert_eq!(status.trip_count, 0);
+        // 5B / 100B * 10000 = 500 bps
+        assert_eq!(status.utilization_bps, 500);
+    }
+
+    #[test]
+    fn set_height_triggers_auto_recovery() {
+        let (mut mgr, _) = setup_bridge();
+        // 100 PI hourly limit, per-transfer max = 10 PI
+        mgr.circuit_breaker.max_hourly_volume = 100_000_000_000;
+        mgr.set_height(100);
+
+        // Trip the breaker with many transfers
+        for i in 0u8..11 {
+            mgr.initiate_transfer(
+                Address([10u8; 20]), BridgeChain::Ethereum, vec![20 + i; 20], 10_000_000_000,
+            ).unwrap();
+        }
+        assert!(mgr.circuit_breaker.is_paused());
+
+        // Advance past cooldown + window expiry → auto-recovery via set_height
+        let far_future = 100 + CIRCUIT_BREAKER_COOLDOWN_BLOCKS + BLOCKS_PER_HOUR + 1;
+        mgr.set_height(far_future);
+        assert!(!mgr.circuit_breaker.is_paused());
     }
 }

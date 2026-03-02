@@ -219,9 +219,18 @@ enum Commands {
         #[arg(long)]
         generate_template: bool,
 
-        /// Verify an existing genesis config file (check supply, addresses).
+        /// Verify an existing genesis config file (check supply, addresses, hash).
         #[arg(long)]
         verify: bool,
+
+        /// Sign the genesis file with this validator's key (proves agreement).
+        /// Requires --key-file to point to a validator.key file.
+        #[arg(long)]
+        sign: bool,
+
+        /// Path to validator.key file (for --sign mode).
+        #[arg(long)]
+        key_file: Option<PathBuf>,
 
         /// Initialize data directory from a finalized genesis file.
         #[arg(long)]
@@ -410,15 +419,20 @@ async fn main() -> anyhow::Result<()> {
             };
 
             // --- 9. Start P2P Networking ---
-            if !cfg.bootstrap_peers.is_empty() {
+            // Resolve seeds: hardcoded mainnet seeds → DNS seeds → config bootstrap_peers
+            let resolved_peers = pichain_network::PiChainSwarm::resolve_seeds(
+                chain_id,
+                &cfg.bootstrap_peers,
+            );
+            if !resolved_peers.is_empty() {
                 info!(
-                    count = cfg.bootstrap_peers.len(),
-                    "bootstrap peers configured: {:?}", cfg.bootstrap_peers
+                    count = resolved_peers.len(),
+                    "seed/bootstrap peers resolved"
                 );
             }
             let swarm_config = pichain_network::SwarmConfig {
                 listen_addr: p2p_addr.clone(),
-                bootstrap_peers: pichain_network::PiChainSwarm::parse_bootstrap_peers(&cfg.bootstrap_peers),
+                bootstrap_peers: resolved_peers,
                 identity_secret: Some(validator_key.secret.to_bytes()),
                 ..Default::default()
             };
@@ -1548,6 +1562,8 @@ async fn main() -> anyhow::Result<()> {
             genesis_file,
             generate_template,
             verify,
+            sign,
+            key_file,
             data_dir,
         } => {
             if generate_template {
@@ -1557,13 +1573,15 @@ async fn main() -> anyhow::Result<()> {
                 std::fs::write(&genesis_file, &json)?;
                 println!("=== PIChain Genesis Ceremony ===");
                 println!("Template genesis written to: {}", genesis_file.display());
+                println!("Genesis hash: {}", genesis.genesis_hash());
                 println!();
                 println!("Next steps:");
                 println!("  1. Edit the file to replace Address::ZERO with real addresses");
                 println!("  2. Set timestamp_ms to the genesis ceremony time");
                 println!("  3. Add initial validators");
-                println!("  4. Verify: pichain genesis-ceremony --genesis-file {} --verify", genesis_file.display());
-                println!("  5. Init:   pichain genesis-ceremony --genesis-file {} --data-dir /path/to/data", genesis_file.display());
+                println!("  4. Verify:  pichain genesis-ceremony --genesis-file {} --verify", genesis_file.display());
+                println!("  5. Sign:    pichain genesis-ceremony --genesis-file {} --sign --key-file validator.key", genesis_file.display());
+                println!("  6. Init:    pichain genesis-ceremony --genesis-file {} --data-dir /path/to/data", genesis_file.display());
                 println!();
                 println!("Allocations:");
                 for alloc in &genesis.allocations {
@@ -1572,15 +1590,49 @@ async fn main() -> anyhow::Result<()> {
                 }
                 let total: u128 = genesis.allocations.iter().map(|a| a.amount as u128).sum();
                 println!("  Total: {} PI ({} base units)", total / pichain_types::BASE_UNITS_PER_PI as u128, total);
+            } else if sign {
+                // Sign the genesis file to prove validator agreement
+                let key_path = key_file.ok_or_else(|| anyhow::anyhow!(
+                    "--key-file is required for --sign mode. Point it to your validator.key file."
+                ))?;
+                let key_data = std::fs::read_to_string(&key_path)?;
+                let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
+                    .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
+                let ed_bytes: [u8; 32] = hex::decode(&keys.ed25519_secret)?
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("ed25519 secret key must be 32 bytes"))?;
+                let kp = pichain_crypto::Keypair::from_secret_bytes(&ed_bytes);
+
+                let contents = std::fs::read_to_string(&genesis_file)?;
+                let genesis: pichain_types::GenesisConfig = serde_json::from_str(&contents)?;
+                genesis.validate().map_err(|e| anyhow::anyhow!("genesis invalid: {e}"))?;
+
+                let genesis_hash = genesis.genesis_hash();
+                let mut sign_msg = Vec::new();
+                sign_msg.extend_from_slice(b"pichain-genesis-sign:");
+                sign_msg.extend_from_slice(genesis_hash.as_bytes());
+                let sig = kp.sign(&sign_msg);
+
+                println!("=== PIChain Genesis Signature ===");
+                println!("Genesis file:  {}", genesis_file.display());
+                println!("Genesis hash:  {genesis_hash}");
+                println!("Validator:     {}", kp.address());
+                println!("Signature:     {}", hex::encode(sig.to_bytes()));
+                println!();
+                println!("Share this signature with all other validators.");
+                println!("They can verify with: pichain genesis-ceremony --verify --genesis-file {}", genesis_file.display());
             } else if verify {
                 // Verify a genesis file
                 let contents = std::fs::read_to_string(&genesis_file)?;
                 let genesis: pichain_types::GenesisConfig = serde_json::from_str(&contents)?;
 
+                let genesis_hash = genesis.genesis_hash();
+
                 println!("=== PIChain Genesis Verification ===");
                 println!("File: {}", genesis_file.display());
                 println!("Chain ID: {}", genesis.chain_id);
                 println!("Timestamp: {} ms", genesis.timestamp_ms);
+                println!("Genesis Hash: {genesis_hash}");
                 println!();
 
                 // Check supply
@@ -1618,6 +1670,8 @@ async fn main() -> anyhow::Result<()> {
                     if chain_ok { "PASS" } else { "WARN" }, genesis.chain_id);
 
                 println!();
+                println!("ALL VALIDATORS MUST CONFIRM THIS HASH: {genesis_hash}");
+                println!();
                 if supply_ok && ts_ok && zero_count == 0 && chain_ok {
                     println!("Genesis file is VALID and ready for launch.");
                 } else {
@@ -1645,11 +1699,13 @@ async fn main() -> anyhow::Result<()> {
                 node_state.apply_genesis(&genesis)?;
 
                 let state_root = node_state.state_root();
-                println!("  Chain ID:    {}", genesis.chain_id);
-                println!("  State Root:  {state_root}");
-                println!("  Allocations: {}", genesis.allocations.len());
-                println!("  Validators:  {}", genesis.validators.len());
-                println!("  Data Dir:    {dir}");
+                let genesis_hash = genesis.genesis_hash();
+                println!("  Chain ID:      {}", genesis.chain_id);
+                println!("  Genesis Hash:  {genesis_hash}");
+                println!("  State Root:    {state_root}");
+                println!("  Allocations:   {}", genesis.allocations.len());
+                println!("  Validators:    {}", genesis.validators.len());
+                println!("  Data Dir:      {dir}");
                 println!("  Genesis initialized successfully!");
                 println!();
                 println!("  Start the node: pichain run --data-dir {dir} --chain-id {}", genesis.chain_id);

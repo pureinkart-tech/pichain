@@ -12,6 +12,8 @@ libfuzzer-sys = "0.4"
 pichain-types = { path = "../crates/pichain-types" }
 pichain-crypto = { path = "../crates/pichain-crypto" }
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+hex = "0.4"
 
 [[bin]]
 name = "tx_deserialize"
@@ -21,4 +23,24 @@ doc = false
 [[bin]]
 name = "block_deserialize"
 path = "fuzz_targets/block_deserialize.rs"
+doc = false
+
+[[bin]]
+name = "rpc_json_input"
+path = "fuzz_targets/rpc_json_input.rs"
+doc = false
+
+[[bin]]
+name = "mining_proof"
+path = "fuzz_targets/mining_proof.rs"
+doc = false
+
+[[bin]]
+name = "genesis_config"
+path = "fuzz_targets/genesis_config.rs"
+doc = false
+
+[[bin]]
+name = "crypto_inputs"
+path = "fuzz_targets/crypto_inputs.rs"
 doc = false

@@ -31,6 +31,80 @@ use zeroize::Zeroize;
 
 use crate::NetworkError;
 
+/// Hardcoded mainnet seed nodes.
+///
+/// These are well-known, reliable validators that new nodes connect to for
+/// initial peer discovery. After connecting to seeds, Kademlia DHT takes over
+/// for ongoing peer discovery.
+///
+/// Format: "/ip4/<ip>/tcp/9314/p2p/<peer_id>"
+///
+/// To add a seed node:
+/// 1. Run `pichain keygen` to generate keys
+/// 2. Start the node with `--p2p-addr /ip4/0.0.0.0/tcp/9314`
+/// 3. Note the peer_id from startup logs
+/// 4. Add the multiaddr here
+///
+/// These will be populated before mainnet launch. During testnet, use
+/// --bootstrap-peers in config or DNS seeds.
+const MAINNET_SEED_NODES: &[&str] = &[
+    // Seed 1: pichain.net primary validator (to be populated at launch)
+    // "/ip4/<IP>/tcp/9314/p2p/<PEER_ID>",
+];
+
+/// DNS seed hostname. TXT records at this domain contain multiaddr strings
+/// for seed nodes. This allows updating the seed list without a code release.
+const DNS_SEED_HOSTNAME: &str = "seed.pichain.net";
+
+/// Resolve seed peers from DNS TXT records.
+///
+/// Each TXT record should contain a multiaddr string:
+///   "seed.pichain.net. TXT /ip4/1.2.3.4/tcp/9314/p2p/12D3KooW..."
+///
+/// Returns parsed peers or an error (DNS resolution failure is non-fatal).
+fn resolve_dns_seeds(chain_id: u64) -> Result<Vec<(PeerId, Multiaddr)>, String> {
+    // Use the chain-specific subdomain for isolation
+    let hostname = if chain_id == 314159 {
+        DNS_SEED_HOSTNAME.to_string()
+    } else {
+        format!("testnet.{DNS_SEED_HOSTNAME}")
+    };
+
+    // Synchronous DNS TXT lookup (called once at startup, not performance-critical)
+    let output = std::process::Command::new("dig")
+        .args(["+short", "TXT", &hostname])
+        .output()
+        .map_err(|e| format!("DNS lookup failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!("DNS lookup returned non-zero: {}", output.status));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut peers = Vec::new();
+
+    for line in stdout.lines() {
+        // TXT records come back quoted: "\"<multiaddr>\""
+        let addr_str = line.trim().trim_matches('"');
+        if addr_str.is_empty() || !addr_str.starts_with('/') {
+            continue;
+        }
+        if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+            if let Some(peer_id) = addr.iter().find_map(|proto| {
+                if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                    Some(id)
+                } else {
+                    None
+                }
+            }) {
+                peers.push((peer_id, addr));
+            }
+        }
+    }
+
+    Ok(peers)
+}
+
 /// Minimum number of connected peers required for safe operation.
 ///
 /// SECURITY (Fix 194): With only 2-4 peers, an attacker can trivially eclipse
@@ -357,6 +431,66 @@ impl PiChainSwarm {
             })?;
             Some((peer_id, addr))
         }).collect()
+    }
+
+    /// Resolve seed nodes for the given chain_id.
+    ///
+    /// Seed resolution order:
+    /// 1. Hardcoded mainnet seeds (if chain_id == 314159)
+    /// 2. DNS-based discovery (resolve seed.pichain.net TXT records)
+    /// 3. Fallback to config-provided bootstrap_peers
+    ///
+    /// Returns peers merged from all sources (deduplicated by PeerId).
+    pub fn resolve_seeds(
+        chain_id: u64,
+        config_peers: &[String],
+    ) -> Vec<(PeerId, Multiaddr)> {
+        let mut peers = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        // 1. Hardcoded mainnet seeds
+        if chain_id == 314159 {
+            for seed_addr in MAINNET_SEED_NODES {
+                if let Ok(addr) = seed_addr.parse::<Multiaddr>() {
+                    if let Some(peer_id) = addr.iter().find_map(|proto| {
+                        if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    }) {
+                        if seen_ids.insert(peer_id) {
+                            info!(peer_id = %peer_id, addr = %addr, "hardcoded mainnet seed");
+                            peers.push((peer_id, addr));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. DNS seed discovery (resolve TXT records from seed.pichain.net)
+        match resolve_dns_seeds(chain_id) {
+            Ok(dns_peers) => {
+                for (peer_id, addr) in dns_peers {
+                    if seen_ids.insert(peer_id) {
+                        info!(peer_id = %peer_id, addr = %addr, "DNS seed");
+                        peers.push((peer_id, addr));
+                    }
+                }
+            }
+            Err(e) => {
+                debug!(error = %e, "DNS seed resolution failed (non-fatal)");
+            }
+        }
+
+        // 3. Config-provided bootstrap peers
+        for (peer_id, addr) in Self::parse_bootstrap_peers(config_peers) {
+            if seen_ids.insert(peer_id) {
+                peers.push((peer_id, addr));
+            }
+        }
+
+        peers
     }
 
     /// Broadcast a transaction to the network.

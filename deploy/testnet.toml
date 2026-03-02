@@ -1,0 +1,14 @@
+# PIChain Public Testnet Configuration
+# Chain ID 31415926 — public test network
+# Run for 7-14 days before mainnet launch
+
+data_dir = "/var/lib/pichain/testnet"
+rpc_addr = "0.0.0.0:8314"
+p2p_addr = "/ip4/0.0.0.0/tcp/9314"
+chain_id = 31415926
+max_mempool_size = 100000
+validator_stake_pi = 100000
+log_level = "info"
+
+# Public testnet bootstrap — update with real peer IDs after launch
+# bootstrap_peers = ["/ip4/<seed1>/tcp/9314/p2p/<peer_id>"]
