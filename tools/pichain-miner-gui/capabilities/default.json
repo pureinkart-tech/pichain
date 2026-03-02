@@ -2,5 +2,10 @@
   "identifier": "default",
   "description": "Default capabilities for PIChain Miner",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "notification:default",
+    "log:default"
+  ]
 }

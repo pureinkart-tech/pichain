@@ -7,6 +7,9 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    },
     "windows": [
       {
         "title": "PIChain Miner",
@@ -14,9 +17,14 @@
         "height": 720,
         "resizable": true,
         "minWidth": 640,
-        "minHeight": 520
+        "minHeight": 520,
+        "visible": true
       }
-    ]
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
   },
   "bundle": {
     "active": true,

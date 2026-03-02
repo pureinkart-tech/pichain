@@ -16,6 +16,8 @@ struct AppState {
     running: Arc<AtomicBool>,
     mining_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     wallet_path: Mutex<Option<String>>,
+    cached_secret: Mutex<Option<[u8; 32]>>,
+    wallet_encrypted: Mutex<bool>,
     http_client: reqwest::Client,
 }
 
@@ -25,6 +27,8 @@ impl Default for AppState {
             running: Arc::new(AtomicBool::new(false)),
             mining_task: Mutex::new(None),
             wallet_path: Mutex::new(None),
+            cached_secret: Mutex::new(None),
+            wallet_encrypted: Mutex::new(false),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .timeout(std::time::Duration::from_secs(15))
@@ -42,31 +46,54 @@ async fn get_wallet_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn create_wallet(save_path: String) -> Result<wallet::CreateWalletResult, String> {
-    wallet::create_wallet(&save_path)
+async fn check_wallet_format(path: String) -> Result<wallet::WalletFormatInfo, String> {
+    wallet::check_wallet_format(&path)
+}
+
+#[tauri::command]
+async fn create_wallet(
+    save_path: String,
+    password: String,
+) -> Result<wallet::CreateWalletResult, String> {
+    wallet::create_wallet(&save_path, &password)
 }
 
 #[tauri::command]
 async fn import_wallet(
     secret_key: String,
     save_path: String,
+    password: String,
 ) -> Result<wallet::WalletInfo, String> {
-    wallet::import_wallet(&secret_key, &save_path)
+    wallet::import_wallet(&secret_key, &save_path, &password)
 }
 
 #[tauri::command]
 async fn load_wallet(
     path: String,
+    password: Option<String>,
     state: State<'_, AppState>,
-) -> Result<wallet::WalletInfo, String> {
-    let (_kp, info) = wallet::load_wallet(&path)?;
+) -> Result<wallet::WalletLoadResult, String> {
+    let (kp, result, encrypted) = wallet::load_wallet(&path, password.as_deref())?;
     *state.wallet_path.lock().await = Some(path);
-    Ok(info)
+    *state.cached_secret.lock().await = Some(kp.secret.to_bytes());
+    *state.wallet_encrypted.lock().await = encrypted;
+    Ok(result)
 }
 
 #[tauri::command]
 async fn check_wallet_exists(path: String) -> Result<bool, String> {
     Ok(std::path::Path::new(&path).exists())
+}
+
+#[tauri::command]
+async fn migrate_wallet(
+    path: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    wallet::migrate_wallet(&path, &password)?;
+    *state.wallet_encrypted.lock().await = true;
+    Ok(())
 }
 
 #[tauri::command]
@@ -124,17 +151,21 @@ async fn start_mining(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     rpc_url: String,
-    wallet_path: String,
     profile: String,
     chain_id: u64,
 ) -> Result<String, String> {
-    // Check not already running
     if state.running.load(Ordering::Relaxed) {
         return Err("Mining is already running".to_string());
     }
 
-    // Load wallet
-    let (keypair, _info) = wallet::load_wallet(&wallet_path)?;
+    // Use cached keypair (already decrypted at load time)
+    let secret = *state
+        .cached_secret
+        .lock()
+        .await
+        .as_ref()
+        .ok_or_else(|| "No wallet loaded. Please load your wallet first.".to_string())?;
+    let keypair = pichain_crypto::Keypair::from_secret_bytes(&secret);
 
     let config = MiningConfig::from_profile(rpc_url, chain_id, &profile);
     let running = state.running.clone();
@@ -153,10 +184,10 @@ async fn start_mining(
 async fn stop_mining(state: State<'_, AppState>) -> Result<String, String> {
     state.running.store(false, Ordering::Relaxed);
 
-    // Wait for mining task to finish
     let task = state.mining_task.lock().await.take();
     if let Some(handle) = task {
-        let _ = handle.await;
+        // Wait up to 5 seconds for graceful stop
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
     }
 
     Ok("Mining stopped".to_string())
@@ -168,13 +199,25 @@ async fn is_mining(state: State<'_, AppState>) -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn export_wallet_key(state: State<'_, AppState>) -> Result<String, String> {
-    let path = state.wallet_path.lock().await;
-    let path = path
-        .as_deref()
-        .ok_or_else(|| "No wallet loaded".to_string())?;
-    let (kp, _info) = wallet::load_wallet(path)?;
-    Ok(hex::encode(kp.secret.to_bytes()))
+async fn export_wallet_key(
+    password: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let is_encrypted = *state.wallet_encrypted.lock().await;
+
+    if is_encrypted {
+        // Verify password by attempting to decrypt the wallet file
+        let path_guard = state.wallet_path.lock().await;
+        let path = path_guard
+            .as_deref()
+            .ok_or_else(|| "No wallet loaded".to_string())?;
+        let pw = password.ok_or("Password required to export encrypted wallet")?;
+        let _ = wallet::load_wallet(path, Some(&pw))?;
+    }
+
+    let secret = state.cached_secret.lock().await;
+    let secret = secret.ok_or_else(|| "No wallet loaded".to_string())?;
+    Ok(hex::encode(secret))
 }
 
 #[tauri::command]
@@ -186,6 +229,8 @@ async fn reset_wallet(state: State<'_, AppState>) -> Result<String, String> {
     if let Some(p) = path.take() {
         let _ = std::fs::remove_file(&p);
     }
+    *state.cached_secret.lock().await = None;
+    *state.wallet_encrypted.lock().await = false;
     Ok("Wallet reset".to_string())
 }
 
@@ -219,7 +264,7 @@ async fn activate_wallet(
         .to_string();
     let diff_bits = challenge_data["difficulty_bits"].as_u64().unwrap_or(20) as u32;
 
-    // Step 2: Solve PoW in a blocking task (fast in Rust)
+    // Step 2: Solve PoW in a blocking task
     let nonce = tokio::task::spawn_blocking(move || {
         let challenge_bytes = hex::decode(&challenge_hex).unwrap_or_default();
         solve_activation_pow(&challenge_bytes, diff_bits)
@@ -251,17 +296,28 @@ async fn activate_wallet(
 fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
     let full_bytes = (diff_bits / 8) as usize;
     let rem_bits = diff_bits % 8;
-    let mask = if rem_bits > 0 { 0xFF << (8 - rem_bits) } else { 0u8 };
+    let mask = if rem_bits > 0 {
+        0xFF << (8 - rem_bits)
+    } else {
+        0u8
+    };
 
     for nonce in 0u64.. {
         let hash = pichain_crypto::hash_concat(&[challenge, &nonce.to_le_bytes()]);
         let h = hash.as_bytes();
         let mut ok = true;
         for i in 0..full_bytes {
-            if h[i] != 0 { ok = false; break; }
+            if h[i] != 0 {
+                ok = false;
+                break;
+            }
         }
-        if ok && rem_bits > 0 && (h[full_bytes] & mask) != 0 { ok = false; }
-        if ok { return nonce; }
+        if ok && rem_bits > 0 && (h[full_bytes] & mask) != 0 {
+            ok = false;
+        }
+        if ok {
+            return nonce;
+        }
     }
     0 // unreachable
 }
@@ -351,17 +407,130 @@ async fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- Autostart ----------
+
+#[tauri::command]
+async fn toggle_autostart(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| format!("Failed to enable autostart: {e}"))?;
+    } else {
+        manager.disable().map_err(|e| format!("Failed to disable autostart: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_autostart_status(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| format!("Failed to check autostart: {e}"))
+}
+
 // ---------- Entry point ----------
 
 fn main() {
+    // Crash logging: capture panics to log file
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("PANIC: {}", info);
+        default_hook(info);
+    }));
+
     tauri::Builder::default()
+        // --- Plugins ---
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("pichain-miner".into()),
+                    },
+                ))
+                .max_file_size(5_000_000) // 5 MB
+                .build(),
+        )
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Focus existing window when a second instance is launched
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        // --- Setup ---
+        .setup(|app| {
+            // Build system tray
+            let show_item =
+                tauri::menu::MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+            let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
+            let quit_item =
+                tauri::menu::MenuItem::with_id(app, "quit", "Quit PIChain Miner", true, None::<&str>)?;
+            let menu =
+                tauri::menu::Menu::with_items(app, &[&show_item, &separator, &quit_item])?;
+
+            let _tray = tauri::tray::TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("PIChain Miner")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        // Graceful shutdown: signal mining to stop
+                        let state = app.state::<AppState>();
+                        state.running.store(false, Ordering::Relaxed);
+                        // Give the mining loop a moment to finish current work
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            log::info!("PIChain Miner v{} started", env!("CARGO_PKG_VERSION"));
+
+            Ok(())
+        })
+        // --- State ---
         .manage(AppState::default())
+        // --- Commands ---
         .invoke_handler(tauri::generate_handler![
             get_wallet_path,
+            check_wallet_format,
             create_wallet,
             import_wallet,
             load_wallet,
             check_wallet_exists,
+            migrate_wallet,
             get_balance,
             get_mining_status,
             start_mining,
@@ -373,16 +542,15 @@ fn main() {
             get_system_info,
             check_for_updates,
             open_url,
+            toggle_autostart,
+            get_autostart_status,
         ])
+        // --- Window events ---
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Graceful shutdown: stop mining before closing
-                let state = window.state::<AppState>();
-                if state.running.load(Ordering::Relaxed) {
-                    state.running.store(false, Ordering::Relaxed);
-                    // Give the mining loop a moment to notice the flag
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Minimize to system tray instead of quitting
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .run(tauri::generate_context!())

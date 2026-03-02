@@ -1,13 +1,43 @@
+use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use pichain_crypto::Keypair;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+const WALLET_VERSION: u8 = 2;
+
+// ---------- File format ----------
+
 #[derive(Serialize, Deserialize)]
 pub struct WalletFile {
-    pub secret_key: String,
+    #[serde(default = "default_version")]
+    pub version: u8,
+    // V1 (legacy plaintext)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_key: Option<String>,
+    // V2 (encrypted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    // Common
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
 }
+
+fn default_version() -> u8 {
+    1
+}
+
+impl WalletFile {
+    pub fn is_encrypted(&self) -> bool {
+        self.version >= 2 && self.encrypted_key.is_some()
+    }
+}
+
+// ---------- Return types ----------
 
 #[derive(Serialize, Clone)]
 pub struct WalletInfo {
@@ -22,6 +52,21 @@ pub struct CreateWalletResult {
     pub secret_key: String,
 }
 
+#[derive(Serialize, Clone)]
+pub struct WalletLoadResult {
+    pub address: String,
+    pub path: String,
+    pub encrypted: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct WalletFormatInfo {
+    pub exists: bool,
+    pub encrypted: bool,
+}
+
+// ---------- Paths ----------
+
 pub fn default_wallet_dir() -> PathBuf {
     dirs_or_home().join(".pichain")
 }
@@ -34,7 +79,68 @@ fn dirs_or_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
-pub fn create_wallet(save_path: &str) -> Result<CreateWalletResult, String> {
+// ---------- Encryption primitives ----------
+
+fn derive_encryption_key(password: &str, salt: &[u8]) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    argon2::Argon2::default()
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .expect("argon2 derivation failed");
+    key
+}
+
+fn encrypt_secret(secret_bytes: &[u8], password: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+
+    let key = derive_encryption_key(password, &salt);
+    let cipher = Aes256Gcm::new_from_slice(&key).expect("invalid key length");
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(nonce, secret_bytes)
+        .expect("encryption failed");
+
+    (salt.to_vec(), nonce_bytes.to_vec(), ciphertext)
+}
+
+fn decrypt_secret(
+    salt: &[u8],
+    nonce_bytes: &[u8],
+    ciphertext: &[u8],
+    password: &str,
+) -> Result<Vec<u8>, String> {
+    let key = derive_encryption_key(password, salt);
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|_| "Invalid encryption key".to_string())?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+    cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|_| "Wrong password or corrupted wallet file".to_string())
+}
+
+// ---------- Wallet operations ----------
+
+pub fn check_wallet_format(path: &str) -> Result<WalletFormatInfo, String> {
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Ok(WalletFormatInfo {
+            exists: false,
+            encrypted: false,
+        });
+    }
+    let contents =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read wallet: {e}"))?;
+    let wallet: WalletFile =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
+    Ok(WalletFormatInfo {
+        exists: true,
+        encrypted: wallet.is_encrypted(),
+    })
+}
+
+pub fn create_wallet(save_path: &str, password: &str) -> Result<CreateWalletResult, String> {
     let path = PathBuf::from(save_path);
 
     if path.exists() {
@@ -44,17 +150,23 @@ pub fn create_wallet(save_path: &str) -> Result<CreateWalletResult, String> {
         ));
     }
 
-    // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
     let kp = Keypair::generate();
     let address = hex::encode(kp.address().0);
-    let secret_key_hex = hex::encode(kp.secret.to_bytes());
+    let secret_bytes = kp.secret.to_bytes();
+    let secret_key_hex = hex::encode(secret_bytes);
+
+    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
 
     let wallet = WalletFile {
-        secret_key: secret_key_hex.clone(),
+        version: WALLET_VERSION,
+        secret_key: None,
+        encrypted_key: Some(hex::encode(&ciphertext)),
+        salt: Some(hex::encode(&salt)),
+        nonce: Some(hex::encode(&nonce)),
         address: Some(address.clone()),
     };
 
@@ -71,7 +183,11 @@ pub fn create_wallet(save_path: &str) -> Result<CreateWalletResult, String> {
     })
 }
 
-pub fn import_wallet(secret_key_hex: &str, save_path: &str) -> Result<WalletInfo, String> {
+pub fn import_wallet(
+    secret_key_hex: &str,
+    save_path: &str,
+    password: &str,
+) -> Result<WalletInfo, String> {
     let path = PathBuf::from(save_path);
 
     if path.exists() {
@@ -99,8 +215,14 @@ pub fn import_wallet(secret_key_hex: &str, save_path: &str) -> Result<WalletInfo
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
+    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
+
     let wallet = WalletFile {
-        secret_key: secret_key_hex.trim().to_string(),
+        version: WALLET_VERSION,
+        secret_key: None,
+        encrypted_key: Some(hex::encode(&ciphertext)),
+        salt: Some(hex::encode(&salt)),
+        nonce: Some(hex::encode(&nonce)),
         address: Some(address.clone()),
     };
 
@@ -116,14 +238,42 @@ pub fn import_wallet(secret_key_hex: &str, save_path: &str) -> Result<WalletInfo
     })
 }
 
-pub fn load_wallet(path: &str) -> Result<(Keypair, WalletInfo), String> {
+/// Load a wallet. For encrypted wallets, password is required.
+/// Returns (keypair, info, is_encrypted).
+pub fn load_wallet(
+    path: &str,
+    password: Option<&str>,
+) -> Result<(Keypair, WalletLoadResult, bool), String> {
     let path = PathBuf::from(path);
     let contents =
         std::fs::read_to_string(&path).map_err(|e| format!("Failed to read wallet: {e}"))?;
     let wallet: WalletFile =
         serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
-    let secret_bytes =
-        hex::decode(&wallet.secret_key).map_err(|e| format!("Invalid hex key: {e}"))?;
+
+    let (secret_bytes, is_encrypted) = if wallet.is_encrypted() {
+        let password = password.ok_or("Password required")?;
+        let salt = hex::decode(wallet.salt.as_deref().ok_or("Missing salt field")?)
+            .map_err(|e| format!("Invalid salt hex: {e}"))?;
+        let nonce = hex::decode(wallet.nonce.as_deref().ok_or("Missing nonce field")?)
+            .map_err(|e| format!("Invalid nonce hex: {e}"))?;
+        let ct = hex::decode(
+            wallet
+                .encrypted_key
+                .as_deref()
+                .ok_or("Missing encrypted_key field")?,
+        )
+        .map_err(|e| format!("Invalid ciphertext hex: {e}"))?;
+        let decrypted = decrypt_secret(&salt, &nonce, &ct, password)?;
+        (decrypted, true)
+    } else {
+        // Legacy plaintext wallet
+        let sk_hex = wallet
+            .secret_key
+            .as_deref()
+            .ok_or("Missing secret_key field")?;
+        let bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid hex key: {e}"))?;
+        (bytes, false)
+    };
 
     if secret_bytes.len() != 32 {
         return Err(format!(
@@ -139,11 +289,50 @@ pub fn load_wallet(path: &str) -> Result<(Keypair, WalletInfo), String> {
 
     Ok((
         kp,
-        WalletInfo {
+        WalletLoadResult {
             address,
             path: path.display().to_string(),
+            encrypted: is_encrypted,
         },
+        is_encrypted,
     ))
+}
+
+/// Migrate a plaintext wallet to encrypted format.
+pub fn migrate_wallet(path: &str, password: &str) -> Result<(), String> {
+    let path_buf = PathBuf::from(path);
+    let contents =
+        std::fs::read_to_string(&path_buf).map_err(|e| format!("Failed to read wallet: {e}"))?;
+    let wallet: WalletFile =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
+
+    if wallet.is_encrypted() {
+        return Err("Wallet is already encrypted".to_string());
+    }
+
+    let sk_hex = wallet
+        .secret_key
+        .as_deref()
+        .ok_or("Missing secret_key field")?;
+    let secret_bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid hex key: {e}"))?;
+
+    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
+
+    let new_wallet = WalletFile {
+        version: WALLET_VERSION,
+        secret_key: None,
+        encrypted_key: Some(hex::encode(&ciphertext)),
+        salt: Some(hex::encode(&salt)),
+        nonce: Some(hex::encode(&nonce)),
+        address: wallet.address,
+    };
+
+    let json = serde_json::to_string_pretty(&new_wallet)
+        .map_err(|e| format!("Serialization error: {e}"))?;
+    std::fs::write(&path_buf, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
+    restrict_file_permissions(&path_buf);
+
+    Ok(())
 }
 
 /// Restrict file permissions so only the current user can read it.
@@ -155,9 +344,6 @@ fn restrict_file_permissions(path: &std::path::Path) {
     }
     #[cfg(windows)]
     {
-        // Remove inherited ACLs and grant only the current user full control.
-        // icacls is available on all Windows versions since Vista.
-        // Note: std::process::Command doesn't expand %VAR%, so resolve USERNAME manually.
         use std::os::windows::process::CommandExt;
         if let (Some(path_str), Ok(username)) = (path.to_str(), std::env::var("USERNAME")) {
             let grant_arg = format!("{}:F", username);
