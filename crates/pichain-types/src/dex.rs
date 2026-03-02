@@ -191,7 +191,14 @@ impl LiquidityPool {
             }
 
             let impact = if spot_num > exec_num {
-                ((spot_num - exec_num) * 10_000) / spot_num
+                let diff = spot_num - exec_num;
+                // Divide first to avoid u128 overflow on multiply
+                if spot_num >= 10_000 {
+                    (diff / (spot_num / 10_000)).min(10_000)
+                } else {
+                    // Safe for small values — no overflow risk
+                    diff * 10_000 / spot_num
+                }
             } else {
                 0
             };

@@ -533,7 +533,7 @@ function stripAddrPrefix(s){return s.replace(/^(Pi314|pi314|0x|0X)/,'');}
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 const API = window.location.origin;
-const CHAIN_ID = 31415;
+let CHAIN_ID = 31415; // default, updated from node
 const NATIVE_PI_MINT = '0'.repeat(64);
 
 // =====================================================================
@@ -781,6 +781,7 @@ async function updateBalance() {
     const res = await fetch(API+'/api/v1/info');
     const info = await res.json();
     currentBaseFee = info.base_fee || 1000;
+    if(info.chain_id) CHAIN_ID = info.chain_id;
   } catch(e){}
 }
 

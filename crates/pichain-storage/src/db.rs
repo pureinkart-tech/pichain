@@ -95,7 +95,7 @@ impl PiChainDB {
 
     /// Get a column family handle. Column families are created during `open()` with
     /// `create_missing_column_families(true)`, so this only fails if the DB is corrupted.
-    fn cf(&self, name: &str) -> Arc<BoundColumnFamily<'_>> {
+    pub(crate) fn cf(&self, name: &str) -> Arc<BoundColumnFamily<'_>> {
         self.db.cf_handle(name)
             .unwrap_or_else(|| panic!("column family '{name}' missing — database may be corrupted"))
     }
@@ -439,10 +439,12 @@ impl PiChainDB {
             let idx_bytes: [u8; 2] = key[28..30].try_into().unwrap();
             let height = u64::from_be_bytes(height_bytes);
             let tx_idx = u16::from_be_bytes(idx_bytes);
-            let mut tx_hash = [0u8; 32];
-            if value.len() == 32 {
-                tx_hash.copy_from_slice(&value);
+            if value.len() != 32 {
+                tracing::warn!(height, tx_idx, value_len = value.len(), "corrupted tx index entry, skipping");
+                continue;
             }
+            let mut tx_hash = [0u8; 32];
+            tx_hash.copy_from_slice(&value);
             results.push((tx_hash, height, tx_idx));
             if results.len() >= limit {
                 break;
@@ -514,8 +516,12 @@ impl PiChainDB {
             }
             let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
             let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            if value.len() != 32 {
+                tracing::warn!(height, idx, value_len = value.len(), "corrupted topic event index, skipping");
+                continue;
+            }
             let mut tx_hash = [0u8; 32];
-            if value.len() == 32 { tx_hash.copy_from_slice(&value); }
+            tx_hash.copy_from_slice(&value);
             results.push((tx_hash, height, idx));
             if results.len() >= limit { break; }
         }
@@ -547,8 +553,12 @@ impl PiChainDB {
             }
             let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
             let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            if value.len() != 32 {
+                tracing::warn!(height, idx, value_len = value.len(), "corrupted address event index, skipping");
+                continue;
+            }
             let mut tx_hash = [0u8; 32];
-            if value.len() == 32 { tx_hash.copy_from_slice(&value); }
+            tx_hash.copy_from_slice(&value);
             results.push((tx_hash, height, idx));
             if results.len() >= limit { break; }
         }

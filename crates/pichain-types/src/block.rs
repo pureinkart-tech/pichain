@@ -93,14 +93,14 @@ impl BlockHeader {
         if self.gas_used > gas_target {
             // Increase base fee (use u128 to prevent overflow)
             let delta = self.gas_used - gas_target;
-            let fee_delta = (self.base_fee as u128 * delta as u128
-                / gas_target as u128 / 8) as u64;
+            let fee_delta: u64 = (self.base_fee as u128 * delta as u128
+                / gas_target as u128 / 8).try_into().unwrap_or(u64::MAX);
             self.base_fee.saturating_add(fee_delta.max(1))
         } else {
             // Decrease base fee
             let delta = gas_target - self.gas_used;
-            let fee_delta = (self.base_fee as u128 * delta as u128
-                / gas_target as u128 / 8) as u64;
+            let fee_delta: u64 = (self.base_fee as u128 * delta as u128
+                / gas_target as u128 / 8).try_into().unwrap_or(u64::MAX);
             self.base_fee.saturating_sub(fee_delta).max(Self::MIN_BASE_FEE)
         }
     }

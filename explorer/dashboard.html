@@ -265,6 +265,7 @@ a{color:var(--accent-light);text-decoration:none;}
 
 <script>
 const API=window.location.origin;
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 let prevFrontier=0, prevTime=0, prevRanges=0;
 let trackedAddress='';
 let prevHeight=0;
@@ -350,7 +351,7 @@ async function refreshDashboard(){
         const acctRes=await fetch(API+'/api/v1/account/'+trackedAddress);
         const acct=await acctRes.json();
         if(acct.found){
-          document.getElementById('t-balance').textContent=acct.balance_pi;
+          document.getElementById('t-balance').textContent=formatPI(acct.balance);
           document.getElementById('t-nonce').textContent=formatNum(acct.nonce);
           document.getElementById('t-staked').textContent=formatPI(acct.staked);
           document.getElementById('t-status').textContent=acct.balance>0?'Active':'Unfunded';

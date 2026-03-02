@@ -63,10 +63,12 @@ impl<'a> EvmStore<'a> {
         Ok(())
     }
 
-    pub fn batch_put_account(&self, batch: &mut WriteBatch, address: &[u8; 20], state: &EvmAccountState) {
+    pub fn batch_put_account(&self, batch: &mut WriteBatch, address: &[u8; 20], state: &EvmAccountState) -> Result<(), StorageError> {
         let key = Self::account_key(address);
-        let value = serde_json::to_vec(state).expect("EvmAccountState serialization");
+        let value = serde_json::to_vec(state)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
         batch.put_cf(&self.cf(), key, value);
+        Ok(())
     }
 
     // --- Contract code ---
@@ -151,8 +153,7 @@ impl<'a> EvmStore<'a> {
     }
 
     fn cf(&self) -> std::sync::Arc<rocksdb::BoundColumnFamily<'_>> {
-        self.db.inner().cf_handle(CF_EVM_STATE)
-            .expect("CF_EVM_STATE must exist")
+        self.db.cf(CF_EVM_STATE)
     }
 }
 

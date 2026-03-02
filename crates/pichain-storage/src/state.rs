@@ -488,12 +488,14 @@ impl StateStore {
     }
 
     /// Mark an address as activated and increment the global counter.
+    /// Uses a WriteBatch for atomicity — both writes succeed or neither does.
     pub fn mark_wallet_activated(&mut self, address: &Address) -> Result<(), StorageError> {
         let key = activation_key(address);
-        self.db.put_state(&key, &[1])?;
-        // Increment global activation counter
         let count = self.activation_count()?.saturating_add(1);
-        self.db.put_state(ACTIVATION_COUNT_KEY, &count.to_le_bytes())?;
+        let mut batch = rocksdb::WriteBatch::default();
+        self.db.batch_put_state(&mut batch, &key, &[1]);
+        self.db.batch_put_state(&mut batch, ACTIVATION_COUNT_KEY, &count.to_le_bytes());
+        self.db.write_batch_sync(batch)?;
         Ok(())
     }
 

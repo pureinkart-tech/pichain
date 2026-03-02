@@ -809,6 +809,8 @@ function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;c
 // WALLET MANAGEMENT
 // =====================================================================
 const API=window.location.origin;
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+let CHAIN_ID=31415; // default, updated from node
 let walletSeed=null, walletKeypair=null, walletAddress=null, walletAddressHex='';
 let accountNonce=0, accountBalance=0;
 
@@ -1072,6 +1074,7 @@ async function refreshNetStats(){
     const m=await sr.json();
     const info=await ir.json();
     currentStatus=m;
+    if(info.chain_id) CHAIN_ID=info.chain_id;
     document.getElementById('n-frontier').textContent=Number(m.frontier_position).toLocaleString();
     document.getElementById('n-miners').textContent=m.unique_miners;
     document.getElementById('n-reward').textContent=(m.reward_per_digit/1e9).toFixed(6);
@@ -1338,7 +1341,7 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   const baseFee=currentStatus.base_fee||1000;
   // Gas scales with digit count: 500 + digits*5 (matches backend). Add 10% headroom.
   const gasLimit=Math.ceil((500+digitCount*5)*1.1);
-  const chainId=31415;
+  const chainId=CHAIN_ID;
 
   const canonical=buildCanonicalBytes(
     walletAddress,accountNonce,gasLimit,baseFee,100,chainId,

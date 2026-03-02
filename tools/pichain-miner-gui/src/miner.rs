@@ -171,7 +171,7 @@ pub async fn mining_loop(
     );
 
     loop {
-        if !running.load(Ordering::Relaxed) {
+        if !running.load(Ordering::Acquire) {
             emit_log(&app, "Mining stopped by user", "info");
             break;
         }
@@ -437,7 +437,7 @@ pub async fn mining_loop(
 
         let mut current_nonce = nonce;
         for (batch_pos, batch_digit_count, digits) in batches {
-            if !running.load(Ordering::Relaxed) {
+            if !running.load(Ordering::Acquire) {
                 break;
             }
 

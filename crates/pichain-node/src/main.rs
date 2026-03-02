@@ -407,7 +407,9 @@ async fn main() -> anyhow::Result<()> {
                     bls_secret: hex::encode(bls_kp.secret.to_bytes()),
                 };
                 let json = serde_json::to_string_pretty(&key_file)?;
-                std::fs::write(&key_path, &json)?;
+                let tmp_path = key_path.with_extension("key.tmp");
+                std::fs::write(&tmp_path, &json)?;
+                std::fs::rename(&tmp_path, &key_path)?;
                 // Set restrictive permissions (owner read/write only)
                 #[cfg(unix)]
                 {

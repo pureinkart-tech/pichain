@@ -154,7 +154,7 @@ async fn start_mining(
     profile: String,
     chain_id: u64,
 ) -> Result<String, String> {
-    if state.running.load(Ordering::Relaxed) {
+    if state.running.load(Ordering::Acquire) {
         return Err("Mining is already running".to_string());
     }
 
@@ -169,7 +169,7 @@ async fn start_mining(
 
     let config = MiningConfig::from_profile(rpc_url, chain_id, &profile);
     let running = state.running.clone();
-    running.store(true, Ordering::Relaxed);
+    running.store(true, Ordering::Release);
 
     let handle = tokio::spawn(async move {
         miner::mining_loop(app, config, keypair, running).await;
@@ -182,7 +182,7 @@ async fn start_mining(
 
 #[tauri::command]
 async fn stop_mining(state: State<'_, AppState>) -> Result<String, String> {
-    state.running.store(false, Ordering::Relaxed);
+    state.running.store(false, Ordering::Release);
 
     let task = state.mining_task.lock().await.take();
     if let Some(handle) = task {
@@ -195,7 +195,7 @@ async fn stop_mining(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 async fn is_mining(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.running.load(Ordering::Relaxed))
+    Ok(state.running.load(Ordering::Acquire))
 }
 
 #[tauri::command]
@@ -222,7 +222,7 @@ async fn export_wallet_key(
 
 #[tauri::command]
 async fn reset_wallet(state: State<'_, AppState>) -> Result<String, String> {
-    if state.running.load(Ordering::Relaxed) {
+    if state.running.load(Ordering::Acquire) {
         return Err("Stop mining before resetting wallet".to_string());
     }
     let mut path = state.wallet_path.lock().await;
@@ -493,7 +493,7 @@ fn main() {
                     "quit" => {
                         // Graceful shutdown: signal mining to stop
                         let state = app.state::<AppState>();
-                        state.running.store(false, Ordering::Relaxed);
+                        state.running.store(false, Ordering::Release);
                         // Give the mining loop a moment to finish current work
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         app.exit(0);

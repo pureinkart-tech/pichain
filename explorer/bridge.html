@@ -233,6 +233,7 @@ a:hover { text-decoration: underline; }
 
 <script>
 const API = window.location.origin;
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 let currentFilter = null;
 let allTransfers = [];
 let refreshInterval = null;
@@ -336,11 +337,11 @@ function renderTransfers(transfers) {
   for (const t of transfers) {
     const badge = chainBadgeClass(t.chain);
     html += `<tr>
-      <td><span class="chain-badge ${badge}">${t.chain}</span></td>
-      <td><span class="symbol-tag">${t.symbol}</span></td>
+      <td><span class="chain-badge ${badge}">${escHtml(t.chain)}</span></td>
+      <td><span class="symbol-tag">${escHtml(t.symbol)}</span></td>
       <td style="font-weight:600;">${formatAmount(t.amount, t.symbol)}</td>
-      <td><span class="addr-short" title="${t.recipient}" onclick="copyToClipboard('${t.recipient}')" style="cursor:pointer;">${shortAddr(t.recipient)}</span></td>
-      <td><span class="tx-hash" title="${t.tx_hash}" onclick="copyToClipboard('${t.tx_hash}')">${shortTx(t.tx_hash)}</span></td>
+      <td><span class="addr-short" title="${escHtml(t.recipient)}" onclick="copyToClipboard('${escHtml(t.recipient)}')" style="cursor:pointer;">${shortAddr(t.recipient)}</span></td>
+      <td><span class="tx-hash" title="${escHtml(t.tx_hash)}" onclick="copyToClipboard('${escHtml(t.tx_hash)}')">${shortTx(t.tx_hash)}</span></td>
       <td style="color:var(--dim);font-size:12px;" title="${new Date(t.timestamp * 1000).toLocaleString()}">${formatTime(t.timestamp)}</td>
     </tr>`;
   }

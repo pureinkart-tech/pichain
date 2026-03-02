@@ -87,6 +87,10 @@ impl MultisigWallet {
         if signers.len() > 10 {
             return Err("maximum 10 signers allowed".to_string());
         }
+        let unique: std::collections::HashSet<_> = signers.iter().collect();
+        if unique.len() != signers.len() {
+            return Err("duplicate signers not allowed".to_string());
+        }
         let address = Self::derive_address(&signers, threshold);
         Ok(Self {
             address,

@@ -12,7 +12,7 @@ use pichain_consensus::StakingManager;
 use pichain_crypto::ed25519::Address;
 use pichain_crypto::Hash;
 use pichain_execution::{ProducedBlock, TransactionExecutor, TransactionPool};
-use pichain_rpc::StateProvider;
+use pichain_rpc::{StateProvider, TxHistoryEntry};
 use pichain_storage::StateStore;
 use pichain_types::account::Account;
 use pichain_types::genesis::GenesisConfig;
@@ -1755,6 +1755,69 @@ impl StateProvider for NodeState {
             .map(|v| v.pending_rewards)
             .sum();
         delegation_rewards.saturating_add(validator_rewards)
+    }
+
+    // --- Transaction History ---
+
+    fn get_address_transactions(
+        &self,
+        address: &Address,
+        before_height: Option<u64>,
+        limit: usize,
+    ) -> Vec<TxHistoryEntry> {
+        let store = self.store.read();
+        match store.db().get_address_transactions(&address.0, before_height, limit) {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|(tx_hash, height, tx_index)| TxHistoryEntry {
+                    tx_hash: hex::encode(tx_hash),
+                    height,
+                    tx_index,
+                })
+                .collect(),
+            Err(e) => {
+                warn!("Failed to query address transactions: {}", e);
+                vec![]
+            }
+        }
+    }
+
+    // --- Event Queries ---
+
+    fn query_events_by_topic(&self, topic: &[u8; 32], limit: usize) -> Vec<TxHistoryEntry> {
+        let store = self.store.read();
+        match store.db().query_events_by_topic(topic, limit) {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|(tx_hash, height, tx_index)| TxHistoryEntry {
+                    tx_hash: hex::encode(tx_hash),
+                    height,
+                    tx_index,
+                })
+                .collect(),
+            Err(e) => {
+                warn!("Failed to query events by topic: {}", e);
+                vec![]
+            }
+        }
+    }
+
+    fn query_events_by_address(&self, address: &Address, limit: usize) -> Vec<TxHistoryEntry> {
+        let store = self.store.read();
+        match store.db().query_events_by_address(&address.0, limit) {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|(tx_hash, height, tx_index)| TxHistoryEntry {
+                    tx_hash: hex::encode(tx_hash),
+                    height,
+                    tx_index,
+                })
+                .collect(),
+            Err(e) => {
+                warn!("Failed to query events by address: {}", e);
+                vec![]
+            }
+        }
     }
 
     // --- NFT Queries ---

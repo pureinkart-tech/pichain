@@ -100,6 +100,7 @@ th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px
 
 <script>
 const API = window.location.origin;
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 function checkHash() {
   const h = window.location.hash.replace('#','');
@@ -122,21 +123,9 @@ async function lookup() {
     document.getElementById('t-decimals').textContent = d.decimals||0;
     document.getElementById('t-creator').textContent = d.creator ? d.creator.substring(0,16)+'...' : '-';
 
-    // Load holders
-    const hR = await fetch(API+'/api/v1/token/'+mint+'/holders');
-    const hD = await hR.json();
-    const holders = hD.holders || [];
-    document.getElementById('t-holders').textContent = holders.length;
-    const totalBal = holders.reduce((s,h) => s + (h.balance||0), 0);
-    document.getElementById('holders-body').innerHTML = holders.length ? holders.map((h, i) => {
-      const pct = totalBal > 0 ? ((h.balance||0)/totalBal*100).toFixed(1) : '0.0';
-      return `<tr>
-        <td>${i+1}</td>
-        <td class="mono addr" onclick="window.location.href='/address#${h.address}'">${h.address}</td>
-        <td>${(h.balance||0).toLocaleString()}</td>
-        <td>${pct}%</td>
-      </tr>`;
-    }).join('') : '<tr><td colspan="4" style="color:var(--muted);text-align:center;">No holders</td></tr>';
+    // Holders endpoint not yet available
+    document.getElementById('t-holders').textContent = '-';
+    document.getElementById('holders-body').innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;">Holders data not yet available</td></tr>';
   } catch(e) { console.error(e); alert('Error loading token'); }
 }
 window.addEventListener('load', checkHash);

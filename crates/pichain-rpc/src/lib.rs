@@ -9,7 +9,8 @@ pub mod ws;
 
 pub use server::{
     BridgeAddressesInfo, BridgeStatusInfo, BridgeTokenStatus, BridgeTransferInfo,
-    DelegationInfo, MiningStatusData, RpcServer, StateProvider, SwapQuote, ValidatorInfo,
+    DelegationInfo, MiningStatusData, RpcServer, StateProvider, SwapQuote, TxHistoryEntry,
+    ValidatorInfo,
 };
 pub use ws::{WsBroadcaster, WsEvent};
 

@@ -278,7 +278,8 @@ function shortAddr(hex){return 'Pi314'+hex.slice(0,6)+'...'+hex.slice(-4);}
 function stripAddrPrefix(s){return s.replace(/^(Pi314|pi314|0x|0X)/,'');}
 
 const API = window.location.origin;
-const CHAIN_ID = 31415;
+function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+let CHAIN_ID = 31415;
 const fmt = n => {
   if (n >= 1e12) return (n/1e9).toFixed(2)+' PI';
   if (n >= 1e9) return (n/1e9).toFixed(4)+' PI';
@@ -495,6 +496,7 @@ async function updateBalance() {
     const res = await fetch(API+'/api/v1/info');
     const info = await res.json();
     currentBaseFee = info.base_fee || 1000;
+    if(info.chain_id) CHAIN_ID = info.chain_id;
   } catch(e){}
 }
 
@@ -632,14 +634,14 @@ async function loadValidators() {
       totalStake += v.stake || 0;
       const badge = v.active !== false ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Inactive</span>';
       const addr = v.address || '';
-      return `<tr class="validator-select" onclick="selectValidator('${addr}')">
+      return `<tr class="validator-select" onclick="selectValidator('${escHtml(addr)}')">
         <td>${i+1}</td>
-        <td class="addr">${addr ? addr.substring(0,12)+'...' : '-'}</td>
+        <td class="addr">${addr ? escHtml(addr.substring(0,12))+'...' : '-'}</td>
         <td>${fmt(v.stake||0)}</td>
         <td>${v.commission||0}%</td>
         <td>${v.delegators||0}</td>
         <td>${badge}</td>
-        <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectValidator('${addr}')">Select</button></td>
+        <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectValidator('${escHtml(addr)}')">Select</button></td>
       </tr>`;
     }).join('');
     document.getElementById('total-staked').textContent = fmt(totalStake);
@@ -661,7 +663,7 @@ async function loadMyDelegations() {
     const tbody = document.getElementById('my-delegations-body');
     if (!delegations.length) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">No delegations found</td></tr>'; return; }
     tbody.innerHTML = delegations.map(d => `<tr>
-      <td class="addr" style="cursor:pointer;" onclick="selectValidator('${d.validator}')">${d.validator.substring(0,12)}...</td>
+      <td class="addr" style="cursor:pointer;" onclick="selectValidator('${escHtml(d.validator)}')">${escHtml(d.validator.substring(0,12))}...</td>
       <td>${fmt(d.amount||0)}</td>
       <td>${fmt(d.rewards||0)}</td>
       <td>${d.since_epoch||'-'}</td>
@@ -674,7 +676,8 @@ async function loadInfo() {
   try {
     const r = await fetch(API+'/api/v1/info');
     const d = await r.json();
-    document.getElementById('epoch').textContent = Math.floor((d.height||0)/1000);
+    document.getElementById('epoch').textContent = Math.floor((d.block_height||0)/1000);
+    if(d.chain_id) CHAIN_ID = d.chain_id;
   } catch(e) {}
 }
 
