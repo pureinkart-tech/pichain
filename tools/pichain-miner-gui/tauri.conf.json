@@ -1,6 +1,6 @@
 {
   "productName": "PIChain Miner",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "net.pichain.miner",
   "build": {
     "frontendDist": "./ui"
