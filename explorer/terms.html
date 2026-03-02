@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain — Terms of Service</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+.hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
+@media(max-width:768px){.hamburger{display:block;}.nav-links{display:none;}.nav-links.active{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}}
+.main{max-width:800px;margin:0 auto;padding:88px 24px 48px;}
+h1{font-size:32px;font-weight:800;margin-bottom:8px;}
+.updated{color:var(--muted);font-size:14px;margin-bottom:32px;}
+h2{font-size:20px;font-weight:700;margin:32px 0 12px;color:var(--accent-light);}
+p,li{color:var(--muted);font-size:15px;line-height:1.8;margin-bottom:12px;}
+ul{padding-left:24px;margin-bottom:16px;}
+.footer{text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);}
+.footer a{color:var(--muted);margin:0 12px;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links" id="navLinks">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/trade">Trade</a>
+      <a href="/launch">Launch</a>
+      <a href="/mining">Mining</a>
+      <a href="/bridge">Bridge</a>
+      <a href="/staking">Staking</a>
+      <a href="/nft">NFTs</a>
+      <a href="/download">Download</a>
+    </div>
+    <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<div class="main">
+  <h1>Terms of Service</h1>
+  <p class="updated">Last updated: March 2, 2026</p>
+
+  <h2>1. Acceptance of Terms</h2>
+  <p>By accessing or using the PiChain network, explorer, decentralized exchange (DEX), token launchpad, bridge, staking interface, NFT marketplace, or any associated software (collectively, the "Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
+
+  <h2>2. Nature of the Service</h2>
+  <p>PiChain is a decentralized, permissionless Layer 1 blockchain protocol. The Service is provided on an "as-is" and "as-available" basis, without warranties of any kind, whether express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
+
+  <h2>3. Self-Custody and Key Management</h2>
+  <p>You are solely responsible for the security of your private keys, seed phrases, and wallet credentials. PiChain does not hold, manage, or have access to your private keys. Loss of your private keys results in permanent loss of your assets. There is no recovery mechanism.</p>
+
+  <h2>4. No Financial Advice</h2>
+  <p>Nothing in the Service constitutes financial, investment, legal, or tax advice. PI tokens, tokens created on the launchpad, and any digital assets traded on the DEX may have no value. You should consult a qualified professional before making any financial decisions.</p>
+
+  <h2>5. DEX and Trading Risks</h2>
+  <p>The decentralized exchange operates via automated market maker (AMM) smart contracts. By using the DEX, you acknowledge and accept:</p>
+  <ul>
+    <li>Impermanent loss when providing liquidity</li>
+    <li>Price slippage on large trades</li>
+    <li>Potential smart contract vulnerabilities</li>
+    <li>Token prices may go to zero</li>
+    <li>Front-running and sandwich attacks inherent to public blockchains</li>
+  </ul>
+
+  <h2>6. Token Launchpad Risks</h2>
+  <p>Tokens created on the PiChain launchpad are permissionless. PiChain does not vet, endorse, or audit tokens launched by third parties. Many tokens may be scams, have no utility, or lose all value. You bear full responsibility for evaluating any token before purchasing.</p>
+
+  <h2>7. Bridge Risks</h2>
+  <p>The cross-chain bridge facilitates transfers between PiChain and external blockchains. Bridge operations carry inherent risks including:</p>
+  <ul>
+    <li>Delays in transfer confirmation</li>
+    <li>Potential loss of funds due to bridge contract vulnerabilities</li>
+    <li>External chain congestion or downtime</li>
+    <li>Relayer service interruptions</li>
+  </ul>
+  <p>You use the bridge at your own risk. PiChain does not guarantee the safety or timeliness of cross-chain transfers.</p>
+
+  <h2>8. Staking Risks</h2>
+  <p>Staking PI to validators involves risk. Staked assets may be subject to slashing penalties if the validator misbehaves. Unstaking may require a cooldown period during which your assets are illiquid.</p>
+
+  <h2>9. Mining</h2>
+  <p>Mining on PiChain involves computing hexadecimal digits of PI. Mining rewards are not guaranteed and depend on network parameters that may change. Electricity, hardware wear, and opportunity costs are your responsibility.</p>
+
+  <h2>10. Limitation of Liability</h2>
+  <p>To the maximum extent permitted by applicable law, PiChain and its contributors shall not be liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of profits, data, or digital assets, whether arising from contract, tort, negligence, strict liability, or otherwise.</p>
+
+  <h2>11. Modifications</h2>
+  <p>We reserve the right to modify these Terms at any time. Continued use of the Service after changes constitutes acceptance of the revised Terms.</p>
+
+  <h2>12. Governing Law</h2>
+  <p>These Terms are governed by and construed in accordance with applicable law, without regard to conflict of law principles. Any disputes shall be resolved through binding arbitration.</p>
+</div>
+
+<div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> <a href="/privacy">Privacy</a></div>
+
+</body>
+</html>

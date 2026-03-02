@@ -186,8 +186,11 @@ pre .c { color: var(--dim); }
 /* Button loading state */
 .btn.loading { pointer-events: none; opacity: 0.6; }
 
+.hamburger { display: none; background: none; border: none; color: var(--text); cursor: pointer; padding: 8px; }
 @media (max-width: 768px) {
+  .hamburger { display: block; }
   .nav-links { display: none; }
+  .nav-links.active { display: flex; flex-direction: column; position: absolute; top: 64px; left: 0; right: 0; background: rgba(6, 8, 13, 0.98); border-bottom: 1px solid var(--border); padding: 16px 24px; gap: 4px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .card-row { flex-direction: column; }
   .mining-controls { flex-direction: column; align-items: stretch; }
@@ -201,17 +204,20 @@ pre .c { color: var(--dim); }
 <nav class="navbar">
   <div class="navbar-inner">
     <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
-    <div class="nav-links">
+    <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/mining">Mining</a>
-      <a href="/launch">Launch</a>
       <a href="/trade">Trade</a>
+      <a href="/launch">Launch</a>
+      <a href="/mining" class="active">Mining</a>
       <a href="/bridge">Bridge</a>
+      <a href="/staking">Staking</a>
+      <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
-      <a href="/mine" class="active">Start Mining</a>
     </div>
+    <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
   </div>
 </nav>
 
@@ -682,7 +688,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
 
 <div class="toast-container" id="toast-container"></div>
 
-<div class="footer">PiChain &mdash; Computing the Infinite</div>
+<div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
 <!-- Ed25519 library -->
 <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js" integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp" crossorigin="anonymous"></script>

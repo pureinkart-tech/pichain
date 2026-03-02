@@ -25,7 +25,8 @@ a:hover{text-decoration:underline;}
 .nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
 .nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
 .nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
-@media(max-width:768px){.nav-links{display:none;}}
+.hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
+@media(max-width:768px){.hamburger{display:block;}.nav-links{display:none;}.nav-links.active{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}}
 .main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
 .page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
 .page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
@@ -51,37 +52,70 @@ tr:hover{background:rgba(99,102,241,0.04);}
 .form-row{display:flex;gap:12px;margin-bottom:12px;align-items:end;}
 .form-group{flex:1;}
 .form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;}
-.form-group input{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;}
-.form-group input:focus{outline:none;border-color:var(--accent);}
+.form-group input,.form-group select{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:var(--accent);}
 .btn{padding:10px 20px;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.btn-sm{padding:6px 14px;font-size:12px;}
 .btn-primary{background:var(--accent);color:white;}
 .btn-primary:hover{background:var(--accent-light);}
 .btn-danger{background:var(--rose);color:white;}
 .btn-danger:hover{opacity:0.9;}
-.my-delegations{margin-top:16px;}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text);}
+.btn-outline:hover{background:rgba(255,255,255,0.05);}
 #status-msg{margin-top:12px;padding:10px;border-radius:var(--radius-sm);font-size:13px;display:none;}
 #status-msg.success{display:block;background:rgba(52,211,153,0.1);color:var(--green);border:1px solid rgba(52,211,153,0.2);}
 #status-msg.error{display:block;background:rgba(251,113,133,0.1);color:var(--rose);border:1px solid rgba(251,113,133,0.2);}
+.wallet-bar{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 20px;margin-bottom:24px;}
+.wallet-bar .bal{font-weight:700;color:var(--green);}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:200;align-items:center;justify-content:center;}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:32px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;}
+.modal h3{font-size:18px;margin-bottom:16px;}
+.modal .form-row{flex-direction:column;gap:8px;}
+.modal .form-row label{font-size:13px;color:var(--muted);}
+.modal input{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:'SF Mono',Monaco,monospace;}
+.modal input:focus{outline:none;border-color:var(--accent);}
+.modal .btn{width:100%;margin-top:8px;}
+.warning-box{background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--gold);line-height:1.5;}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;opacity:0;transition:opacity 0.3s;z-index:999;pointer-events:none;}
+.toast.show{opacity:1;}
+.toast-success{background:rgba(52,211,153,0.2);color:var(--green);border:1px solid rgba(52,211,153,0.3);}
+.toast-error{background:rgba(251,113,133,0.2);color:var(--rose);border:1px solid rgba(251,113,133,0.3);}
+.validator-select{cursor:pointer;}
+.validator-select:hover{background:rgba(99,102,241,0.08);}
+@media(max-width:768px){.form-row{flex-direction:column;}.wallet-bar{flex-wrap:wrap;}}
 </style>
 </head>
 <body>
 <nav class="navbar">
   <div class="navbar-inner">
     <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
-    <div class="nav-links">
+    <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/staking" class="active">Staking</a>
-      <a href="/mining">Mining</a>
       <a href="/trade">Trade</a>
+      <a href="/launch">Launch</a>
+      <a href="/mining">Mining</a>
       <a href="/bridge">Bridge</a>
+      <a href="/staking" class="active">Staking</a>
+      <a href="/nft">NFTs</a>
+      <a href="/download">Download</a>
     </div>
+    <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
   </div>
 </nav>
 
 <div class="main">
   <h1 class="page-title">Staking &amp; Delegation</h1>
   <p class="page-desc">Stake PI to validators, earn rewards, and help secure the network.</p>
+
+  <!-- Wallet Bar -->
+  <div class="wallet-bar" id="walletBar">
+    <span id="walletStatus">No wallet connected</span>
+    <button class="btn btn-sm btn-primary" onclick="showWalletModal()">Connect Wallet</button>
+  </div>
 
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-val accent" id="total-staked">-</div><div class="stat-label">Total Staked</div></div>
@@ -90,26 +124,22 @@ tr:hover{background:rgba(99,102,241,0.04);}
     <div class="stat-card"><div class="stat-val" id="epoch">-</div><div class="stat-label">Current Epoch</div></div>
   </div>
 
-  <!-- Delegate / Undelegate forms -->
+  <!-- Stake / Unstake forms -->
   <div class="form-card">
-    <h3>Delegate to Validator</h3>
+    <h3>Stake / Unstake</h3>
     <div class="form-row">
       <div class="form-group">
-        <label>Your Address</label>
-        <input type="text" id="my-address" placeholder="40-char hex address">
-      </div>
-      <div class="form-group">
         <label>Validator Address</label>
-        <input type="text" id="validator-addr" placeholder="40-char hex address">
+        <input type="text" id="validator-addr" placeholder="Click a validator below, or enter 40-char hex">
       </div>
       <div class="form-group" style="max-width:200px;">
         <label>Amount (PI)</label>
-        <input type="number" id="stake-amount" placeholder="1000" min="0">
+        <input type="number" id="stake-amount" placeholder="1000" min="0" step="any">
       </div>
-      <button class="btn btn-primary" onclick="delegate()">Delegate</button>
     </div>
-    <div class="form-row">
-      <button class="btn btn-danger" onclick="undelegate()">Undelegate</button>
+    <div class="form-row" style="gap:12px;">
+      <button class="btn btn-primary" id="stakeBtn" onclick="doStake()">Stake</button>
+      <button class="btn btn-danger" id="unstakeBtn" onclick="doUnstake()">Unstake</button>
     </div>
     <div id="status-msg"></div>
   </div>
@@ -117,15 +147,9 @@ tr:hover{background:rgba(99,102,241,0.04);}
   <!-- My Delegations -->
   <div class="section">
     <div class="section-title">My Delegations</div>
-    <div class="form-row" style="margin-bottom:16px;">
-      <div class="form-group" style="max-width:400px;">
-        <input type="text" id="lookup-addr" placeholder="Enter your address to view delegations">
-      </div>
-      <button class="btn btn-primary" onclick="loadMyDelegations()">Look Up</button>
-    </div>
     <table>
       <thead><tr><th>Validator</th><th>Staked</th><th>Rewards</th><th>Since Epoch</th></tr></thead>
-      <tbody id="my-delegations-body"><tr><td colspan="4" style="color:var(--muted);text-align:center;">Enter address above</td></tr></tbody>
+      <tbody id="my-delegations-body"><tr><td colspan="4" style="color:var(--muted);text-align:center;">Connect wallet to view delegations</td></tr></tbody>
     </table>
   </div>
 
@@ -133,67 +157,357 @@ tr:hover{background:rgba(99,102,241,0.04);}
   <div class="section">
     <div class="section-title">Validators</div>
     <table>
-      <thead><tr><th>#</th><th>Address</th><th>Stake</th><th>Commission</th><th>Delegators</th><th>Status</th></tr></thead>
-      <tbody id="validators-body"><tr><td colspan="6" style="color:var(--muted);text-align:center;">Loading...</td></tr></tbody>
+      <thead><tr><th>#</th><th>Address</th><th>Stake</th><th>Commission</th><th>Delegators</th><th>Status</th><th></th></tr></thead>
+      <tbody id="validators-body"><tr><td colspan="7" style="color:var(--muted);text-align:center;">Loading...</td></tr></tbody>
     </table>
   </div>
 </div>
 
+<!-- Wallet Modal -->
+<div class="modal-overlay" id="walletModal">
+  <div class="modal" id="walletModalContent">
+    <div id="walletStep1">
+      <h3>Connect Wallet</h3>
+      <button class="btn btn-primary" onclick="createWalletStep1()">Create New Wallet</button>
+      <div style="text-align:center;color:var(--dim);margin:12px 0;font-size:13px;">or</div>
+      <div class="form-row">
+        <label>Import Private Key</label>
+        <input type="text" id="importSeedInput" placeholder="64-char hex private key" spellcheck="false">
+      </div>
+      <button class="btn btn-outline" onclick="importWallet()">Import</button>
+      <button class="btn btn-outline" style="margin-top:8px;" onclick="closeWalletModal()">Cancel</button>
+    </div>
+    <div id="walletStep2" style="display:none;">
+      <h3>Save Your Private Key</h3>
+      <div class="warning-box">Save this key somewhere safe. It is the ONLY way to access your wallet. Never share it with anyone.</div>
+      <div class="form-row">
+        <label>Private Key</label>
+        <div style="position:relative;">
+          <input type="text" id="newWalletSeed" readonly spellcheck="false">
+          <button class="btn btn-sm" id="copyKeyBtn" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Address</label>
+        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="color:var(--cyan);">
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;color:var(--muted);cursor:pointer;">
+        <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked"> I have saved my private key
+      </label>
+      <button class="btn btn-primary" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Confirm &amp; Activate</button>
+      <button class="btn btn-outline" style="margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
+    </div>
+    <div id="walletStep3" style="display:none;">
+      <h3>Activating Wallet</h3>
+      <div style="text-align:center;padding:24px 0;">
+        <span id="captchaSpinner" style="display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;"></span>
+        <div id="captchaStatus" style="margin-top:12px;color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div style="text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);">PiChain &mdash; Computing the Infinite | <a href="/terms" style="color:var(--dim)">Terms</a> &middot; <a href="/privacy" style="color:var(--dim)">Privacy</a></div>
+
+<style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 <script>
+// =====================================================================
+// BLAKE3 (pure JS, matches Rust blake3::hash exactly)
+// =====================================================================
+const BLAKE3 = (() => {
+  const IV = new Uint32Array([0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]);
+  const MSG_PERM = [2,6,3,10,7,0,4,13,1,11,12,5,9,14,15,8];
+  const CHUNK_START=1, CHUNK_END=2, ROOT=8;
+  function rotR(x,n){return(x>>>n)|(x<<(32-n));}
+  function g(s,a,b,c,d,mx,my){
+    s[a]=(s[a]+s[b]+mx)|0; s[d]=rotR(s[d]^s[a],16);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],12);
+    s[a]=(s[a]+s[b]+my)|0; s[d]=rotR(s[d]^s[a],8);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],7);
+  }
+  function round(s,m){
+    g(s,0,4,8,12,m[0],m[1]);g(s,1,5,9,13,m[2],m[3]);
+    g(s,2,6,10,14,m[4],m[5]);g(s,3,7,11,15,m[6],m[7]);
+    g(s,0,5,10,15,m[8],m[9]);g(s,1,6,11,12,m[10],m[11]);
+    g(s,2,7,8,13,m[12],m[13]);g(s,3,4,9,14,m[14],m[15]);
+  }
+  function compress(cv,block,counter,blockLen,flags){
+    const s=new Uint32Array([cv[0],cv[1],cv[2],cv[3],cv[4],cv[5],cv[6],cv[7],
+      IV[0],IV[1],IV[2],IV[3],counter&0xFFFFFFFF,(counter/0x100000000)>>>0,blockLen,flags]);
+    const m=new Uint32Array(16);
+    for(let i=0;i<16;i++) m[i]=block[i*4]|(block[i*4+1]<<8)|(block[i*4+2]<<16)|(block[i*4+3]<<24);
+    for(let i=0;i<7;i++){round(s,m);const t=new Uint32Array(16);for(let j=0;j<16;j++)t[j]=m[MSG_PERM[j]];m.set(t);}
+    for(let i=0;i<8;i++){s[i]^=s[i+8];s[i+8]^=cv[i];}
+    return s;
+  }
+  function hash(input){
+    if(!(input instanceof Uint8Array))input=new Uint8Array(input);
+    let cv=new Uint32Array(IV);
+    const nBlocks=Math.max(1,Math.ceil(input.length/64));
+    for(let i=0;i<nBlocks;i++){
+      const start=i*64, block=new Uint8Array(64);
+      const end=Math.min(start+64,input.length);
+      block.set(input.subarray(start,end));
+      let fl=0;
+      if(i===0)fl|=CHUNK_START;
+      if(i===nBlocks-1)fl|=CHUNK_END|ROOT;
+      const out=compress(cv,block,0,end-start,fl);
+      if(i===nBlocks-1){
+        const r=new Uint8Array(32);
+        for(let j=0;j<8;j++){r[j*4]=out[j]&0xFF;r[j*4+1]=(out[j]>>8)&0xFF;r[j*4+2]=(out[j]>>16)&0xFF;r[j*4+3]=(out[j]>>24)&0xFF;}
+        return r;
+      }
+      cv=new Uint32Array(out.subarray(0,8));
+    }
+  }
+  return {hash};
+})();
+
+// =====================================================================
+// UTILITIES
+// =====================================================================
+function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
+function u64LE(n){const buf=new Uint8Array(8);const big=BigInt(n);for(let i=0;i<8;i++)buf[i]=Number((big>>BigInt(i*8))&0xFFn);return buf;}
+function concatBytes(arrays){let total=0;for(const a of arrays)total+=a.length;const r=new Uint8Array(total);let off=0;for(const a of arrays){r.set(a,off);off+=a.length;}return r;}
+function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
+function formatPI(base){return (Number(base)/1e9).toFixed(4);}
+function shortAddr(hex){return 'Pi314'+hex.slice(0,6)+'...'+hex.slice(-4);}
+function stripAddrPrefix(s){return s.replace(/^(Pi314|pi314|0x|0X)/,'');}
+
 const API = window.location.origin;
+const CHAIN_ID = 31415;
 const fmt = n => {
   if (n >= 1e12) return (n/1e9).toFixed(2)+' PI';
   if (n >= 1e9) return (n/1e9).toFixed(4)+' PI';
   return n.toLocaleString()+' base';
 };
 
-async function loadValidators() {
-  try {
-    const r = await fetch(API+'/api/v1/staking/validators');
-    const d = await r.json();
-    const validators = d.validators || [];
-    const tbody = document.getElementById('validators-body');
-    if (!validators.length) { tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted);text-align:center;">No validators found</td></tr>'; return; }
-    let totalStake = 0;
-    tbody.innerHTML = validators.map((v,i) => {
-      totalStake += v.stake || 0;
-      const badge = v.active !== false ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Inactive</span>';
-      return `<tr>
-        <td>${i+1}</td>
-        <td class="addr">${v.address ? v.address.substring(0,12)+'...' : '-'}</td>
-        <td>${fmt(v.stake||0)}</td>
-        <td>${v.commission||0}%</td>
-        <td>${v.delegators||0}</td>
-        <td>${badge}</td>
-      </tr>`;
-    }).join('');
-    document.getElementById('total-staked').textContent = fmt(totalStake);
-    document.getElementById('validator-count').textContent = validators.filter(v=>v.active!==false).length;
-  } catch(e) { console.error('Failed to load validators', e); }
+// =====================================================================
+// WALLET STATE
+// =====================================================================
+let walletKeypair = null;
+let walletAddress = null;
+let walletAddressHex = '';
+let walletSeedHex = '';
+let accountNonce = 0;
+let piBalance = 0;
+let currentBaseFee = 1000;
+let pendingNewSeed = null;
+
+function initWallet(seed, skipModalClose) {
+  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  walletAddress = deriveAddress(walletKeypair.publicKey);
+  walletAddressHex = hexEncode(walletAddress);
+  walletSeedHex = hexEncode(seed);
+  localStorage.setItem('pichain_seed', walletSeedHex);
+  updateWalletUI();
+  updateBalance();
+  if(!skipModalClose) closeWalletModal();
 }
 
-async function loadMyDelegations() {
-  const addr = document.getElementById('lookup-addr').value.trim();
-  if (addr.length !== 40) { showMsg('Address must be 40 hex chars','error'); return; }
+function createWalletStep1() {
+  pendingNewSeed = nacl.randomBytes(32);
+  document.getElementById('newWalletSeed').value = hexEncode(pendingNewSeed);
+  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  document.getElementById('newWalletAddr').value = 'Pi314' + hexEncode(deriveAddress(kp.publicKey));
+  document.getElementById('savedKeyCheck').checked = false;
+  document.getElementById('confirmWalletBtn').disabled = true;
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'block';
+}
+
+function confirmNewWallet() {
+  if (!pendingNewSeed) return;
+  initWallet(pendingNewSeed, true);
+  pendingNewSeed = null;
+  showActivationStep();
+}
+
+function showActivationStep() {
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'block';
+  document.getElementById('walletModal').classList.add('show');
+  activateWallet();
+}
+
+function cancelNewWallet() { pendingNewSeed = null; resetWalletModal(); }
+
+function importWallet() {
+  const seed = document.getElementById('importSeedInput').value.trim();
+  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
+  initWallet(hexDecode(seed), true);
+  showActivationStep();
+}
+
+function copyNewKey() {
+  navigator.clipboard.writeText(document.getElementById('newWalletSeed').value).then(() => {
+    const btn = document.getElementById('copyKeyBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+
+function showWalletModal() { resetWalletModal(); document.getElementById('walletModal').classList.add('show'); }
+function closeWalletModal() { document.getElementById('walletModal').classList.remove('show'); resetWalletModal(); }
+
+function resetWalletModal() {
+  document.getElementById('walletStep1').style.display = 'block';
+  document.getElementById('walletStep2').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'none';
+  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
+  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
+  const el=document.getElementById('newWalletSeed');if(el)el.value='';
+  const el2=document.getElementById('newWalletAddr');if(el2)el2.value='';
+  const el3=document.getElementById('importSeedInput');if(el3)el3.value='';
+}
+
+async function activateWallet(){
+  if(!walletAddressHex)return;
+  const statusEl=document.getElementById('captchaStatus');
+  const spinnerEl=document.getElementById('captchaSpinner');
+  try{
+    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
+    const cd=await cr.json();
+    if(!cd.success){
+      if(cd.error&&cd.error.includes('already activated')){
+        if(statusEl){statusEl.textContent='Wallet already activated!';statusEl.style.color='var(--green)';}
+        if(spinnerEl)spinnerEl.style.display='none';
+        setTimeout(()=>closeWalletModal(),1500);
+        showToast('Wallet ready!','success');
+      }
+      return;
+    }
+    if(statusEl)statusEl.textContent='Solving proof-of-work challenge...';
+    const challengeBytes=hexDecode(cd.challenge);
+    const diffBits=cd.difficulty_bits||20;
+    const nonce=await solveActivationPoW(challengeBytes,diffBits);
+    if(statusEl)statusEl.textContent='Activating wallet...';
+    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
+    const d=await r.json();
+    if(d.success){
+      if(statusEl){statusEl.textContent='Wallet activated! +'+d.locked_amount_pi+' PI for gas fees';statusEl.style.color='var(--green)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
+      updateBalance();
+      setTimeout(()=>closeWalletModal(),2000);
+    }else{
+      if(statusEl){statusEl.textContent=d.error||'Activation failed';statusEl.style.color='var(--rose)';}
+      if(spinnerEl)spinnerEl.style.display='none';
+      setTimeout(()=>closeWalletModal(),3000);
+    }
+  }catch(e){
+    if(statusEl){statusEl.textContent='Could not reach node';statusEl.style.color='var(--rose)';}
+    if(spinnerEl)spinnerEl.style.display='none';
+    setTimeout(()=>closeWalletModal(),3000);
+  }
+}
+
+async function solveActivationPoW(challenge,diffBits){
+  const fullBytes=(diffBits/8)|0;
+  const remBits=diffBits%8;
+  const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
+  const batchSize=2000;
+  for(let batch=0;batch<1000000;batch++){
+    const base=batch*batchSize;
+    const promises=[];
+    for(let i=0;i<batchSize;i++){
+      const nonce=base+i;
+      const buf=new Uint8Array(challenge.length+8);
+      buf.set(challenge);
+      let n=nonce;
+      for(let j=0;j<8;j++){buf[challenge.length+j]=n&0xFF;n=Math.floor(n/256);}
+      promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));
+    }
+    const results=await Promise.all(promises);
+    for(const{nonce,hash}of results){
+      let ok=true;
+      for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}
+      if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;
+      if(ok)return nonce;
+    }
+  }
+  throw new Error('PoW solution not found');
+}
+
+function updateWalletUI() {
+  const bar = document.getElementById('walletBar');
+  if(walletKeypair) {
+    bar.innerHTML = `
+      <span class="addr">${shortAddr(walletAddressHex)}</span>
+      <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
+      <button class="btn btn-sm btn-outline" onclick="showPrivateKey()">Key</button>
+      <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
+    `;
+    loadMyDelegations();
+  } else {
+    bar.innerHTML = `
+      <span id="walletStatus">No wallet connected</span>
+      <button class="btn btn-sm btn-primary" onclick="showWalletModal()">Connect Wallet</button>
+    `;
+  }
+}
+
+function showPrivateKey() {
+  const modal = document.getElementById('walletModalContent');
+  document.getElementById('walletStep1').style.display = 'none';
+  let keyView = document.getElementById('walletKeyView');
+  if (!keyView) { keyView = document.createElement('div'); keyView.id = 'walletKeyView'; modal.appendChild(keyView); }
+  keyView.style.display = 'block';
+  keyView.innerHTML = `
+    <h3>Your Private Key</h3>
+    <div class="warning-box">Never share this key with anyone.</div>
+    <div class="form-row"><label>Private Key</label>
+      <div style="position:relative;">
+        <input type="text" value="${walletSeedHex}" readonly spellcheck="false" style="font-size:12px;padding-right:70px;">
+        <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${walletSeedHex}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
+      </div>
+    </div>
+    <div class="form-row"><label>Address</label>
+      <input type="text" value="Pi314${walletAddressHex}" readonly spellcheck="false" style="color:var(--cyan);">
+    </div>
+    <button class="btn btn-outline" style="margin-top:12px;" onclick="document.getElementById('walletKeyView').style.display='none';closeWalletModal();">Close</button>
+  `;
+  document.getElementById('walletModal').classList.add('show');
+}
+
+function disconnectWallet() {
+  localStorage.removeItem('pichain_seed');
+  walletKeypair = null; walletAddress = null; walletAddressHex = '';
+  piBalance = 0; accountNonce = 0;
+  updateWalletUI();
+  document.getElementById('my-delegations-body').innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">Connect wallet to view delegations</td></tr>';
+}
+
+async function updateBalance() {
+  if(!walletAddressHex) return;
   try {
-    const [dR, rR] = await Promise.all([
-      fetch(API+'/api/v1/staking/delegations/'+addr),
-      fetch(API+'/api/v1/staking/rewards/'+addr),
-    ]);
-    const dD = await dR.json();
-    const rD = await rR.json();
-    const delegations = dD.delegations || [];
-    const rewards = rD.total_rewards || 0;
-    const tbody = document.getElementById('my-delegations-body');
-    if (!delegations.length) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">No delegations found</td></tr>'; return; }
-    tbody.innerHTML = delegations.map(d => `<tr>
-      <td class="addr">${d.validator.substring(0,12)}...</td>
-      <td>${fmt(d.amount||0)}</td>
-      <td>${fmt(d.rewards||0)}</td>
-      <td>${d.since_epoch||'-'}</td>
-    </tr>`).join('');
-    document.getElementById('avg-apy').textContent = rewards > 0 ? fmt(rewards)+' earned' : '-';
-  } catch(e) { console.error('Failed to load delegations', e); }
+    const res = await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const data = await res.json();
+    if(data.found) { piBalance = data.balance; accountNonce = data.nonce; }
+    const el = document.getElementById('walletBal');
+    if(el) el.textContent = formatPI(piBalance)+' PI';
+  } catch(e){}
+  try {
+    const res = await fetch(API+'/api/v1/info');
+    const info = await res.json();
+    currentBaseFee = info.base_fee || 1000;
+  } catch(e){}
+}
+
+function loadWallet() {
+  const saved = localStorage.getItem('pichain_seed');
+  if(saved && saved.length===64) { initWallet(hexDecode(saved)); activateWallet(); }
+}
+
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast toast-'+type+' show';
+  setTimeout(()=>{ el.classList.remove('show'); }, 4000);
 }
 
 function showMsg(msg, type) {
@@ -202,12 +516,158 @@ function showMsg(msg, type) {
   el.className = type;
 }
 
-async function delegate() {
-  showMsg('Delegation requires signing from a wallet. Use pichain-cli to delegate.', 'success');
+// =====================================================================
+// TX BUILDING & SIGNING
+// =====================================================================
+function buildTxHeader(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,chainId) {
+  return concatBytes([sender,u64LE(nonce),u64LE(gasLimit),u64LE(maxBaseFee),u64LE(maxPriorityFee),u64LE(chainId)]);
 }
 
-async function undelegate() {
-  showMsg('Undelegation requires signing from a wallet. Use pichain-cli to undelegate.', 'success');
+// Tag 3: Stake { validator: Address, amount: u64 }
+function buildStakeCanonical(sender, nonce, validator, amount) {
+  const h = buildTxHeader(sender, nonce, 25000, currentBaseFee, 100, CHAIN_ID);
+  return concatBytes([h, new Uint8Array([3]), validator, u64LE(amount)]);
+}
+
+// Tag 4: Unstake { validator: Address, amount: u64 }
+function buildUnstakeCanonical(sender, nonce, validator, amount) {
+  const h = buildTxHeader(sender, nonce, 25000, currentBaseFee, 100, CHAIN_ID);
+  return concatBytes([h, new Uint8Array([4]), validator, u64LE(amount)]);
+}
+
+function buildSignedTxJson(kindName, kindData, nonce, signature, gasLimit) {
+  const signedTx = {
+    data: { sender: Array.from(walletAddress), nonce: nonce, kind: { [kindName]: kindData },
+            gas_limit: gasLimit, max_base_fee: currentBaseFee, max_priority_fee: 100, chain_id: CHAIN_ID },
+    signature: hexEncode(signature),
+    public_key: Array.from(walletKeypair.publicKey)
+  };
+  return hexEncode(new TextEncoder().encode(JSON.stringify(signedTx)));
+}
+
+async function submitTx(hexStr) {
+  const res = await fetch(API+'/api/v1/tx/submit', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({signed_tx_hex: hexStr})
+  });
+  return await res.json();
+}
+
+// =====================================================================
+// STAKE / UNSTAKE ACTIONS
+// =====================================================================
+async function doStake() {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const validatorHex = stripAddrPrefix(document.getElementById('validator-addr').value.trim());
+  if(!/^[0-9a-fA-F]{40}$/.test(validatorHex)) { showMsg('Validator address must be 40 hex characters', 'error'); return; }
+  const amount = parseFloat(document.getElementById('stake-amount').value) || 0;
+  if(amount <= 0) { showMsg('Enter an amount to stake', 'error'); return; }
+  const amountBase = Math.floor(amount * 1e9);
+  if(amountBase > piBalance) { showMsg('Insufficient balance ('+formatPI(piBalance)+' PI available)', 'error'); return; }
+
+  const validatorAddr = hexDecode(validatorHex);
+  const btn = document.getElementById('stakeBtn');
+  btn.disabled = true; btn.textContent = 'Staking...';
+  try {
+    await updateBalance();
+    const canonical = buildStakeCanonical(walletAddress, accountNonce, validatorAddr, amountBase);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Stake', { validator: Array.from(validatorAddr), amount: amountBase }, accountNonce, sig, 25000);
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showMsg('Stake submitted! Tx: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
+      showToast('Staked ' + amount + ' PI successfully!', 'success');
+      document.getElementById('stake-amount').value = '';
+      setTimeout(() => { updateBalance(); loadMyDelegations(); loadValidators(); }, 3000);
+    } else { showMsg('Failed: ' + (result.error || 'unknown'), 'error'); }
+  } catch(e) { showMsg(e.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Stake';
+}
+
+async function doUnstake() {
+  if(!walletKeypair) { showWalletModal(); return; }
+  const validatorHex = stripAddrPrefix(document.getElementById('validator-addr').value.trim());
+  if(!/^[0-9a-fA-F]{40}$/.test(validatorHex)) { showMsg('Validator address must be 40 hex characters', 'error'); return; }
+  const amount = parseFloat(document.getElementById('stake-amount').value) || 0;
+  if(amount <= 0) { showMsg('Enter an amount to unstake', 'error'); return; }
+  const amountBase = Math.floor(amount * 1e9);
+  const validatorAddr = hexDecode(validatorHex);
+  const btn = document.getElementById('unstakeBtn');
+  btn.disabled = true; btn.textContent = 'Unstaking...';
+  try {
+    await updateBalance();
+    const canonical = buildUnstakeCanonical(walletAddress, accountNonce, validatorAddr, amountBase);
+    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
+    const hex = buildSignedTxJson('Unstake', { validator: Array.from(validatorAddr), amount: amountBase }, accountNonce, sig, 25000);
+    const result = await submitTx(hex);
+    if(result.status === 'pending') {
+      accountNonce++;
+      showMsg('Unstake submitted! Tx: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
+      showToast('Unstaked ' + amount + ' PI successfully!', 'success');
+      document.getElementById('stake-amount').value = '';
+      setTimeout(() => { updateBalance(); loadMyDelegations(); loadValidators(); }, 3000);
+    } else { showMsg('Failed: ' + (result.error || 'unknown'), 'error'); }
+  } catch(e) { showMsg(e.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Unstake';
+}
+
+// =====================================================================
+// DATA LOADING
+// =====================================================================
+function selectValidator(addr) {
+  document.getElementById('validator-addr').value = addr;
+  document.getElementById('validator-addr').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+async function loadValidators() {
+  try {
+    const r = await fetch(API+'/api/v1/staking/validators');
+    const d = await r.json();
+    const validators = d.validators || [];
+    const tbody = document.getElementById('validators-body');
+    if (!validators.length) { tbody.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center;">No validators found</td></tr>'; return; }
+    let totalStake = 0;
+    tbody.innerHTML = validators.map((v,i) => {
+      totalStake += v.stake || 0;
+      const badge = v.active !== false ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Inactive</span>';
+      const addr = v.address || '';
+      return `<tr class="validator-select" onclick="selectValidator('${addr}')">
+        <td>${i+1}</td>
+        <td class="addr">${addr ? addr.substring(0,12)+'...' : '-'}</td>
+        <td>${fmt(v.stake||0)}</td>
+        <td>${v.commission||0}%</td>
+        <td>${v.delegators||0}</td>
+        <td>${badge}</td>
+        <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectValidator('${addr}')">Select</button></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('total-staked').textContent = fmt(totalStake);
+    document.getElementById('validator-count').textContent = validators.filter(v=>v.active!==false).length;
+  } catch(e) { console.error('Failed to load validators', e); }
+}
+
+async function loadMyDelegations() {
+  if(!walletAddressHex) return;
+  try {
+    const [dR, rR] = await Promise.all([
+      fetch(API+'/api/v1/staking/delegations/'+walletAddressHex),
+      fetch(API+'/api/v1/staking/rewards/'+walletAddressHex),
+    ]);
+    const dD = await dR.json();
+    const rD = await rR.json();
+    const delegations = dD.delegations || [];
+    const rewards = rD.total_rewards || 0;
+    const tbody = document.getElementById('my-delegations-body');
+    if (!delegations.length) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">No delegations found</td></tr>'; return; }
+    tbody.innerHTML = delegations.map(d => `<tr>
+      <td class="addr" style="cursor:pointer;" onclick="selectValidator('${d.validator}')">${d.validator.substring(0,12)}...</td>
+      <td>${fmt(d.amount||0)}</td>
+      <td>${fmt(d.rewards||0)}</td>
+      <td>${d.since_epoch||'-'}</td>
+    </tr>`).join('');
+    document.getElementById('avg-apy').textContent = rewards > 0 ? fmt(rewards)+' earned' : '-';
+  } catch(e) { console.error('Failed to load delegations', e); }
 }
 
 async function loadInfo() {
@@ -218,9 +678,14 @@ async function loadInfo() {
   } catch(e) {}
 }
 
+// =====================================================================
+// INIT
+// =====================================================================
+loadWallet();
 loadValidators();
 loadInfo();
 setInterval(loadValidators, 30000);
+setInterval(() => { if(walletKeypair) { updateBalance(); loadMyDelegations(); } }, 30000);
 </script>
 </body>
 </html>

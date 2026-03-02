@@ -2179,10 +2179,14 @@ impl TransactionExecutor {
                                     if let Err(e) = self.seed_dex_pool_from_launch(
                                         tx.data.sender, mint, seed, &mut state_changes,
                                     ) {
-                                        // Pool seeding failed — participation still succeeded,
-                                        // but log the error. The launch is marked Finalized
-                                        // but without a pool. A manual FinalizeLaunch can retry.
-                                        eprintln!("WARN: auto-graduation pool seeding failed: {e}");
+                                        // Pool seeding failed — rollback to TargetReached so a
+                                        // manual FinalizeLaunch tx can retry pool creation.
+                                        let launch_id = pichain_types::launchpad::LaunchId::from_mint(mint);
+                                        self.launchpad_executor.rollback_finalization(&launch_id);
+                                        tracing::warn!(
+                                            error = %e,
+                                            "auto-graduation pool seeding failed, reverted to TargetReached"
+                                        );
                                     }
                                 }
                             }

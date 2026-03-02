@@ -25,7 +25,8 @@ a:hover{text-decoration:underline;}
 .nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
 .nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
 .nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
-@media(max-width:768px){.nav-links{display:none;}}
+.hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
+@media(max-width:768px){.hamburger{display:block;}.nav-links{display:none;}.nav-links.active{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}}
 .main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
 .page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
 .page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
@@ -57,14 +58,20 @@ th{background:var(--surface-2);color:var(--muted);font-weight:600;font-size:12px
 <nav class="navbar">
   <div class="navbar-inner">
     <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
-    <div class="nav-links">
+    <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
-      <a href="/explorer">Explorer</a>
-      <a href="/blocks">Blocks</a>
-      <a href="/staking">Staking</a>
-      <a href="/mining">Mining</a>
+      <a href="/explorer" class="active">Explorer</a>
       <a href="/trade">Trade</a>
+      <a href="/launch">Launch</a>
+      <a href="/mining">Mining</a>
+      <a href="/bridge">Bridge</a>
+      <a href="/staking">Staking</a>
+      <a href="/nft">NFTs</a>
+      <a href="/download">Download</a>
     </div>
+    <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
   </div>
 </nav>
 
@@ -166,5 +173,6 @@ async function loadTxHistory() {
 function loadMore() { loadTxHistory(); }
 window.addEventListener('load', checkHash);
 </script>
+<div style="text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);">PiChain &mdash; Computing the Infinite | <a href="/terms" style="color:var(--dim)">Terms</a> &middot; <a href="/privacy" style="color:var(--dim)">Privacy</a></div>
 </body>
 </html>

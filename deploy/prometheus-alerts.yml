@@ -1,0 +1,71 @@
+groups:
+  - name: pichain-chain-health
+    rules:
+      - alert: ChainHalted
+        expr: |
+          (time() - max(pichain_last_block_timestamp{job="pichain-nodes"})) > 60
+          or
+          changes(max_over_time(pichain_block_height{job="pichain-nodes"}[60s])[60s:10s]) == 0
+        for: 60s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PIChain has stopped producing blocks"
+          description: "No new blocks have been produced in the last 60 seconds. Current block height: {{ $value }}."
+
+      - alert: HighMempoolDepth
+        expr: pichain_mempool_size{job="pichain-nodes"} > 50000
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "PIChain mempool depth is critically high"
+          description: "Node {{ $labels.instance }} mempool contains {{ $value }} pending transactions (threshold: 50000)."
+
+      - alert: LowPeerCount
+        expr: pichain_peer_count{job="pichain-nodes"} < 3
+        for: 60s
+        labels:
+          severity: warning
+        annotations:
+          summary: "PIChain node has too few peers"
+          description: "Node {{ $labels.instance }} only has {{ $value }} peers (minimum: 3). Network partition risk."
+
+      - alert: NodeDown
+        expr: up{job="pichain-nodes"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PIChain node is unreachable"
+          description: "Node {{ $labels.instance }} has been unreachable for more than 30 seconds."
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="pichain-nodes"} > 4294967296
+        for: 120s
+        labels:
+          severity: warning
+        annotations:
+          summary: "PIChain node memory usage exceeds 4GB"
+          description: "Node {{ $labels.instance }} is using {{ humanize $value }} of memory (threshold: 4GB)."
+
+      - alert: BridgeCircuitBreakerTripped
+        expr: pichain_bridge_circuit_breaker_tripped{job="pichain-nodes"} == 1
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PIChain bridge circuit breaker has tripped"
+          description: "The bridge on node {{ $labels.instance }} has been paused by the circuit breaker. Immediate investigation required."
+
+      - alert: ConsensusTimeout
+        expr: |
+          (time() - max(pichain_last_consensus_progress_timestamp{job="pichain-nodes"})) > 120
+          or
+          changes(max_over_time(pichain_consensus_round{job="pichain-nodes"}[120s])[120s:10s]) == 0
+        for: 120s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PIChain consensus has stalled"
+          description: "No consensus progress has been made in the last 120 seconds. The DAG+Bullshark consensus may be stuck."

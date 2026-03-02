@@ -41,6 +41,31 @@ fn is_loopback_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// Check if an IP is a private/RFC1918 address (includes loopback).
+/// Allows: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+/// Also handles IPv4-mapped IPv6 addresses (e.g. ::ffff:10.0.0.1).
+fn is_private_ip(ip: IpAddr) -> bool {
+    let v4 = match ip {
+        IpAddr::V4(v4) => Some(v4),
+        IpAddr::V6(v6) => {
+            if v6.is_loopback() {
+                return true;
+            }
+            v6.to_ipv4_mapped()
+        }
+    };
+    match v4 {
+        Some(v4) => {
+            let octets = v4.octets();
+            v4.is_loopback()                           // 127.0.0.0/8
+                || octets[0] == 10                     // 10.0.0.0/8
+                || (octets[0] == 172 && (octets[1] & 0xf0) == 16) // 172.16.0.0/12
+                || (octets[0] == 192 && octets[1] == 168)         // 192.168.0.0/16
+        }
+        None => false,
+    }
+}
+
 /// Per-IP rate limiter state.
 struct IpRateLimiter {
     /// Per-IP request counts: IP → (count, window_start)
@@ -747,6 +772,9 @@ impl RpcServer {
             .route("/richlist", get(serve_richlist_page))
             .route("/token", get(serve_token_page))
             .route("/nfts", get(serve_nft_page))
+            .route("/nft", get(serve_nft_page))
+            .route("/terms", get(serve_terms_page))
+            .route("/privacy", get(serve_privacy_page))
             // Bridge endpoints
             .route("/api/v1/bridge/deposit-address", post(get_bridge_deposit_address))
             .route("/api/v1/bridge/mint", post(bridge_mint_tokens))
@@ -937,18 +965,20 @@ async fn health_detailed(State(state): State<Arc<RpcState>>) -> impl IntoRespons
 }
 
 /// Prometheus-compatible metrics endpoint.
-/// AUDIT-FIX H-8: Restrict metrics to localhost only to prevent information disclosure.
+/// AUDIT-FIX H-8: Restrict metrics to private/RFC1918 networks to prevent information disclosure.
 /// Metrics expose internal state (peer count, error rates, uptime) that enables
-/// targeted attacks. Only Prometheus scraping from localhost should access this.
+/// targeted attacks. Only Prometheus scraping from localhost or private networks
+/// (Docker bridge, LAN) should access this.
+/// Allowed: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
 async fn prometheus_metrics(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<RpcState>>,
 ) -> impl IntoResponse {
-    if !is_loopback_ip(addr.ip()) {
+    if !is_private_ip(addr.ip()) {
         return (
             StatusCode::FORBIDDEN,
             [("content-type", "text/plain; charset=utf-8")],
-            "metrics endpoint is restricted to localhost".to_string(),
+            "metrics endpoint is restricted to private networks".to_string(),
         );
     }
     let uptime = state.started_at.elapsed().as_secs();
@@ -2224,6 +2254,26 @@ async fn serve_nft_page() -> impl IntoResponse {
         StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
         NFT_HTML,
+    )
+}
+
+/// Terms of Service page.
+async fn serve_terms_page() -> impl IntoResponse {
+    const TERMS_HTML: &str = include_str!("../../../explorer/terms.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        TERMS_HTML,
+    )
+}
+
+/// Privacy Policy page.
+async fn serve_privacy_page() -> impl IntoResponse {
+    const PRIVACY_HTML: &str = include_str!("../../../explorer/privacy.html");
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        PRIVACY_HTML,
     )
 }
 

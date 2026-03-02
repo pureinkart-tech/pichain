@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PiChain — Privacy Policy</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080d;--bg-2:#0c1018;--surface:#111827;--surface-2:#1a2236;
+  --border:#1e293b;--border-light:#2d3a52;
+  --text:#e8ecf4;--muted:#8896b0;--dim:#5e6b82;
+  --accent:#6366f1;--accent-light:#818cf8;
+  --cyan:#22d3ee;--green:#34d399;--gold:#fbbf24;--rose:#fb7185;
+  --radius:16px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+a{color:var(--accent-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.navbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,13,0.8);backdrop-filter:blur(20px);border-bottom:1px solid rgba(30,41,59,0.5);}
+.navbar-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+.pi-sym{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:20px;font-weight:900;color:white;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;padding:8px 16px;border-radius:var(--radius-sm);transition:color 0.2s,background 0.2s;}
+.nav-links a:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+.nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
+.hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
+@media(max-width:768px){.hamburger{display:block;}.nav-links{display:none;}.nav-links.active{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}}
+.main{max-width:800px;margin:0 auto;padding:88px 24px 48px;}
+h1{font-size:32px;font-weight:800;margin-bottom:8px;}
+.updated{color:var(--muted);font-size:14px;margin-bottom:32px;}
+h2{font-size:20px;font-weight:700;margin:32px 0 12px;color:var(--accent-light);}
+p,li{color:var(--muted);font-size:15px;line-height:1.8;margin-bottom:12px;}
+ul{padding-left:24px;margin-bottom:16px;}
+.footer{text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);}
+.footer a{color:var(--muted);margin:0 12px;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a href="/" class="nav-logo"><span class="pi-sym">&pi;</span> PiChain</a>
+    <div class="nav-links" id="navLinks">
+      <a href="/">Home</a>
+      <a href="/explorer">Explorer</a>
+      <a href="/trade">Trade</a>
+      <a href="/launch">Launch</a>
+      <a href="/mining">Mining</a>
+      <a href="/bridge">Bridge</a>
+      <a href="/staking">Staking</a>
+      <a href="/nft">NFTs</a>
+      <a href="/download">Download</a>
+    </div>
+    <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<div class="main">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: March 2, 2026</p>
+
+  <h2>1. Overview</h2>
+  <p>PiChain is a public, permissionless blockchain. This Privacy Policy describes what information is accessible through the Service and how it is handled.</p>
+
+  <h2>2. Public Blockchain Data</h2>
+  <p>All transactions, blocks, account balances, token holdings, mining proofs, and smart contract interactions on PiChain are publicly visible on the blockchain. This data is inherently public by design and cannot be deleted or made private. The explorer displays this publicly available on-chain data.</p>
+
+  <h2>3. Personal Data Collection</h2>
+  <p>The PiChain explorer, DEX, launchpad, bridge, and associated web interfaces do not:</p>
+  <ul>
+    <li>Require account registration or login</li>
+    <li>Collect names, email addresses, or other personal identifiers</li>
+    <li>Use analytics or tracking services</li>
+    <li>Share data with third-party advertising networks</li>
+    <li>Link blockchain addresses to real-world identities</li>
+  </ul>
+
+  <h2>4. Server Logs</h2>
+  <p>The PiChain RPC node may log standard HTTP request information (IP addresses, request timestamps, endpoints accessed) for operational purposes such as rate limiting and abuse prevention. These logs are not shared with third parties and are retained only as long as operationally necessary.</p>
+
+  <h2>5. Cookies</h2>
+  <p>The PiChain web interfaces do not use cookies for tracking or analytics. No first-party or third-party cookies are set. Local browser storage (localStorage) may be used to persist user preferences (such as wallet address for convenience) on your device only.</p>
+
+  <h2>6. Wallet Connections</h2>
+  <p>When you enter a wallet address or connect a wallet to the DEX, bridge, or staking interface, the address is used solely for the purpose of querying on-chain data and constructing transactions. Wallet addresses are not stored on our servers beyond what appears on the public blockchain.</p>
+
+  <h2>7. Mining Data</h2>
+  <p>Mining activity (proofs submitted, digits computed, miner addresses) is recorded on-chain and is publicly visible. The mining dashboard displays this publicly available data.</p>
+
+  <h2>8. Third-Party Links</h2>
+  <p>The Service may contain links to external websites (e.g., GitHub). We are not responsible for the privacy practices of external sites.</p>
+
+  <h2>9. Children's Privacy</h2>
+  <p>The Service is not directed at individuals under the age of 18. We do not knowingly collect information from minors.</p>
+
+  <h2>10. Changes to This Policy</h2>
+  <p>We may update this Privacy Policy from time to time. The "Last updated" date at the top of this page indicates when the policy was last revised.</p>
+
+  <h2>11. Contact</h2>
+  <p>For privacy-related questions, please open an issue on the <a href="https://github.com/pureinkart-tech/pichain" target="_blank" rel="noopener">PiChain GitHub repository</a>.</p>
+</div>
+
+<div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> <a href="/privacy">Privacy</a></div>
+
+</body>
+</html>
