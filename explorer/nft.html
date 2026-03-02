@@ -57,6 +57,15 @@ a:hover{text-decoration:underline;}
 .search-bar button{padding:10px 20px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:white;font-weight:600;cursor:pointer;font-size:14px;}
 .panel{display:none;}
 .panel.active{display:block;}
+/* Wallet bar */
+.wallet-bar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:24px;flex-wrap:wrap;}
+.wallet-bar .addr{font-family:'SF Mono',monospace;font-size:13px;color:var(--cyan);}
+.wallet-bar .bal{font-size:14px;font-weight:700;color:var(--gold);}
+.wallet-bar .btn{padding:6px 14px;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:600;transition:background 0.2s;}
+.wallet-bar .btn-connect{background:var(--accent);color:white;}
+.wallet-bar .btn-connect:hover{background:var(--accent-light);}
+.wallet-bar .btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted);}
+.wallet-bar .btn-outline:hover{border-color:var(--accent);color:var(--text);}
 </style>
 </head>
 <body>
@@ -83,6 +92,11 @@ a:hover{text-decoration:underline;}
 <div class="main">
   <h1 class="page-title">NFT Marketplace</h1>
   <p class="page-desc">Browse collections, view NFTs, and manage your digital assets.</p>
+
+  <div class="wallet-bar" id="walletBar">
+    <span>No wallet connected</span>
+    <button class="btn btn-connect" onclick="connectWallet()">Connect Wallet</button>
+  </div>
 
   <div class="tabs">
     <button class="tab active" onclick="switchTab('collections')">Collections</button>
@@ -112,11 +126,11 @@ a:hover{text-decoration:underline;}
   <!-- My NFTs Panel -->
   <div id="panel-my-nfts" class="panel">
     <div class="search-bar">
-      <input type="text" id="owner-addr" placeholder="Enter your address (40-char hex)">
+      <input type="text" id="owner-addr" placeholder="Enter address (40-char hex) or connect wallet">
       <button onclick="loadMyNfts()">Search</button>
     </div>
     <div class="grid" id="my-nfts-grid">
-      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">Enter address above</div>
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;" id="my-nfts-placeholder">Connect wallet or enter address above</div>
     </div>
   </div>
 
@@ -128,9 +142,133 @@ a:hover{text-decoration:underline;}
   </div>
 </div>
 
+<!-- TweetNaCl for Ed25519 signing -->
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+
 <script>
 const API = window.location.origin;
 function escHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// BLAKE3 (pure JS, matches Rust blake3::hash exactly)
+const BLAKE3 = (() => {
+  const IV = new Uint32Array([0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]);
+  const MSG_PERM = [2,6,3,10,7,0,4,13,1,11,12,5,9,14,15,8];
+  const CHUNK_START=1, CHUNK_END=2, ROOT=8;
+  function rotR(x,n){return(x>>>n)|(x<<(32-n));}
+  function g(s,a,b,c,d,mx,my){
+    s[a]=(s[a]+s[b]+mx)|0; s[d]=rotR(s[d]^s[a],16);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],12);
+    s[a]=(s[a]+s[b]+my)|0; s[d]=rotR(s[d]^s[a],8);
+    s[c]=(s[c]+s[d])|0; s[b]=rotR(s[b]^s[c],7);
+  }
+  function round(s,m){
+    g(s,0,4,8,12,m[0],m[1]);g(s,1,5,9,13,m[2],m[3]);
+    g(s,2,6,10,14,m[4],m[5]);g(s,3,7,11,15,m[6],m[7]);
+    g(s,0,5,10,15,m[8],m[9]);g(s,1,6,11,12,m[10],m[11]);
+    g(s,2,7,8,13,m[12],m[13]);g(s,3,4,9,14,m[14],m[15]);
+  }
+  function compress(cv,block,counter,blockLen,flags){
+    const s=new Uint32Array([cv[0],cv[1],cv[2],cv[3],cv[4],cv[5],cv[6],cv[7],
+      IV[0],IV[1],IV[2],IV[3],counter&0xFFFFFFFF,(counter/0x100000000)>>>0,blockLen,flags]);
+    const m=new Uint32Array(16);
+    for(let i=0;i<16;i++) m[i]=block[i*4]|(block[i*4+1]<<8)|(block[i*4+2]<<16)|(block[i*4+3]<<24);
+    for(let i=0;i<7;i++){round(s,m);const t=new Uint32Array(16);for(let j=0;j<16;j++)t[j]=m[MSG_PERM[j]];m.set(t);}
+    for(let i=0;i<8;i++){s[i]^=s[i+8];s[i+8]^=cv[i];}
+    return s;
+  }
+  function hash(input){
+    if(!(input instanceof Uint8Array))input=new Uint8Array(input);
+    let cv=new Uint32Array(IV);
+    const nBlocks=Math.max(1,Math.ceil(input.length/64));
+    for(let i=0;i<nBlocks;i++){
+      const start=i*64, block=new Uint8Array(64);
+      const end=Math.min(start+64,input.length);
+      block.set(input.subarray(start,end));
+      let fl=0;
+      if(i===0)fl|=CHUNK_START;
+      if(i===nBlocks-1)fl|=CHUNK_END|ROOT;
+      const out=compress(cv,block,0,end-start,fl);
+      if(i===nBlocks-1){
+        const r=new Uint8Array(32);
+        for(let j=0;j<8;j++){r[j*4]=out[j]&0xFF;r[j*4+1]=(out[j]>>8)&0xFF;r[j*4+2]=(out[j]>>16)&0xFF;r[j*4+3]=(out[j]>>24)&0xFF;}
+        return r;
+      }
+      cv=new Uint32Array(out.subarray(0,8));
+    }
+  }
+  return {hash};
+})();
+
+// Utilities
+function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function hexDecode(hex){const b=new Uint8Array(hex.length/2);for(let i=0;i<b.length;i++)b[i]=parseInt(hex.substr(i*2,2),16);return b;}
+function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
+function shortAddr(hex){return 'Pi314'+hex.slice(0,6)+'...'+hex.slice(-4);}
+function formatPI(val){return (val/1e9).toFixed(3);}
+
+// Wallet state
+let walletKeypair = null;
+let walletAddress = null;
+let walletAddressHex = '';
+let piBalance = 0;
+
+function connectWallet() {
+  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
+  if (saved && saved.length === 64) {
+    initWallet(hexDecode(saved));
+  } else {
+    alert('No wallet found. Create a wallet on the Mining page first, then return here.');
+  }
+}
+
+function initWallet(seed) {
+  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  walletAddress = deriveAddress(walletKeypair.publicKey);
+  walletAddressHex = hexEncode(walletAddress);
+  localStorage.setItem('pichain_wallet_seed', hexEncode(seed));
+  localStorage.setItem('pichain_seed', hexEncode(seed));
+  updateWalletUI();
+  updateBalance();
+  // Auto-fill My NFTs address input
+  document.getElementById('owner-addr').value = walletAddressHex;
+}
+
+function disconnectWallet() {
+  localStorage.removeItem('pichain_wallet_seed');
+  localStorage.removeItem('pichain_seed');
+  walletKeypair = null; walletAddress = null; walletAddressHex = '';
+  piBalance = 0;
+  updateWalletUI();
+  document.getElementById('owner-addr').value = '';
+  document.getElementById('my-nfts-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">Connect wallet or enter address above</div>';
+}
+
+function updateWalletUI() {
+  const bar = document.getElementById('walletBar');
+  if (walletKeypair) {
+    bar.innerHTML = `
+      <span class="addr">${shortAddr(walletAddressHex)}</span>
+      <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
+      <button class="btn btn-outline" onclick="disconnectWallet()">Disconnect</button>
+    `;
+  } else {
+    bar.innerHTML = `
+      <span>No wallet connected</span>
+      <button class="btn btn-connect" onclick="connectWallet()">Connect Wallet</button>
+    `;
+  }
+}
+
+async function updateBalance() {
+  if (!walletAddressHex) return;
+  try {
+    const res = await fetch(API+'/api/v1/account/'+walletAddressHex);
+    const data = await res.json();
+    if (data.found) piBalance = data.balance;
+    const el = document.getElementById('walletBal');
+    if (el) el.textContent = formatPI(piBalance)+' PI';
+  } catch(e){}
+}
 
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t,i) => {
@@ -143,6 +281,8 @@ function switchTab(name) {
   document.getElementById('collection-detail').style.display = 'none';
   document.getElementById('items-grid').style.display = 'none';
   document.getElementById('panel-collections').style.display = name === 'collections' ? 'block' : 'none';
+  // Auto-load My NFTs if wallet is connected
+  if (name === 'my-nfts' && walletAddressHex) loadMyNfts();
 }
 
 function nftCard(nft, showPrice) {
@@ -204,8 +344,10 @@ function backToCollections() {
 }
 
 async function loadMyNfts() {
-  const addr = document.getElementById('owner-addr').value.trim().replace(/^0x/,'');
-  if (addr.length !== 40) { alert('Address must be 40 hex chars'); return; }
+  let addr = document.getElementById('owner-addr').value.trim().replace(/^0x/,'');
+  if (!addr && walletAddressHex) addr = walletAddressHex;
+  if (addr.length !== 40) { alert('Address must be 40 hex chars. Connect your wallet or enter an address.'); return; }
+  document.getElementById('owner-addr').value = addr;
   try {
     const r = await fetch(API+'/api/v1/nft/owner/'+addr);
     const d = await r.json();
@@ -215,6 +357,12 @@ async function loadMyNfts() {
       '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:48px;">No NFTs found for this address</div>';
   } catch(e) { console.error(e); }
 }
+
+// Auto-connect wallet on page load
+(function() {
+  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
+  if (saved && saved.length === 64) initWallet(hexDecode(saved));
+})();
 
 loadCollections();
 </script>

@@ -554,6 +554,7 @@ function initWallet(seed, skipModalClose) {
   walletAddressHex = hexEncode(walletAddress);
   walletSeedHex = hexEncode(seed);
   localStorage.setItem('pichain_seed', walletSeedHex);
+  localStorage.setItem('pichain_wallet_seed', walletSeedHex);
   updateWalletUI();
   updateBalance();
   if(!skipModalClose){
@@ -694,7 +695,7 @@ async function solveActivationPoW(challenge,diffBits){
 }
 
 function loadWallet() {
-  const saved = localStorage.getItem('pichain_seed');
+  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
   if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
 }
 
@@ -757,6 +758,7 @@ function showPrivateKey() {
 
 function disconnectWallet() {
   localStorage.removeItem('pichain_seed');
+  localStorage.removeItem('pichain_wallet_seed');
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   tokenBalances = {};

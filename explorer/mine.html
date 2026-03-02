@@ -824,6 +824,7 @@ function initWallet(seed){
   walletAddress=deriveAddress(walletKeypair.publicKey);
   walletAddressHex=hexEncode(walletAddress);
   localStorage.setItem('pichain_wallet_seed',hexEncode(seed));
+  localStorage.setItem('pichain_seed',hexEncode(seed));
   document.getElementById('wallet-setup').style.display='none';
   document.getElementById('wallet-info').style.display='block';
   document.getElementById('wallet-address').textContent='Pi314'+walletAddressHex;
@@ -941,7 +942,7 @@ function exportWallet(){
 
 function resetWallet(){
   if(!confirm('Remove wallet from browser? Make sure you exported your key!'))return;
-  stopMining();localStorage.removeItem('pichain_wallet_seed');
+  stopMining();localStorage.removeItem('pichain_wallet_seed');localStorage.removeItem('pichain_seed');
   walletSeed=null;walletKeypair=null;walletAddress=null;walletAddressHex='';
   document.getElementById('wallet-setup').style.display='block';
   document.getElementById('wallet-info').style.display='none';
