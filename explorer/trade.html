@@ -928,12 +928,15 @@ function renderTokenList() {
   const search = (document.getElementById('tokenSearchInput').value || '').toLowerCase();
   const container = document.getElementById('tokenListContainer');
 
-  // Build list: PI native + all tokens
+  // Build list: PI native + only tokens that have DEX liquidity (graduated)
+  const poolMints = new Set();
+  for(const p of allPools) { poolMints.add(p.mint_a); poolMints.add(p.mint_b); }
+
   let items = [
     { mint: NATIVE_PI_MINT, symbol: 'PI', name: 'PiChain (Native)', decimals: 9, isNative: true }
   ];
   for(const t of allTokens) {
-    if(t.active !== false) {
+    if(t.active !== false && poolMints.has(t.mint_id)) {
       items.push({ mint: t.mint_id, symbol: t.symbol, name: t.name, decimals: t.decimals });
     }
   }
@@ -1543,7 +1546,7 @@ loadWallet();
 loadTokens();
 loadPools();
 setInterval(updateBalance, 15000);
-setInterval(loadTokens, 30000);
+setInterval(() => { loadTokens(); loadPools(); }, 30000);
 
 // Close modals on overlay click
 document.getElementById('tokenModal').addEventListener('click', function(e) {
