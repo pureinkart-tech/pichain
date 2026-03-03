@@ -158,6 +158,21 @@ jobs:
             DMG_STAGING=$(mktemp -d)
             cp -R "$APP_PATH" "$DMG_STAGING/"
             ln -s /Applications "$DMG_STAGING/Applications"
+            printf '%s\n' \
+              '#!/bin/bash' \
+              'set -e' \
+              'APP="/Applications/PIChain Miner.app"' \
+              'if [ ! -d "$APP" ]; then' \
+              '  osascript -e '\''display dialog "PIChain Miner.app not found in /Applications. Please install the app first." buttons {"OK"} default button "OK"'\''' \
+              '  echo "PIChain Miner.app not found in /Applications"' \
+              '  exit 1' \
+              'fi' \
+              'xattr -rd com.apple.quarantine "$APP" || true' \
+              'codesign --force --deep --sign - "$APP" || true' \
+              'open "$APP"' \
+              'echo "Done. PIChain Miner launched."' \
+              > "$DMG_STAGING/fix-pichain-miner-macos.command"
+            chmod +x "$DMG_STAGING/fix-pichain-miner-macos.command"
             hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
             rm -rf "$DMG_STAGING"
 
@@ -173,19 +188,39 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           mkdir -p dist
-          # Use the DMG that cargo tauri build already created (includes .app + Applications symlink)
-          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
-          # Verify the DMG was copied and is a reasonable size
-          if [ -f "dist/${{ matrix.artifact }}.dmg" ]; then
-            SIZE=$(stat -f%z "dist/${{ matrix.artifact }}.dmg" 2>/dev/null || stat -c%s "dist/${{ matrix.artifact }}.dmg" 2>/dev/null)
-            echo "DMG size: $SIZE bytes"
-            if [ "$SIZE" -lt 1000000 ]; then
-              echo "WARNING: DMG seems too small ($SIZE bytes), may be corrupted"
-              exit 1
-            fi
-          else
+          DMG_SRC=$(ls target/${{ matrix.target }}/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
+          if [ -z "$DMG_SRC" ]; then
             echo "ERROR: No DMG found in bundle output"
             ls -la target/${{ matrix.target }}/release/bundle/dmg/ 2>/dev/null || true
+            exit 1
+          fi
+          TMP_RW=$(mktemp -u /tmp/pichain-rw.XXXXXX).dmg
+          hdiutil convert "$DMG_SRC" -format UDRW -o "$TMP_RW"
+          MOUNT_DIR=$(mktemp -d /tmp/pichain-mount.XXXXXX)
+          hdiutil attach "$TMP_RW" -mountpoint "$MOUNT_DIR" -nobrowse -noverify -noautoopen
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'set -e' \
+            'APP="/Applications/PIChain Miner.app"' \
+            'if [ ! -d "$APP" ]; then' \
+            '  osascript -e '\''display dialog "PIChain Miner.app not found in /Applications. Please install the app first." buttons {"OK"} default button "OK"'\''' \
+            '  echo "PIChain Miner.app not found in /Applications"' \
+            '  exit 1' \
+            'fi' \
+            'xattr -rd com.apple.quarantine "$APP" || true' \
+            'codesign --force --deep --sign - "$APP" || true' \
+            'open "$APP"' \
+            'echo "Done. PIChain Miner launched."' \
+            > "$MOUNT_DIR/fix-pichain-miner-macos.command"
+          chmod +x "$MOUNT_DIR/fix-pichain-miner-macos.command"
+          hdiutil detach "$MOUNT_DIR" -force
+          hdiutil convert "$TMP_RW" -format UDZO -o "dist/${{ matrix.artifact }}.dmg"
+          rm -f "$TMP_RW"
+          rmdir "$MOUNT_DIR" || true
+          SIZE=$(stat -f%z "dist/${{ matrix.artifact }}.dmg" 2>/dev/null || stat -c%s "dist/${{ matrix.artifact }}.dmg" 2>/dev/null)
+          echo "DMG size: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "WARNING: DMG seems too small ($SIZE bytes), may be corrupted"
             exit 1
           fi
 
