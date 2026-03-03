@@ -34,7 +34,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 /* Wallet section */
 .wallet-row { display: flex; gap: 12px; align-items: stretch; }
 .wallet-row > .card { flex: 1; }
-.wallet-addr { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 13px; color: var(--cyan); word-break: break-all; background: var(--bg); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wallet-addr { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 13px; color: var(--cyan); word-break: break-all; background: var(--bg); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; transition: border-color 0.2s; }
+.wallet-addr:hover { border-color: var(--cyan); }
 .wallet-addr .copy-btn { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; -webkit-app-region: no-drag; }
 .wallet-addr .copy-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .wallet-balance { font-size: 32px; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
@@ -157,6 +158,28 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 /* Subtle background */
 body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04) 0%, transparent 60%); }
 
+/* Animated stat values */
+.stat-val { transition: transform 0.15s ease; }
+.stat-val.bump { transform: scale(1.08); }
+
+/* Tooltip on stat cards */
+.stat-card { position: relative; cursor: default; }
+.stat-card[data-tip]::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--surface-2); border: 1px solid var(--border-light); border-radius: 6px; padding: 6px 10px;
+  font-size: 11px; color: var(--muted); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.2s; z-index: 10;
+}
+.stat-card[data-tip]:hover::after { opacity: 1; }
+
+/* Network info bar */
+.network-bar { display: flex; gap: 16px; padding: 8px 14px; background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.15); border-radius: var(--radius-sm); font-size: 11px; color: var(--dim); flex-wrap: wrap; align-items: center; }
+.network-bar .net-item { display: flex; align-items: center; gap: 4px; }
+.network-bar .net-val { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Session earnings highlight */
+.session-earned { font-size: 11px; color: var(--green); margin-top: 2px; font-weight: 500; opacity: 0.8; }
+
 /* Pulse glow on mining button after wallet creation */
 @keyframes pulseGlow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.4); }
@@ -238,13 +261,19 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
     <button class="btn btn-primary btn-sm" onclick="doMigrateWallet()">Encrypt Now</button>
   </div>
 
+  <!-- Quick start hint (shown once) -->
+  <div id="quickstart-hint" style="display:none;background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.2);border-radius:var(--radius-sm);padding:12px 16px;font-size:13px;color:var(--muted);align-items:center;justify-content:space-between;">
+    <span>Hit <strong style="color:var(--green);">Start Mining</strong> to begin earning PI. Your computer will compute digits of PI and submit proofs to the network.</span>
+    <button class="btn btn-secondary btn-sm" onclick="dismissQuickstart()" style="flex-shrink:0;margin-left:12px;">Got it</button>
+  </div>
+
   <!-- Wallet + Balance row -->
   <div class="wallet-row">
     <div class="card" style="flex:2;">
       <h3>Wallet</h3>
-      <div class="wallet-addr">
+      <div class="wallet-addr" onclick="copyAddress()" title="Click to copy full address">
         <span id="wallet-address" aria-label="Wallet address">&mdash;</span>
-        <button class="copy-btn" onclick="copyAddress()" title="Copy address" aria-label="Copy wallet address">&#x1f4cb;</button>
+        <span id="copy-feedback" style="font-size:11px;color:var(--green);display:none;">Copied!</span>
       </div>
       <div class="wallet-actions">
         <button class="btn btn-secondary btn-sm" id="refresh-btn" onclick="refreshBalance()" aria-label="Refresh balance">Refresh</button>
@@ -311,25 +340,33 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
     </details>
   </div>
 
+  <!-- Network info bar -->
+  <div class="network-bar" id="network-bar" style="display:none;">
+    <div class="net-item">Network: <span class="net-val" id="net-frontier">—</span> digits verified</div>
+    <div class="net-item">Reward: <span class="net-val" id="net-reward">—</span> PI/digit</div>
+    <div class="net-item">Est. daily: <span class="net-val" id="net-daily" style="color:var(--green);">—</span></div>
+  </div>
+
   <!-- Stats -->
   <div class="stats-grid" role="region" aria-label="Mining statistics">
-    <div class="stat-card">
+    <div class="stat-card" data-tip="Total PI hex digits your computer has computed">
       <div class="stat-val purple" id="stat-digits">0</div>
       <div class="stat-label">Digits Computed</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-tip="Mining proofs accepted by the network vs total sent">
       <div class="stat-val cyan" id="stat-proofs">0 / 0</div>
       <div class="stat-label">Accepted / Sent</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-tip="Estimated PI earned this session based on current reward rate">
       <div class="stat-val green" id="stat-earned">0.0000</div>
       <div class="stat-label">Est. Earned (PI)</div>
+      <div class="session-earned" id="stat-earned-daily"></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-tip="How fast your computer is computing digits right now">
       <div class="stat-val gold" id="stat-rate">0</div>
       <div class="stat-label">Digits / sec</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-tip="How long mining has been running this session">
       <div class="stat-val white" id="stat-uptime">0:00</div>
       <div class="stat-label">Uptime</div>
     </div>
@@ -642,6 +679,7 @@ async function init() {
 
   checkConnection();
   loadAutostartStatus();
+  setupTrayNotice();
 
   listen('mining-stats', (event) => updateStats(event.payload));
   listen('mining-log', (event) => {
@@ -848,11 +886,18 @@ async function doImportWallet() {
   }
 }
 
+function truncateAddress(addr) {
+  if (!addr || addr.length < 16) return addr;
+  return addr.slice(0, 8) + '...' + addr.slice(-8);
+}
+
 function showMiningScreen() {
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('mining-screen').style.display = 'flex';
-  document.getElementById('wallet-address').textContent = walletAddress;
+  document.getElementById('wallet-address').textContent = truncateAddress(walletAddress);
+  document.getElementById('wallet-address').title = walletAddress;
+  showQuickstartHint();
 }
 
 async function refreshBalance() {
@@ -883,10 +928,10 @@ async function refreshBalance() {
 
 function copyAddress() {
   navigator.clipboard.writeText(walletAddress);
-  const btn = document.querySelector('.copy-btn');
-  btn.textContent = '\u2713';
+  const fb = document.getElementById('copy-feedback');
+  fb.style.display = 'inline';
+  setTimeout(() => { fb.style.display = 'none'; }, 1500);
   showToast('Address copied!', 'success');
-  setTimeout(() => btn.innerHTML = '&#x1f4cb;', 1500);
 }
 
 // ---------- Mining control ----------
@@ -981,7 +1026,10 @@ async function startMining() {
     estimatedEarned = 0;
     updateMineButton();
     setControlsLocked(true);
-    osNotify('PIChain Miner', 'Mining started with ' + profile + ' profile');
+    document.title = 'Mining — PIChain Miner';
+    dismissQuickstart();
+    const profileNames = { low: 'Light', normal: 'Balanced', auto: 'Recommended', max: 'Maximum' };
+    osNotify('PIChain Miner', 'Mining started (' + (profileNames[profile] || profile) + ')');
   } catch (e) {
     appendLog({ timestamp: now(), message: 'Start failed: ' + e, level: 'error' });
     showToast('Failed to start mining', 'error');
@@ -996,6 +1044,7 @@ async function stopMining() {
     isMining = false;
     updateMineButton();
     setControlsLocked(false);
+    document.title = 'PIChain Miner';
     showToast('Mining stopped', 'warn');
     await refreshBalance();
   } catch (e) {
@@ -1047,7 +1096,20 @@ function formatUptime(secs) {
   return h + ':' + String(rm).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
+let _lastDigits = 0;
+let _lastProofs = 0;
+
+function animateStat(id) {
+  const el = document.getElementById(id);
+  el.classList.add('bump');
+  setTimeout(() => el.classList.remove('bump'), 200);
+}
+
 function updateStats(s) {
+  // Animate changed values
+  if (s.digits_computed !== _lastDigits) { animateStat('stat-digits'); _lastDigits = s.digits_computed; }
+  if (s.proofs_confirmed !== _lastProofs) { animateStat('stat-proofs'); _lastProofs = s.proofs_confirmed; }
+
   document.getElementById('stat-digits').textContent = s.digits_computed.toLocaleString();
   document.getElementById('stat-proofs').textContent = s.proofs_confirmed + ' / ' + s.proofs_submitted;
   document.getElementById('stat-rate').textContent = s.digits_per_sec.toFixed(0);
@@ -1059,27 +1121,62 @@ function updateStats(s) {
   }
   document.getElementById('stat-earned').textContent = estimatedEarned.toFixed(4);
 
+  // Estimated daily earnings
+  const dailyEl = document.getElementById('stat-earned-daily');
+  if (s.digits_per_sec > 0 && lastRewardPerDigit > 0) {
+    const dailyPI = (s.digits_per_sec * 86400 * lastRewardPerDigit) / 1e9;
+    dailyEl.textContent = '~' + dailyPI.toFixed(2) + ' PI/day';
+  } else {
+    dailyEl.textContent = '';
+  }
+
+  // Network info bar
+  if (s.current_position > 0 || s.reward_per_digit > 0) {
+    const bar = document.getElementById('network-bar');
+    bar.style.display = 'flex';
+    if (s.current_position > 0) {
+      document.getElementById('net-frontier').textContent = s.current_position.toLocaleString();
+    }
+    if (s.reward_per_digit > 0) {
+      document.getElementById('net-reward').textContent = (s.reward_per_digit / 1e9).toFixed(6);
+      // Update daily estimate in network bar
+      if (s.digits_per_sec > 0) {
+        const daily = (s.digits_per_sec * 86400 * s.reward_per_digit) / 1e9;
+        document.getElementById('net-daily').textContent = '~' + daily.toFixed(2) + ' PI';
+      }
+    }
+  }
+
   if (s.balance > 0) {
     document.getElementById('wallet-balance').textContent = (s.balance / 1e9).toFixed(3);
   }
 
+  // Status indicator
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
   const stateMap = {
     'idle': ['idle', 'Idle'],
-    'fetching': ['mining', 'Connecting to node...'],
+    'fetching': ['mining', 'Connecting...'],
     'computing': ['mining', 'Computing digits...'],
     'submitting': ['mining', 'Submitting proof...'],
-    'waiting': ['mining', 'Waiting for next round'],
+    'waiting': ['mining', 'Next round...'],
   };
   const [dotClass, label] = stateMap[s.state] || ['idle', s.state];
   dot.className = 'status-dot ' + dotClass;
   txt.textContent = label;
 
+  // Window title reflects mining state
+  if (isMining && s.state !== 'idle') {
+    document.title = 'Mining ' + s.digits_per_sec.toFixed(0) + ' d/s — PIChain Miner';
+  } else {
+    document.title = 'PIChain Miner';
+  }
+
   if (s.state === 'idle' && isMining) {
     isMining = false;
     updateMineButton();
     setControlsLocked(false);
+    document.title = 'PIChain Miner';
   }
 }
 
@@ -1087,7 +1184,9 @@ function appendLog(entry) {
   const container = document.getElementById('log-container');
   const div = document.createElement('div');
   div.className = 'log-entry ' + (entry.level || '');
-  div.innerHTML = '<span class="ts">[' + entry.timestamp + ']</span>' + escapeHtml(entry.message);
+  const icons = { success: '+', error: '!', warn: '~', info: '>' };
+  const icon = icons[entry.level] || '>';
+  div.innerHTML = '<span class="ts">[' + entry.timestamp + ']</span><span style="margin-right:4px;font-weight:700;">' + icon + '</span>' + escapeHtml(entry.message);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
 
@@ -1213,6 +1312,33 @@ async function downloadUpdate() {
 
 function dismissUpdate() {
   document.getElementById('update-banner').style.display = 'none';
+}
+
+// ---------- Quick-start hint (first time) ----------
+function showQuickstartHint() {
+  if (!localStorage.getItem('pichain-quickstart-dismissed')) {
+    const el = document.getElementById('quickstart-hint');
+    if (el) el.style.display = 'flex';
+  }
+}
+function dismissQuickstart() {
+  localStorage.setItem('pichain-quickstart-dismissed', '1');
+  const el = document.getElementById('quickstart-hint');
+  if (el) el.style.display = 'none';
+}
+
+// ---------- Minimize-to-tray first-time notice ----------
+function setupTrayNotice() {
+  // Tauri hides the window on close (minimize to tray). Notify first-time users.
+  if (!localStorage.getItem('pichain-tray-notice')) {
+    window.addEventListener('beforeunload', function onFirst() {
+      if (isMining) {
+        osNotify('PIChain Miner', 'Mining continues in the background. Click the system tray icon to reopen.');
+      }
+      localStorage.setItem('pichain-tray-notice', '1');
+      window.removeEventListener('beforeunload', onFirst);
+    });
+  }
 }
 
 // ---------- Boot ----------
