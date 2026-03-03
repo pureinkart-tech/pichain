@@ -1462,7 +1462,8 @@ async function checkRoundDone(){
     const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
     document.getElementById('status-text').textContent='Mining';
     document.getElementById('rp-detail').textContent='Round completed in '+roundSec+'s';
-    refreshBalance(); // balance only — nonce managed locally during mining
+    // Re-sync nonce from chain between rounds to prevent drift from failed/reverted txs
+    await updateBalance();
     // Refresh mining status before next round to get fresh position/difficulty.
     // Prevents submitting to positions the CLI miner already covered.
     try{await refreshNetStats();}catch(e){}
@@ -1513,8 +1514,13 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   const gasLimit=Math.ceil((500+digitCount*5)*1.1);
   const chainId=CHAIN_ID;
 
+  // CRITICAL: Grab nonce BEFORE any await to prevent race condition.
+  // Multiple web workers complete simultaneously and call this function.
+  // If we read accountNonce after an await, all workers would use the same nonce.
+  const myNonce=accountNonce++;
+
   const canonical=buildCanonicalBytes(
-    walletAddress,accountNonce,gasLimit,baseFee,100,chainId,
+    walletAddress,myNonce,gasLimit,baseFee,100,chainId,
     startPosition,digitCount,digits,powNonce,anchorHash
   );
   const signature=nacl.sign.detached(canonical,walletKeypair.secretKey);
@@ -1522,7 +1528,7 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   const signedTx={
     data:{
       sender:Array.from(walletAddress),
-      nonce:accountNonce,
+      nonce:myNonce,
       kind:{MiningProof:{
         start_position:startPosition,digit_count:digitCount,
         digits:Array.from(digits),proof:[],
@@ -1544,7 +1550,7 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   });
   if(!res.ok)throw new Error('Submit HTTP '+res.status);
   const result=await res.json();
-  if(result.status==='pending'){accountNonce++;return result.tx_hash;}
+  if(result.status==='pending'){return result.tx_hash;}
   else throw new Error(result.error||result.status||'rejected');
 }
 
