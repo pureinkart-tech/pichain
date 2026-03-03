@@ -433,6 +433,14 @@ impl NodeState {
             self.executor.launchpad_executor().load_launch(launch);
         }
 
+        // Betting matches
+        let betting_store = pichain_storage::BettingStore::new(db);
+        let betting_matches = betting_store.scan_all_matches()?;
+        let match_count = betting_matches.len();
+        for m in betting_matches {
+            self.executor.betting_executor().load_match(m);
+        }
+
         // WASM contract storage
         let contract_store = pichain_storage::ContractStorageStore::new(db);
         let entries = contract_store.scan_all()?;
@@ -466,7 +474,7 @@ impl NodeState {
         }
 
         if mint_count > 0 || account_count > 0 || pool_count > 0 || collection_count > 0
-            || nft_count > 0 || launch_count > 0 || contract_count > 0
+            || nft_count > 0 || launch_count > 0 || contract_count > 0 || match_count > 0
         {
             info!(
                 mints = mint_count,
@@ -476,6 +484,7 @@ impl NodeState {
                 collections = collection_count,
                 nfts = nft_count,
                 launches = launch_count,
+                betting_matches = match_count,
                 contract_entries = contract_count,
                 mint_nonces = mint_nonce_entries.len(),
                 collection_nonces = coll_nonce_entries.len(),
@@ -837,6 +846,20 @@ impl NodeState {
                 launchpad_store.batch_put_launch(&mut batch, launch)?;
             }
 
+            // Betting matches
+            let betting_store = pichain_storage::BettingStore::new(db);
+            for m in sub_state.matches.values() {
+                betting_store.batch_put_match(&mut batch, m)?;
+            }
+
+            // Match nonces (metadata: "bn:" + address → u64)
+            for (addr, nonce) in &sub_state.match_nonces {
+                let mut key = Vec::with_capacity(23);
+                key.extend_from_slice(b"bn:");
+                key.extend_from_slice(&addr.0);
+                db.batch_put_metadata(&mut batch, &key, &nonce.to_le_bytes());
+            }
+
             // WASM contract storage
             let contract_store = pichain_storage::ContractStorageStore::new(db);
             for ((contract_addr, storage_key), value) in &sub_state.contract_storage {
@@ -905,13 +928,55 @@ impl NodeState {
                     }
                 }
 
-                // Index events from receipt
+                // Index events from receipt + record trades
                 if let Some(result) = produced.execution_results.get(i) {
                     for (evt_idx, event) in result.effect.events.iter().enumerate() {
                         let global_idx = (i * 256 + evt_idx) as u16;
                         let topic = pichain_crypto::hash(event.event_type.as_bytes());
                         db.batch_index_event_topic(&mut batch, topic.as_bytes(), height, global_idx, tx_hash.as_bytes());
                         db.batch_index_event_address(&mut batch, &sender_bytes, height, global_idx, tx_hash.as_bytes());
+
+                        // Record swap trades for DEX analytics
+                        if event.event_type == "Swap" {
+                            if let Ok(swap_data) = serde_json::from_slice::<serde_json::Value>(&event.data) {
+                                if let (Some(pool_hex), Some(mint_in_hex), Some(mint_out_hex), Some(amount_in), Some(amount_out), Some(fee)) = (
+                                    swap_data["pool"].as_str(),
+                                    swap_data["mint_in"].as_str(),
+                                    swap_data["mint_out"].as_str(),
+                                    swap_data["amount_in"].as_u64(),
+                                    swap_data["amount_out"].as_u64(),
+                                    swap_data["fee"].as_u64(),
+                                ) {
+                                    if let (Ok(pool_bytes), Ok(mint_in_bytes), Ok(mint_out_bytes)) = (
+                                        hex::decode(pool_hex),
+                                        hex::decode(mint_in_hex),
+                                        hex::decode(mint_out_hex),
+                                    ) {
+                                        if pool_bytes.len() == 32 && mint_in_bytes.len() == 32 && mint_out_bytes.len() == 32 {
+                                            let mut pool_arr = [0u8; 32];
+                                            pool_arr.copy_from_slice(&pool_bytes);
+                                            let mut min_arr = [0u8; 32];
+                                            min_arr.copy_from_slice(&mint_in_bytes);
+                                            let mut mout_arr = [0u8; 32];
+                                            mout_arr.copy_from_slice(&mint_out_bytes);
+                                            let trade = pichain_storage::TradeRecord {
+                                                pool_id: pichain_types::dex::PoolId(pool_arr),
+                                                sender: tx.data.sender,
+                                                mint_in: pichain_types::token::MintId(min_arr),
+                                                mint_out: pichain_types::token::MintId(mout_arr),
+                                                amount_in,
+                                                amount_out,
+                                                fee,
+                                                timestamp_ms: block.header.timestamp_ms,
+                                                block_height: height,
+                                                tx_hash: *tx_hash.as_bytes(),
+                                            };
+                                            let _ = dex_store.batch_record_trade(&mut batch, &trade, global_idx);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1142,6 +1207,15 @@ impl NodeState {
         // Feed miner fees back into the mining pool (matching block producer path)
         if total_miner_fee > 0 {
             self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
+        }
+
+        // Drip staking rewards from unmined emission recycling to proposer
+        // (matching block producer path)
+        {
+            let staking_drip = self.executor.mining_processor().lock().drain_staking_drip();
+            if staking_drip > 0 {
+                self.executor.credit_account(block.header.proposer, staking_drip);
+            }
         }
 
         let produced = ProducedBlock {
@@ -1383,7 +1457,17 @@ impl StateProvider for NodeState {
             difficulty_bits: stats.difficulty_bits,
             difficulty_target_hex: stats.difficulty_target_hex,
             anchor_block_hash: anchor.to_string(),
+            min_batch_size: stats.min_batch_size,
+            max_allowed_position: stats.max_allowed_position,
+            frontier_bonus_at_next: stats.frontier_bonus_at_next,
+            staking_reward_pool: stats.staking_reward_pool,
+            epoch_actual_minted: stats.epoch_actual_minted,
         })
+    }
+
+    fn get_mining_slot(&self, address: &Address) -> Option<(u64, u32, usize)> {
+        let mut processor = self.executor.mining_processor().lock();
+        Some(processor.get_or_assign_slot(address))
     }
 
     fn activation_count(&self) -> u64 {
@@ -1481,6 +1565,41 @@ impl StateProvider for NodeState {
         let store = self.store.read();
         pichain_storage::DexStore::new(store.db())
             .scan_all_pools()
+            .unwrap_or_default()
+    }
+
+    fn get_pool_trades(&self, pool_id: &pichain_types::PoolId, limit: usize, before_ms: Option<u64>) -> Vec<pichain_storage::TradeRecord> {
+        let store = self.store.read();
+        pichain_storage::DexStore::new(store.db())
+            .get_pool_trades(pool_id, limit, before_ms)
+            .unwrap_or_default()
+    }
+
+    fn get_recent_trades(&self, limit: usize) -> Vec<pichain_storage::TradeRecord> {
+        let store = self.store.read();
+        pichain_storage::DexStore::new(store.db())
+            .get_recent_trades(limit)
+            .unwrap_or_default()
+    }
+
+    fn get_pool_trades_in_range(&self, pool_id: &pichain_types::PoolId, from_ms: u64, to_ms: u64) -> Vec<pichain_storage::TradeRecord> {
+        let store = self.store.read();
+        pichain_storage::DexStore::new(store.db())
+            .get_pool_trades_in_range(pool_id, from_ms, to_ms)
+            .unwrap_or_default()
+    }
+
+    fn scan_all_token_accounts(&self) -> Vec<pichain_types::TokenAccount> {
+        let store = self.store.read();
+        pichain_storage::TokenStore::new(store.db())
+            .scan_all_token_accounts()
+            .unwrap_or_default()
+    }
+
+    fn scan_all_lp_balances(&self) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
+        let store = self.store.read();
+        pichain_storage::DexStore::new(store.db())
+            .scan_all_lp_balances()
             .unwrap_or_default()
     }
 
@@ -1895,5 +2014,49 @@ impl StateProvider for NodeState {
         accounts.sort_by(|a, b| b.1.cmp(&a.1));
         accounts.truncate(limit);
         accounts
+    }
+
+    // --- Betting queries ---
+
+    fn get_betting_match(&self, match_id: &pichain_types::betting::MatchId) -> Option<pichain_types::betting::BettingMatch> {
+        self.executor.betting_executor().get_match(match_id)
+    }
+
+    fn get_active_matches(&self) -> Vec<pichain_types::betting::BettingMatch> {
+        self.executor.betting_executor().active_matches()
+    }
+
+    fn get_matches_by_category(&self, category: u8) -> Vec<pichain_types::betting::BettingMatch> {
+        let cat = match pichain_types::betting::GameCategory::from_tag(category) {
+            Some(c) => c,
+            None => return vec![],
+        };
+        self.executor.betting_executor().matches_by_category(&cat)
+    }
+
+    fn get_matches_by_player(&self, address: &Address) -> Vec<pichain_types::betting::BettingMatch> {
+        self.executor.betting_executor().matches_by_player(address)
+    }
+
+    fn get_betting_stats(&self) -> pichain_rpc::BettingStatsData {
+        let executor = self.executor.betting_executor();
+        let all = executor.all_matches();
+        let mut total_players = std::collections::HashSet::new();
+        for m in all.values() {
+            for p in &m.participants {
+                total_players.insert(*p);
+            }
+        }
+        pichain_rpc::BettingStatsData {
+            total_wagered: executor.total_wagered(),
+            active_matches: executor.active_count(),
+            total_matches: all.len() as u64,
+            total_players: total_players.len() as u64,
+            house_burns: 0, // TODO: track cumulative house burns
+        }
+    }
+
+    fn get_match_nonce(&self, address: &Address) -> u64 {
+        self.executor.betting_executor().all_nonces().get(address).copied().unwrap_or(0)
     }
 }

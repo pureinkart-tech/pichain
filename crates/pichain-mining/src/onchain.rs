@@ -26,6 +26,80 @@ pub const MAX_MINER_REWARD_PCT_BPS: u32 = 500;
 /// Blocks per mining epoch for reward cap tracking (~24 hours at 314ms/block).
 pub const BLOCKS_PER_MINING_EPOCH: u64 = 275_159;
 
+/// Percentage of unmined epoch emission recycled to staking rewards (basis points).
+pub const UNMINED_TO_STAKING_BPS: u32 = 8000; // 80% → staking
+
+/// Size of each miner's assigned slot range (in digits).
+/// Each miner gets a non-overlapping range of this size ahead of the frontier.
+pub const SLOT_RANGE_SIZE: u64 = 100_000;
+
+/// Maximum distance ahead of the frontier that a proof can be submitted.
+///
+/// Prevents miners from skipping far ahead to easy positions, forcing them to
+/// work near the frontier where PI is actually being solved.
+///
+/// Early chain (frontier < 100K): 10x lookahead for parallelism
+/// Mature chain: 2x lookahead
+pub fn max_frontier_distance(frontier: u64) -> u64 {
+    if frontier < 100_000 {
+        // Early: generous lookahead (min 100K, or 10x frontier)
+        frontier.max(10_000).saturating_mul(10)
+    } else {
+        // Mature: 2x lookahead
+        frontier.saturating_mul(2)
+    }
+}
+
+/// Minimum digits per proof, scaling with frontier position.
+///
+/// As the frontier advances deeper into PI, each proof must contain more digits,
+/// ensuring that each proof represents serious computation at the current depth.
+/// Uses integer log2 of (frontier / 1000) as a scaling factor.
+pub fn min_batch_size(frontier: u64) -> u32 {
+    let factor = if frontier <= 1000 {
+        1u64
+    } else {
+        let scaled = frontier / 1000;
+        // Integer log2 via leading_zeros
+        let log2 = (u64::BITS - scaled.leading_zeros()).saturating_sub(1);
+        (log2 as u64).max(1)
+    };
+    (10u64.saturating_mul(factor)).clamp(10, 10_000) as u32
+}
+
+/// Frontier bonus: reward multiplier based on proof proximity to the frontier.
+///
+/// Returns (numerator, denominator) for integer multiplication.
+/// - At or behind frontier (filling gaps): 3x bonus
+/// - At max_frontier_distance ahead: 1x (no bonus)
+/// - Linear interpolation in between
+///
+/// This strongly incentivizes miners to work at the hard frontier edge
+/// where PI is actually being advanced, rather than parallel positions ahead.
+pub fn frontier_bonus(proof_start: u64, frontier: u64) -> (u64, u64) {
+    if proof_start <= frontier {
+        // At or filling gaps behind the frontier — maximum bonus
+        (3, 1)
+    } else {
+        let distance = proof_start - frontier;
+        let max_dist = max_frontier_distance(frontier);
+        if max_dist == 0 {
+            return (3, 1);
+        }
+        // Linear: 3x at frontier → 1x at max_distance
+        // multiplier = 3 - 2 * (distance / max_distance)
+        // Integer form: (3 * max_dist - 2 * distance) / max_dist
+        // Floor at 1x (i.e. num >= max_dist)
+        let num = (3u128 * max_dist as u128)
+            .saturating_sub(2u128 * distance.min(max_dist) as u128);
+        let den = max_dist as u128;
+        // Ensure floor of 1x and fit in u64
+        let num = num.max(den).min(u64::MAX as u128) as u64;
+        let den = den.min(u64::MAX as u128) as u64;
+        (num, den)
+    }
+}
+
 /// Result of on-chain mining proof verification.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VerificationResult {
@@ -63,8 +137,6 @@ pub struct MiningProcessor {
     difficulty: DifficultyAdjuster,
     /// Maximum digits per proof submission (prevents DoS).
     max_digits_per_proof: u32,
-    /// Minimum digits per proof (prevents dust submissions).
-    min_digits_per_proof: u32,
     /// Maximum digit position (prevents DoS via astronomical BBP computation).
     max_digit_position: u64,
     /// Current block height (for registry tracking).
@@ -76,6 +148,19 @@ pub struct MiningProcessor {
     epoch_miner_rewards: BTreeMap<pichain_crypto::ed25519::Address, u64>,
     /// Current mining epoch number (current_height / BLOCKS_PER_MINING_EPOCH).
     current_mining_epoch: u64,
+    /// Total mining rewards actually minted in the current epoch.
+    epoch_actual_minted: u64,
+    /// Accumulated staking reward pool from unmined emission recycling.
+    /// Drips to the block proposer (validators/stakers) over the next epoch.
+    staking_reward_pool: u64,
+    /// Per-block staking drip calculated at epoch boundary.
+    staking_drip_per_block: u64,
+    /// Active miner registry: address → (slot_index, last_proof_height).
+    /// Slot indices are assigned sequentially; stale miners (no proof in 1 epoch)
+    /// get their slots released for reuse.
+    active_miners: BTreeMap<pichain_crypto::ed25519::Address, (u32, u64)>,
+    /// Next slot index to assign (monotonically increasing, wraps via reuse).
+    next_slot_index: u32,
 }
 
 impl MiningProcessor {
@@ -87,12 +172,16 @@ impl MiningProcessor {
             reward_calc: RewardCalculator::new(),
             difficulty: DifficultyAdjuster::new(),
             max_digits_per_proof: 1_000_000, // 1M hex digits max
-            min_digits_per_proof: 10,         // 10 hex digits min (browser-friendly)
             max_digit_position: 10_000_000_000, // 10B max position (prevents BBP DoS)
             current_height: 0,
             block_timestamp_ms: 0,
             epoch_miner_rewards: BTreeMap::new(),
             current_mining_epoch: 0,
+            epoch_actual_minted: 0,
+            staking_reward_pool: 0,
+            staking_drip_per_block: 0,
+            active_miners: BTreeMap::new(),
+            next_slot_index: 0,
         }
     }
 
@@ -152,12 +241,43 @@ impl MiningProcessor {
     }
 
     /// Advance the mining epoch if the current block height has crossed a boundary.
+    /// At epoch transitions, recycle unmined emission to the staking reward pool.
     fn advance_mining_epoch_if_needed(&mut self) {
         let new_epoch = Self::mining_epoch_for_height(self.current_height);
         if new_epoch != self.current_mining_epoch {
+            // Recycle unmined emission from the ending epoch to staking
+            self.recycle_unmined_emission();
+
             self.epoch_miner_rewards.clear();
+            self.epoch_actual_minted = 0;
             self.current_mining_epoch = new_epoch;
         }
+    }
+
+    /// Calculate and recycle unmined emission from the current epoch to staking rewards.
+    /// Called at epoch boundaries.
+    fn recycle_unmined_emission(&mut self) {
+        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let expected = self.expected_epoch_emission(year);
+        if expected == 0 {
+            return;
+        }
+        let unmined = expected.saturating_sub(self.epoch_actual_minted);
+        if unmined == 0 {
+            return;
+        }
+        // 80% to staking, 20% stays in pool (implicitly — we just don't touch it)
+        let to_staking = (unmined as u128 * UNMINED_TO_STAKING_BPS as u128 / 10_000) as u64;
+        self.staking_reward_pool = self.staking_reward_pool.saturating_add(to_staking);
+        // Calculate per-block drip for the next epoch
+        self.staking_drip_per_block = self.staking_reward_pool / BLOCKS_PER_MINING_EPOCH.max(1);
+    }
+
+    /// Expected emission for one mining epoch in a given year.
+    fn expected_epoch_emission(&self, year: u32) -> u64 {
+        let annual = self.reward_calc.annual_emission(year) as u128;
+        let epochs_per_year = (reward::BLOCKS_PER_YEAR / BLOCKS_PER_MINING_EPOCH).max(1) as u128;
+        (annual / epochs_per_year).min(u64::MAX as u128) as u64
     }
 
     /// Check whether a miner has remaining budget in this epoch.
@@ -211,7 +331,8 @@ impl MiningProcessor {
             };
         }
 
-        if proof.digit_count < self.min_digits_per_proof {
+        let current_min_batch = min_batch_size(self.registry.frontier());
+        if proof.digit_count < current_min_batch {
             return VerificationResult {
                 valid: false,
                 spot_checks: 0,
@@ -220,8 +341,8 @@ impl MiningProcessor {
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
                 error: Some(format!(
-                    "too few digits: {} (minimum {})",
-                    proof.digit_count, self.min_digits_per_proof
+                    "too few digits: {} (minimum {} at frontier {})",
+                    proof.digit_count, current_min_batch, self.registry.frontier()
                 )),
                 epoch_remaining_budget: None,
             };
@@ -255,6 +376,25 @@ impl MiningProcessor {
                 error: Some(format!(
                     "digit position exceeds maximum: {} + {} > {}",
                     proof.start_position, proof.digit_count, self.max_digit_position
+                )),
+                epoch_remaining_budget: None,
+            };
+        }
+
+        // 1c. Reject proofs too far ahead of the frontier
+        let frontier = self.registry.frontier();
+        let max_dist = max_frontier_distance(frontier);
+        if proof.start_position > frontier.saturating_add(max_dist) {
+            return VerificationResult {
+                valid: false,
+                spot_checks: 0,
+                all_checks_passed: false,
+                reward_amount: 0,
+                start_position: proof.start_position,
+                digit_count: proof.digit_count,
+                error: Some(format!(
+                    "proof position {} too far ahead of frontier {} (max distance: {})",
+                    proof.start_position, frontier, max_dist
                 )),
                 epoch_remaining_budget: None,
             };
@@ -341,10 +481,19 @@ impl MiningProcessor {
         // so the digit range remains available for another miner if this one
         // has exceeded their per-epoch cap.
 
-        // 4. Calculate reward (pure computation, no side effects)
-        let raw_reward = self
+        // 4. Calculate reward with frontier bonus (pure computation, no side effects)
+        let base_reward = self
             .reward_calc
             .reward_for_digits_at_time(proof.digit_count, self.block_timestamp_ms);
+        let (bonus_num, bonus_den) = frontier_bonus(proof.start_position, self.registry.frontier());
+        let bonused = if bonus_den > 0 {
+            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128)
+                .min(u64::MAX as u128) as u64
+        } else {
+            base_reward
+        };
+        // Cap to remaining pool (frontier bonus cannot exceed what's available)
+        let raw_reward = bonused.min(self.reward_calc.remaining_pool());
 
         // 5. Check per-miner epoch cap
         self.advance_mining_epoch_if_needed();
@@ -413,9 +562,13 @@ impl MiningProcessor {
             }
         }
 
-        // 8. Track per-miner epoch reward (saturating to prevent theoretical wrap)
+        // 8. Track per-miner epoch reward and total epoch minted
         let miner_entry = self.epoch_miner_rewards.entry(proof.miner).or_insert(0);
         *miner_entry = miner_entry.saturating_add(reward);
+        self.epoch_actual_minted = self.epoch_actual_minted.saturating_add(reward);
+
+        // 8b. Update active miner registry
+        self.touch_miner(&proof.miner);
 
         // 9. Record proof timestamp for difficulty adjuster
         self.difficulty.record_proof(self.block_timestamp_ms);
@@ -442,26 +595,31 @@ impl MiningProcessor {
     /// Process a mining proof with PoW verification.
     /// This is the primary entry point called by the executor.
     ///
-    /// Uses a fixed minimum PoW difficulty (8 bits / ~256 nonce attempts) so that
-    /// ANY hardware — from a laptop to a 224-core server — can mine successfully.
-    /// Mining rewards scale with the number of PI digits computed, not PoW difficulty.
-    /// More powerful hardware computes more digits per unit time → more rewards.
+    /// PoW difficulty scales with frontier position and chain age:
+    /// - Frontier component: +1 bit per ~2x frontier growth (deeper PI = harder PoW)
+    /// - Moore's Law component: +1 bit every 2 years (outpaces hardware improvements)
+    /// - Combined with BBP's natural O(position) per-digit cost, mining becomes
+    ///   exponentially harder over time.
+    ///
+    /// All difficulty computation is off-chain (in the miner). The node only checks
+    /// `hash <= target` — one comparison, nanoseconds. Regular transactions are unaffected.
     pub fn process_proof_with_pow(
         &mut self,
         proof: &MiningProof,
         pow_nonce: u64,
         anchor_block_hash: &[u8; 32],
     ) -> VerificationResult {
-        // Always verify PoW — no bypass.
-        // Fixed minimum difficulty: 8 bits (INITIAL_DIFFICULTY).
-        // This prevents spam without blocking any hardware.
-        // The miner address is included in the hash to bind the PoW
-        // to the submitting miner, preventing proof-of-work theft.
+        // Compute frontier-scaled PoW difficulty
+        let frontier = self.registry.frontier();
+        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let required_bits = difficulty::frontier_pow_bits(frontier, year);
+        let target = difficulty::frontier_difficulty_target(frontier, year);
+
         if !difficulty::check_proof_difficulty(
             &proof.digits,
             pow_nonce,
             anchor_block_hash,
-            &difficulty::INITIAL_DIFFICULTY,
+            &target,
             &proof.miner.0,
         ) {
             return VerificationResult {
@@ -471,7 +629,10 @@ impl MiningProcessor {
                 reward_amount: 0,
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
-                error: Some("PoW difficulty not met (minimum: 8 bits)".to_string()),
+                error: Some(format!(
+                    "PoW difficulty not met (required: {} bits at frontier {}, year {})",
+                    required_bits, frontier, year
+                )),
                 epoch_remaining_budget: None,
             };
         }
@@ -500,14 +661,102 @@ impl MiningProcessor {
         self.registry.frontier()
     }
 
-    /// Get the difficulty target (fixed minimum: 8 bits).
-    pub fn difficulty_target(&self) -> &[u8; 32] {
-        &difficulty::INITIAL_DIFFICULTY
+    /// Get the current frontier-scaled difficulty target.
+    pub fn difficulty_target(&self) -> [u8; 32] {
+        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        difficulty::frontier_difficulty_target(self.registry.frontier(), year)
     }
 
-    /// Get difficulty as approximate leading zero bits (fixed: 8).
+    /// Get current difficulty as approximate leading zero bits (frontier-scaled).
     pub fn difficulty_bits(&self) -> u32 {
-        difficulty::MIN_DIFFICULTY_BITS
+        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        difficulty::frontier_pow_bits(self.registry.frontier(), year)
+    }
+
+    /// Get the per-block staking drip from unmined emission recycling.
+    pub fn staking_drip_per_block(&self) -> u64 {
+        self.staking_drip_per_block
+    }
+
+    /// Get the accumulated staking reward pool.
+    pub fn staking_reward_pool(&self) -> u64 {
+        self.staking_reward_pool
+    }
+
+    /// Drain one block's worth of staking drip. Returns the amount drained.
+    /// Called by the executor after processing all transactions in a block.
+    pub fn drain_staking_drip(&mut self) -> u64 {
+        let drip = self.staking_drip_per_block.min(self.staking_reward_pool);
+        self.staking_reward_pool = self.staking_reward_pool.saturating_sub(drip);
+        drip
+    }
+
+    /// Get or assign a mining slot for the given address.
+    /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
+    ///
+    /// Slot assignment is advisory — the real overlap enforcer is the digit registry.
+    /// Slots spread miners across non-overlapping ranges ahead of the frontier
+    /// to reduce wasted computation from collisions.
+    pub fn get_or_assign_slot(
+        &mut self,
+        miner: &pichain_crypto::ed25519::Address,
+    ) -> (u64, u32, usize) {
+        // Cleanup stale miners first
+        self.cleanup_stale_miners();
+
+        let slot_index = if let Some(&(idx, _)) = self.active_miners.get(miner) {
+            // Already has a slot — update last_proof_height
+            self.active_miners.insert(*miner, (idx, self.current_height));
+            idx
+        } else {
+            // Try to reuse a freed slot index
+            let used_slots: std::collections::BTreeSet<u32> =
+                self.active_miners.values().map(|(idx, _)| *idx).collect();
+            let idx = (0..self.next_slot_index)
+                .find(|i| !used_slots.contains(i))
+                .unwrap_or_else(|| {
+                    let i = self.next_slot_index;
+                    self.next_slot_index = self.next_slot_index.saturating_add(1);
+                    i
+                });
+            self.active_miners.insert(*miner, (idx, self.current_height));
+            idx
+        };
+
+        let frontier = self.registry.frontier();
+        let position = frontier.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
+        let total = self.active_miners.len();
+        (position, slot_index, total)
+    }
+
+    /// Remove miners that haven't submitted a proof within one mining epoch.
+    fn cleanup_stale_miners(&mut self) {
+        let cutoff = self.current_height.saturating_sub(BLOCKS_PER_MINING_EPOCH);
+        self.active_miners.retain(|_, (_, last_height)| *last_height >= cutoff);
+    }
+
+    /// Record that a miner submitted a proof (updates their last_proof_height).
+    fn touch_miner(&mut self, miner: &pichain_crypto::ed25519::Address) {
+        if let Some(entry) = self.active_miners.get_mut(miner) {
+            entry.1 = self.current_height;
+        } else {
+            // Auto-assign slot if miner isn't registered yet
+            self.get_or_assign_slot(miner);
+        }
+    }
+
+    /// Get slot info for a specific miner without modifying state.
+    pub fn miner_slot_info(&self, miner: &pichain_crypto::ed25519::Address) -> Option<(u64, u32)> {
+        self.active_miners.get(miner).map(|&(idx, _)| {
+            let frontier = self.registry.frontier();
+            let position = frontier.saturating_add((idx as u64).saturating_mul(SLOT_RANGE_SIZE));
+            (position, idx)
+        })
+    }
+
+    /// Number of currently active miners (with non-stale slots).
+    pub fn active_miner_count(&self) -> usize {
+        self.active_miners.len()
     }
 
     /// Add transaction fee income to the mining pool.
@@ -529,10 +778,14 @@ impl MiningProcessor {
     pub fn stats(&self) -> MiningStats {
         let reg_stats = self.registry.stats();
         let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
-        let (next_pos, gap_size) = self.registry.find_next_gap();
+        let frontier = reg_stats.frontier_position;
+        let min_batch = min_batch_size(frontier);
+        let (next_pos, gap_size) = self.registry.find_mineable_gap(min_batch);
+        let pow_bits = difficulty::frontier_pow_bits(frontier, year);
+        let pow_target = difficulty::frontier_difficulty_target(frontier, year);
         MiningStats {
             total_digits_verified: reg_stats.total_digits_verified,
-            frontier_position: reg_stats.frontier_position,
+            frontier_position: frontier,
             total_ranges: reg_stats.total_ranges,
             unique_miners: reg_stats.unique_miners,
             remaining_pool: self.reward_calc.remaining_pool(),
@@ -542,11 +795,20 @@ impl MiningProcessor {
             max_batch_at_position: gap_size,
             reward_per_digit: self.reward_calc.reward_per_digit(year),
             emission_year: year,
-            // Fixed minimum difficulty — accessible to all hardware
-            difficulty_bits: difficulty::MIN_DIFFICULTY_BITS,
-            difficulty_target_hex: hex::encode(difficulty::INITIAL_DIFFICULTY),
+            difficulty_bits: pow_bits,
+            difficulty_target_hex: hex::encode(pow_target),
             mining_epoch: self.current_mining_epoch,
             epoch_miner_cap: self.epoch_emission_cap(),
+            // New frontier mining fields
+            min_batch_size: min_batch_size(frontier),
+            max_allowed_position: frontier.saturating_add(max_frontier_distance(frontier)),
+            frontier_bonus_at_next: {
+                let (n, d) = frontier_bonus(next_pos, frontier);
+                if d == 0 { "3.0x".to_string() }
+                else { format!("{:.1}x", n as f64 / d as f64) }
+            },
+            staking_reward_pool: self.staking_reward_pool,
+            epoch_actual_minted: self.epoch_actual_minted,
         }
     }
 
@@ -587,12 +849,17 @@ impl MiningProcessor {
             .map_err(|e| e.to_string())?;
 
         // Replay the reward using timestamp-based year calculation — the same
-        // method used by live process_proof(). This eliminates the year
-        // divergence that occurred when live processing used timestamp-based
-        // years but replay used height-based years: at year boundaries the
-        // two could disagree, causing different total_mined values between a
-        // node that processed blocks live and one that replayed them.
-        let reward = self.reward_calc.reward_for_digits_at_time(digit_count, block_timestamp_ms);
+        // method used by live process_proof(). Apply frontier bonus just like
+        // live processing does.
+        let base_reward = self.reward_calc.reward_for_digits_at_time(digit_count, block_timestamp_ms);
+        let (bonus_num, bonus_den) = frontier_bonus(start_position, self.registry.frontier());
+        let bonused = if bonus_den > 0 {
+            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128)
+                .min(u64::MAX as u128) as u64
+        } else {
+            base_reward
+        };
+        let reward = bonused.min(self.reward_calc.remaining_pool());
 
         // Track per-miner epoch reward during replay for accurate state after restart.
         // Apply the same per-miner epoch cap during replay that process_proof uses
@@ -600,7 +867,11 @@ impl MiningProcessor {
         // what live processing records.
         let replay_epoch = Self::mining_epoch_for_height(block_height);
         if replay_epoch != self.current_mining_epoch {
+            // Recycle unmined emission during replay too
+            self.block_timestamp_ms = block_timestamp_ms;
+            self.recycle_unmined_emission();
             self.epoch_miner_rewards.clear();
+            self.epoch_actual_minted = 0;
             self.current_mining_epoch = replay_epoch;
         }
         let saved_ts = self.block_timestamp_ms;
@@ -615,6 +886,7 @@ impl MiningProcessor {
 
         let miner_entry = self.epoch_miner_rewards.entry(miner).or_insert(0);
         *miner_entry = miner_entry.saturating_add(capped_reward);
+        self.epoch_actual_minted = self.epoch_actual_minted.saturating_add(capped_reward);
 
         Ok(())
     }
@@ -645,14 +917,29 @@ pub struct MiningStats {
     pub max_batch_at_position: u64,
     pub reward_per_digit: u64,
     pub emission_year: u32,
-    /// Current PoW difficulty in leading zero bits.
+    /// Current PoW difficulty in leading zero bits (frontier-scaled).
     pub difficulty_bits: u32,
-    /// Current difficulty target as hex string.
+    /// Current difficulty target as hex string (frontier-scaled).
     pub difficulty_target_hex: String,
     /// Current mining epoch number.
     pub mining_epoch: u64,
     /// Per-miner reward cap for current epoch (in base units).
     pub epoch_miner_cap: u64,
+    /// Minimum digits per proof at current frontier.
+    #[serde(default)]
+    pub min_batch_size: u32,
+    /// Maximum position allowed (frontier + max_frontier_distance).
+    #[serde(default)]
+    pub max_allowed_position: u64,
+    /// Current frontier bonus multiplier at next_position (display string, e.g. "2.5x").
+    #[serde(default)]
+    pub frontier_bonus_at_next: String,
+    /// Accumulated staking reward pool from unmined emission recycling.
+    #[serde(default)]
+    pub staking_reward_pool: u64,
+    /// Total mining rewards actually minted in the current epoch.
+    #[serde(default)]
+    pub epoch_actual_minted: u64,
 }
 
 fn default_max_batch() -> u64 {

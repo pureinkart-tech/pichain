@@ -326,6 +326,54 @@ pub enum TransactionKind {
         /// Destination address on the target chain.
         dest_address: String,
     },
+
+    // --- Betting / Gaming ---
+
+    /// Create a new betting match (PVP, Poker, or Arcade).
+    /// Creator's wager is escrowed immediately.
+    CreateMatch {
+        /// Game category tag (0=PVP, 1=Poker, 2=Arcade).
+        game_category: u8,
+        /// Game type identifier (e.g., "fps", "poker", "snake").
+        game_id: String,
+        /// Wager per player (base PI units).
+        wager: u64,
+        /// Maximum number of players (2-10).
+        max_players: u8,
+        /// Server seed commitment: blake3(server_seed).
+        server_seed_hash: [u8; 32],
+    },
+
+    /// Join an existing match (escrows joiner's wager).
+    JoinMatch {
+        /// Match to join.
+        match_id: [u8; 32],
+        /// Client seed for provably fair randomness.
+        client_seed: [u8; 32],
+    },
+
+    /// Start a match (creator only, transitions Open -> InProgress).
+    /// Captures the current block hash as entropy.
+    StartMatch {
+        /// Match to start.
+        match_id: [u8; 32],
+    },
+
+    /// Resolve a match — verify seed, distribute pot to winners.
+    ResolveMatch {
+        /// Match to resolve.
+        match_id: [u8; 32],
+        /// Winner addresses.
+        winners: Vec<Address>,
+        /// Revealed server seed (must hash to committed server_seed_hash).
+        server_seed: Vec<u8>,
+    },
+
+    /// Cancel a match — refund all escrowed wagers.
+    CancelMatch {
+        /// Match to cancel.
+        match_id: [u8; 32],
+    },
 }
 
 impl TransactionData {
@@ -587,6 +635,41 @@ impl TransactionData {
                 buf.extend_from_slice(&(addr_b.len() as u32).to_le_bytes());
                 buf.extend_from_slice(addr_b);
             }
+
+            // --- Betting / Gaming (tags 31-35) ---
+            TransactionKind::CreateMatch { game_category, game_id, wager, max_players, server_seed_hash } => {
+                buf.push(31);
+                buf.push(*game_category);
+                let gid = game_id.as_bytes();
+                buf.extend_from_slice(&(gid.len() as u32).to_le_bytes());
+                buf.extend_from_slice(gid);
+                buf.extend_from_slice(&wager.to_le_bytes());
+                buf.push(*max_players);
+                buf.extend_from_slice(server_seed_hash);
+            }
+            TransactionKind::JoinMatch { match_id, client_seed } => {
+                buf.push(32);
+                buf.extend_from_slice(match_id);
+                buf.extend_from_slice(client_seed);
+            }
+            TransactionKind::StartMatch { match_id } => {
+                buf.push(33);
+                buf.extend_from_slice(match_id);
+            }
+            TransactionKind::ResolveMatch { match_id, winners, server_seed } => {
+                buf.push(34);
+                buf.extend_from_slice(match_id);
+                buf.extend_from_slice(&(winners.len() as u32).to_le_bytes());
+                for w in winners {
+                    buf.extend_from_slice(&w.0);
+                }
+                buf.extend_from_slice(&(server_seed.len() as u32).to_le_bytes());
+                buf.extend_from_slice(server_seed);
+            }
+            TransactionKind::CancelMatch { match_id } => {
+                buf.push(35);
+                buf.extend_from_slice(match_id);
+            }
         }
 
         buf
@@ -684,6 +767,14 @@ impl SignedTransaction {
                 75_000u64.saturating_add((inner_tx_data.len() as Gas).saturating_mul(16))
             }
             TransactionKind::BridgeWithdraw { .. } => 50_000,
+            // Betting
+            TransactionKind::CreateMatch { .. } => 50_000,
+            TransactionKind::JoinMatch { .. } => 30_000,
+            TransactionKind::StartMatch { .. } => 25_000,
+            TransactionKind::ResolveMatch { winners, .. } => {
+                50_000u64.saturating_add((winners.len() as Gas).saturating_mul(10_000))
+            }
+            TransactionKind::CancelMatch { .. } => 30_000,
         }
     }
 }
@@ -938,6 +1029,22 @@ impl TransactionKind {
             TransactionKind::BridgeWithdraw { mint, .. } => {
                 let mut vaddr = [0u8; 20];
                 vaddr.copy_from_slice(&mint.0[..20]);
+                accesses.push(AccountAccess {
+                    address: Address(vaddr),
+                    writable: true,
+                });
+            }
+            // Betting: use a sentinel address derived from match_id to serialize
+            // operations on the same match while allowing parallel match operations.
+            TransactionKind::CreateMatch { .. } => {
+                // New match — only touches sender, no sentinel needed.
+            }
+            TransactionKind::JoinMatch { match_id, .. }
+            | TransactionKind::StartMatch { match_id }
+            | TransactionKind::ResolveMatch { match_id, .. }
+            | TransactionKind::CancelMatch { match_id } => {
+                let mut vaddr = [0u8; 20];
+                vaddr.copy_from_slice(&match_id[..20]);
                 accesses.push(AccountAccess {
                     address: Address(vaddr),
                     writable: true,

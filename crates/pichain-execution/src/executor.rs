@@ -18,7 +18,9 @@ use std::sync::Arc;
 use pichain_types::token::{MintId, TokenMint, TokenAccount};
 use pichain_types::dex::{LiquidityPool, PoolId};
 use pichain_types::nft::{CollectionId, NftCollection, NftId, Nft};
+use pichain_types::betting::{BettingMatch, MatchId};
 use pichain_types::launchpad::{LaunchId, TokenLaunch};
+use crate::betting_executor::BettingExecutor;
 use crate::dex_executor::{DexExecutionResult, DexExecutor};
 use crate::fee::FeeCalculator;
 use crate::launchpad_executor::LaunchpadExecutor;
@@ -129,6 +131,8 @@ pub struct SubExecutorChanges {
     pub contract_storage: HashMap<(Address, Vec<u8>), Vec<u8>>,
     pub mint_nonces: HashMap<Address, u64>,
     pub collection_nonces: HashMap<Address, u64>,
+    pub matches: HashMap<MatchId, BettingMatch>,
+    pub match_nonces: HashMap<Address, u64>,
 }
 
 /// Result of executing a single transaction.
@@ -166,6 +170,8 @@ pub struct TransactionExecutor {
     launchpad_executor: LaunchpadExecutor,
     /// NFT executor.
     nft_executor: NftExecutor,
+    /// Betting/gaming executor.
+    betting_executor: BettingExecutor,
     /// Chain ID for cross-chain replay protection.
     chain_id: u64,
     /// Mining processor for PI digit verification and rewards.
@@ -207,6 +213,7 @@ impl TransactionExecutor {
             dex_executor: DexExecutor::new(),
             launchpad_executor: LaunchpadExecutor::new(),
             nft_executor: NftExecutor::new(),
+            betting_executor: BettingExecutor::new(),
             chain_id,
             mining_processor: Arc::new(parking_lot::Mutex::new(
                 pichain_mining::MiningProcessor::new(),
@@ -234,12 +241,14 @@ impl TransactionExecutor {
         self.dex_executor.set_block_timestamp(timestamp_ms);
         self.nft_executor.set_block_timestamp(timestamp_ms);
         self.launchpad_executor.set_block_timestamp(timestamp_ms);
+        self.betting_executor.set_block_timestamp(timestamp_ms);
     }
 
     /// Set the current block height for WASM contract host functions and DEX LP lock tracking.
     pub fn set_block_height(&self, height: u64) {
         self.block_height.store(height, Ordering::Release);
         self.dex_executor.set_block_height(height);
+        self.betting_executor.set_block_height(height);
     }
 
     /// Snapshot DEX pool reserves at the start of a block for MEV-resistant price impact.
@@ -256,6 +265,7 @@ impl TransactionExecutor {
         self.dex_executor.clear_state();
         self.nft_executor.clear_state();
         self.launchpad_executor.clear_state();
+        self.betting_executor.clear_state();
         // R36-FIX: Also clear WASM contract state from the first execution pass.
         // Without this, re-deployed contracts hit "already exists" errors and
         // re-executed contract calls see stale storage from trimmed transactions.
@@ -289,6 +299,11 @@ impl TransactionExecutor {
     /// Access the NFT executor.
     pub fn nft_executor(&self) -> &NftExecutor {
         &self.nft_executor
+    }
+
+    /// Access the betting executor.
+    pub fn betting_executor(&self) -> &BettingExecutor {
+        &self.betting_executor
     }
 
     /// Access the mining processor.
@@ -330,6 +345,8 @@ impl TransactionExecutor {
             contract_storage,
             mint_nonces: self.token_executor.all_mint_nonces(),
             collection_nonces: self.nft_executor.all_collection_nonces(),
+            matches: self.betting_executor.all_matches(),
+            match_nonces: self.betting_executor.all_nonces(),
         }
     }
 
@@ -965,7 +982,7 @@ impl TransactionExecutor {
             base_fee_portion_u128 as u64
         };
         let fee_split = self.fee_calc.split_fee(total_fee, base_fee_portion);
-        let pi_burned = fee_split.burned;
+        let mut pi_burned = fee_split.burned;
 
         // R28-FIX: Include ParticipateInLaunch pi_amount in pre-balance check.
         // Previously, only Transfer and Stake amounts were checked, causing
@@ -2594,6 +2611,112 @@ impl TransactionExecutor {
                         data: event_data,
                     }],
                 )
+            }
+
+            // --- Betting / Gaming ---
+
+            TransactionKind::CreateMatch {
+                game_category,
+                game_id,
+                wager,
+                max_players,
+                server_seed_hash,
+            } => {
+                let result = self.betting_executor.create_match(
+                    tx.data.sender, *game_category, game_id, *wager, *max_players, *server_seed_hash,
+                );
+                if matches!(result.status, TransactionStatus::Reverted(_)) {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                } else {
+                    // Debit wager from sender (escrow)
+                    if sender.balance < result.debit_sender {
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (TransactionStatus::Reverted(format!(
+                            "insufficient balance for wager: have {}, need {}",
+                            sender.balance, result.debit_sender
+                        )), vec![])
+                    } else {
+                        sender.balance = sender.balance.saturating_sub(result.debit_sender);
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (result.status, result.events)
+                    }
+                }
+            }
+
+            TransactionKind::JoinMatch { match_id, client_seed } => {
+                let mid = MatchId(*match_id);
+                let result = self.betting_executor.join_match(tx.data.sender, mid, *client_seed);
+                if matches!(result.status, TransactionStatus::Reverted(_)) {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                } else {
+                    // Debit wager from joiner (escrow)
+                    if sender.balance < result.debit_sender {
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (TransactionStatus::Reverted(format!(
+                            "insufficient balance for wager: have {}, need {}",
+                            sender.balance, result.debit_sender
+                        )), vec![])
+                    } else {
+                        sender.balance = sender.balance.saturating_sub(result.debit_sender);
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (result.status, result.events)
+                    }
+                }
+            }
+
+            TransactionKind::StartMatch { match_id } => {
+                let mid = MatchId(*match_id);
+                // Use tx_hash bytes as entropy for provably fair randomness
+                let entropy = *tx_hash.as_bytes();
+                let result = self.betting_executor.start_match(tx.data.sender, mid, entropy);
+                state_changes.insert(tx.data.sender, sender.clone());
+                (result.status, result.events)
+            }
+
+            TransactionKind::ResolveMatch { match_id, winners, server_seed } => {
+                let mid = MatchId(*match_id);
+                let result = self.betting_executor.resolve_match(
+                    tx.data.sender, mid, winners, server_seed,
+                );
+                if matches!(result.status, TransactionStatus::Reverted(_)) {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                } else {
+                    // Credit winners
+                    for (addr, amount) in &result.credits {
+                        let mut winner_state = state_changes.get(addr).cloned().unwrap_or_else(|| {
+                            self.state_cache.get(addr).map(|v| v.clone()).unwrap_or_default()
+                        });
+                        winner_state.balance = winner_state.balance.saturating_add(*amount);
+                        state_changes.insert(*addr, winner_state);
+                    }
+                    // House fee burn
+                    pi_burned = pi_burned.saturating_add(result.house_fee_burn);
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                }
+            }
+
+            TransactionKind::CancelMatch { match_id } => {
+                let mid = MatchId(*match_id);
+                let result = self.betting_executor.cancel_match(tx.data.sender, mid);
+                if matches!(result.status, TransactionStatus::Reverted(_)) {
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                } else {
+                    // Refund all participants
+                    for (addr, amount) in &result.credits {
+                        let mut refund_state = state_changes.get(addr).cloned().unwrap_or_else(|| {
+                            self.state_cache.get(addr).map(|v| v.clone()).unwrap_or_default()
+                        });
+                        refund_state.balance = refund_state.balance.saturating_add(*amount);
+                        state_changes.insert(*addr, refund_state);
+                    }
+                    state_changes.insert(tx.data.sender, sender.clone());
+                    (result.status, result.events)
+                }
             }
         };
 

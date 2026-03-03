@@ -30,6 +30,75 @@ pub const INITIAL_DIFFICULTY: [u8; 32] = [
     0xFF, 0xFF,
 ];
 
+/// Frontier scale divisor for PoW scaling: frontier / 1000 is used for log2.
+pub const FRONTIER_SCALE_DIVISOR: u64 = 1000;
+
+/// Moore's Law interval: PoW gains +1 bit every this many years.
+pub const MOORE_LAW_INTERVAL_YEARS: u32 = 2;
+
+/// Compute the minimum PoW difficulty bits based on frontier position and chain age.
+///
+/// Formula: `8 + floor(log2(frontier / 1000 + 1)) + floor((year - 1) / 2)`
+///
+/// - `frontier_component` grows as PI computation goes deeper (~+3 bits per 10x frontier)
+/// - `moore_component` grows with chain age (+1 bit every 2 years, tracking Moore's Law)
+/// - Combined with BBP's natural O(position) per-digit cost, mining becomes exponentially harder
+///
+/// Uses integer-only arithmetic (no floating point) for consensus safety.
+pub fn frontier_pow_bits(frontier: u64, year: u32) -> u32 {
+    let frontier_component = if frontier <= FRONTIER_SCALE_DIVISOR {
+        0u32
+    } else {
+        // Integer log2: number of bits to represent (frontier / 1000)
+        let scaled = frontier / FRONTIER_SCALE_DIVISOR;
+        // 64 - leading_zeros gives the position of the highest set bit + 1;
+        // subtract 1 to get floor(log2(scaled))
+        (u64::BITS - scaled.leading_zeros()).saturating_sub(1)
+    };
+
+    let moore_component = year.saturating_sub(1) / MOORE_LAW_INTERVAL_YEARS;
+
+    let total = MIN_DIFFICULTY_BITS + frontier_component + moore_component;
+    total.clamp(MIN_DIFFICULTY_BITS, MAX_DIFFICULTY_BITS)
+}
+
+/// Convert a difficulty-bits value to a 256-bit target.
+///
+/// The target is a 256-bit big-endian number where `bits` leading zero bits
+/// are required, and all remaining bits are set to 1.
+/// E.g. bits=8 → 0x00FFFFFF...FF, bits=16 → 0x0000FFFF...FF
+pub fn target_from_bits(bits: u32) -> [u8; 32] {
+    if bits >= 256 {
+        // Impossibly hard — require all zeros
+        let mut t = [0u8; 32];
+        t[31] = 1; // never all-zero
+        return t;
+    }
+
+    let mut target = [0xFFu8; 32];
+    let full_zero_bytes = (bits / 8) as usize;
+    let remaining_bits = bits % 8;
+
+    for byte in target.iter_mut().take(full_zero_bytes) {
+        *byte = 0x00;
+    }
+    if full_zero_bytes < 32 && remaining_bits > 0 {
+        // Mask off the top `remaining_bits` bits of this byte
+        target[full_zero_bytes] = 0xFF >> remaining_bits;
+    }
+    target
+}
+
+/// Compute the frontier-scaled difficulty target for PoW verification.
+///
+/// Returns a 256-bit target that gets harder (smaller) as frontier advances
+/// and the chain ages. The DifficultyAdjuster's rate-based target acts as a
+/// second layer — the effective target is the HARDER (smaller) of the two.
+pub fn frontier_difficulty_target(frontier: u64, year: u32) -> [u8; 32] {
+    let bits = frontier_pow_bits(frontier, year);
+    target_from_bits(bits)
+}
+
 /// Difficulty adjuster — maintains target proof rate via rolling window.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DifficultyAdjuster {
@@ -510,5 +579,90 @@ mod tests {
         let halved = multiply_target(&target, 0.5);
         // Should roughly halve (harder)
         assert!(halved < target);
+    }
+
+    #[test]
+    fn frontier_pow_bits_base_case() {
+        // Year 1, frontier 0: just the base 8 bits
+        assert_eq!(frontier_pow_bits(0, 1), 8);
+        // Year 1, frontier 500 (below FRONTIER_SCALE_DIVISOR): still 8
+        assert_eq!(frontier_pow_bits(500, 1), 8);
+    }
+
+    #[test]
+    fn frontier_pow_bits_scales_with_frontier() {
+        // frontier 10K → scaled = 10, log2(10) = 3 → 8 + 3 = 11
+        assert_eq!(frontier_pow_bits(10_000, 1), 11);
+        // frontier 1M → scaled = 1000, log2(1000) = 9 → 8 + 9 = 17
+        assert_eq!(frontier_pow_bits(1_000_000, 1), 17);
+        // frontier 1B → scaled = 1M, log2(1M) = 19 → 8 + 19 = 27
+        assert_eq!(frontier_pow_bits(1_000_000_000, 1), 27);
+    }
+
+    #[test]
+    fn frontier_pow_bits_scales_with_year() {
+        // Year 1: +0 moore bits
+        assert_eq!(frontier_pow_bits(0, 1), 8);
+        // Year 3: (3-1)/2 = 1 moore bit → 9
+        assert_eq!(frontier_pow_bits(0, 3), 9);
+        // Year 11: (11-1)/2 = 5 moore bits → 13
+        assert_eq!(frontier_pow_bits(0, 11), 13);
+    }
+
+    #[test]
+    fn frontier_pow_bits_combined() {
+        // Year 10, frontier 10M: frontier_comp = log2(10000) ≈ 13, moore = (9)/2 = 4
+        // Total = 8 + 13 + 4 = 25
+        assert_eq!(frontier_pow_bits(10_000_000, 10), 25);
+    }
+
+    #[test]
+    fn frontier_pow_bits_clamped() {
+        // Should never go below MIN_DIFFICULTY_BITS
+        assert!(frontier_pow_bits(0, 0) >= MIN_DIFFICULTY_BITS);
+        // Should never exceed MAX_DIFFICULTY_BITS
+        assert!(frontier_pow_bits(u64::MAX, 200) <= MAX_DIFFICULTY_BITS);
+    }
+
+    #[test]
+    fn target_from_bits_8() {
+        let target = target_from_bits(8);
+        assert_eq!(target[0], 0x00);
+        assert_eq!(target[1], 0xFF);
+        assert_eq!(target[31], 0xFF);
+    }
+
+    #[test]
+    fn target_from_bits_16() {
+        let target = target_from_bits(16);
+        assert_eq!(target[0], 0x00);
+        assert_eq!(target[1], 0x00);
+        assert_eq!(target[2], 0xFF);
+    }
+
+    #[test]
+    fn target_from_bits_12() {
+        let target = target_from_bits(12);
+        assert_eq!(target[0], 0x00);
+        // 12 bits = 1 full zero byte + 4 zero bits → 0x0F
+        assert_eq!(target[1], 0x0F);
+        assert_eq!(target[2], 0xFF);
+    }
+
+    #[test]
+    fn target_from_bits_monotonic() {
+        // More bits → harder (smaller target)
+        for bits in 8..64 {
+            let easier = target_from_bits(bits);
+            let harder = target_from_bits(bits + 1);
+            assert!(harder < easier, "bits {} should be easier than {}", bits, bits + 1);
+        }
+    }
+
+    #[test]
+    fn frontier_difficulty_target_matches_bits() {
+        let target = frontier_difficulty_target(10_000, 1);
+        let bits = frontier_pow_bits(10_000, 1);
+        assert_eq!(target, target_from_bits(bits));
     }
 }

@@ -52,6 +52,10 @@ pub struct NodeConfig {
     pub validator_stake_pi: u64,
     /// Log level (trace, debug, info, warn, error).
     pub log_level: String,
+    /// RPC-only mode: sync blocks from peers but don't produce blocks.
+    /// Used for public-facing API nodes separated from the validator.
+    #[serde(default)]
+    pub rpc_only: bool,
     /// Additional genesis validators (for multi-validator mode).
     /// Empty means single-node mode (backward compatible).
     #[serde(default)]
@@ -84,6 +88,7 @@ impl Default for NodeConfig {
             max_mempool_size: 100_000,
             validator_stake_pi: 100_000,
             log_level: "info".to_string(),
+            rpc_only: false,
             genesis_validators: Vec::new(),
         }
     }
@@ -112,7 +117,7 @@ impl NodeConfig {
         if self.max_mempool_size == 0 {
             anyhow::bail!("max_mempool_size must be > 0");
         }
-        if self.validator_stake_pi == 0 {
+        if self.validator_stake_pi == 0 && !self.rpc_only {
             anyhow::bail!("validator_stake_pi must be > 0");
         }
         if self.rpc_addr.parse::<SocketAddr>().is_err() {
@@ -157,6 +162,11 @@ enum Commands {
         /// Path to TOML config file (overrides default settings).
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// RPC-only mode: sync blocks from peers, don't produce blocks.
+        /// Use this for public-facing API nodes separated from the validator.
+        #[arg(long)]
+        rpc_only: bool,
     },
 
     /// Initialize a new PIChain data directory.
@@ -245,8 +255,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Determine log level: RUST_LOG env > config file > default "info"
     let (cfg, data_dir, rpc_addr, p2p_addr, chain_id) = match &cli.command {
-        Commands::Run { data_dir, rpc_addr, p2p_addr, chain_id, config } => {
-            let cfg = if let Some(ref config_path) = config {
+        Commands::Run { data_dir, rpc_addr, p2p_addr, chain_id, config, rpc_only } => {
+            let mut cfg = if let Some(ref config_path) = config {
                 match NodeConfig::load_from_file(config_path) {
                     Ok(c) => c,
                     Err(e) => {
@@ -277,6 +287,8 @@ async fn main() -> anyhow::Result<()> {
             let r = if *rpc_addr != "127.0.0.1:8314" { rpc_addr.clone() } else { cfg.rpc_addr.clone() };
             let p = if *p2p_addr != "/ip4/0.0.0.0/tcp/9314" { p2p_addr.clone() } else { cfg.p2p_addr.clone() };
             let c = if *chain_id != 31415 { *chain_id } else { cfg.chain_id };
+            // --rpc-only flag overrides config (CLI flag = true wins)
+            if *rpc_only { cfg.rpc_only = true; }
             (Some(cfg), Some(d), Some(r), Some(p), Some(c))
         }
         _ => (None, None, None, None, None),
@@ -306,8 +318,13 @@ async fn main() -> anyhow::Result<()> {
             // Validate configuration before starting
             cfg.validate()?;
 
-            info!("Starting PIChain node...");
-            info!(chain_id, data_dir, rpc_addr, p2p_addr);
+            let is_rpc_only = cfg.rpc_only;
+            if is_rpc_only {
+                info!("Starting PIChain node in RPC-ONLY mode (no block production)");
+            } else {
+                info!("Starting PIChain node...");
+            }
+            info!(chain_id, data_dir, rpc_addr, p2p_addr, rpc_only = is_rpc_only);
 
             // --- 1. Initialize Storage ---
             info!("Opening database at {data_dir}");
@@ -341,7 +358,7 @@ async fn main() -> anyhow::Result<()> {
 
             // --- 6. Apply Genesis (if first run) ---
             let network_mode = pichain_types::NetworkMode::from_chain_id(chain_id);
-            if network_mode.is_mainnet() {
+            if network_mode.is_mainnet() && !is_rpc_only {
                 // Mainnet safety: require at least 4 validators for BFT safety (3f+1)
                 if cfg.genesis_validators.len() < 3 {
                     anyhow::bail!(
@@ -382,8 +399,25 @@ async fn main() -> anyhow::Result<()> {
             );
 
             // --- 8. Load or Generate Persistent Validator Keys ---
+            // In RPC-only mode, generate ephemeral keys (needed for P2P peer identity only)
             let key_path = std::path::Path::new(&data_dir).join("validator.key");
-            let (validator_key, validator_bls) = if key_path.exists() {
+            let (validator_key, validator_bls) = if is_rpc_only {
+                // Ephemeral keys for P2P — no validator.key file needed
+                let ed_kp = if key_path.exists() {
+                    let key_data = std::fs::read_to_string(&key_path)?;
+                    let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
+                        .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
+                    let ed_bytes: [u8; 32] = hex::decode(&keys.ed25519_secret)?
+                        .try_into()
+                        .map_err(|_| anyhow::anyhow!("ed25519 secret key must be 32 bytes"))?;
+                    pichain_crypto::Keypair::from_secret_bytes(&ed_bytes)
+                } else {
+                    pichain_crypto::Keypair::generate()
+                };
+                let bls_kp = pichain_crypto::BlsKeypair::generate();
+                info!(peer_identity = %ed_kp.address(), "RPC-only mode — no validator key required");
+                (ed_kp, bls_kp)
+            } else if key_path.exists() {
                 // Load existing keys
                 let key_data = std::fs::read_to_string(&key_path)?;
                 let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
@@ -534,8 +568,8 @@ async fn main() -> anyhow::Result<()> {
                     )
                 )
             );
-            // Inject BLS secret key for certificate signing
-            {
+            // Inject BLS secret key for certificate signing (validators only)
+            if !is_rpc_only {
                 let bls_sk = pichain_crypto::bls::BlsSecretKey::from_bytes(
                     &validator_bls.secret.to_bytes()
                 ).map_err(|e| anyhow::anyhow!("BLS secret key roundtrip failed: {e}"))?;
@@ -543,46 +577,49 @@ async fn main() -> anyhow::Result<()> {
             }
             info!(
                 address = %validator_key.address(),
+                rpc_only = is_rpc_only,
                 "consensus engine initialized (Narwhal DAG + Bullshark + Avalanche fast-path)"
             );
 
-            // --- 11. Initialize Transaction Pipeline ---
-            let pipeline_config = pichain_execution::PipelineConfig {
-                target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
-                max_txs_per_block: 50_000,
-                max_gas_per_block: 500_000_000,
-                validator_address: validator_key.address(),
+            // --- 11. Initialize Transaction Pipeline (validators only) ---
+            let pipeline_and_producer = if !is_rpc_only {
+                let pipeline_config = pichain_execution::PipelineConfig {
+                    target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
+                    max_txs_per_block: 50_000,
+                    max_gas_per_block: 500_000_000,
+                    validator_address: validator_key.address(),
+                };
+
+                let block_config = pichain_execution::BlockProducerConfig {
+                    validator_address: validator_key.address(),
+                    target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
+                    ..Default::default()
+                };
+                let mut block_producer = pichain_execution::BlockProducer::new(
+                    block_config,
+                    executor.clone(),
+                    mempool.clone(),
+                    chain_id,
+                );
+                let last_block_ts = node_state.last_block_timestamp_ms();
+                block_producer.set_state(current_height, last_hash, current_base_fee, last_block_ts);
+
+                let pipeline = pichain_execution::TransactionPipeline::new(
+                    pipeline_config,
+                    executor.clone(),
+                    mempool.clone(),
+                );
+
+                info!(
+                    "Transaction pipeline initialized (3-stage: SigVerify → Banking → Ledger, {}ms blocks, height {})",
+                    pichain_types::TARGET_BLOCK_TIME_MS,
+                    current_height
+                );
+                Some((pipeline, block_producer))
+            } else {
+                info!(height = current_height, "RPC-only mode — block production disabled, syncing from peers");
+                None
             };
-
-            let block_config = pichain_execution::BlockProducerConfig {
-                validator_address: validator_key.address(),
-                target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
-                ..Default::default()
-            };
-            let mut block_producer = pichain_execution::BlockProducer::new(
-                block_config,
-                executor.clone(),
-                mempool.clone(),
-                chain_id,
-            );
-            // R37-FIX: Pass the last block's timestamp from storage instead of 0.
-            // Without this, block producer starts with last_timestamp_ms=0 on restart,
-            // allowing the first block to use any wall-clock timestamp without
-            // monotonicity enforcement relative to the previous chain tip.
-            let last_block_ts = node_state.last_block_timestamp_ms();
-            block_producer.set_state(current_height, last_hash, current_base_fee, last_block_ts);
-
-            let pipeline = pichain_execution::TransactionPipeline::new(
-                pipeline_config,
-                executor.clone(),
-                mempool.clone(),
-            );
-
-            info!(
-                "Transaction pipeline initialized (3-stage: SigVerify → Banking → Ledger, {}ms blocks, height {})",
-                pichain_types::TARGET_BLOCK_TIME_MS,
-                current_height
-            );
 
             // --- 12. Start RPC Server (with real state) ---
             let rpc = pichain_rpc::RpcServer::with_state(node_state.clone());
@@ -594,10 +631,19 @@ async fn main() -> anyhow::Result<()> {
             let (block_tx, mut block_rx) = mpsc::channel(100);
 
             // Pipeline task — runs Stage 1 (SigVerify) + Stage 2 (Banking)
+            // Only in validator mode — RPC-only nodes don't produce blocks
             let pipeline_shutdown = shutdown_rx.clone();
-            let mut pipeline_handle = tokio::spawn(async move {
-                pipeline.run(block_producer, pipeline_shutdown, block_tx).await;
-            });
+            let mut pipeline_handle = if let Some((pipeline, block_producer)) = pipeline_and_producer {
+                tokio::spawn(async move {
+                    pipeline.run(block_producer, pipeline_shutdown, block_tx).await;
+                })
+            } else {
+                // RPC-only: spawn a no-op task that just waits for shutdown
+                let mut shutdown = pipeline_shutdown;
+                tokio::spawn(async move {
+                    let _ = shutdown.changed().await;
+                })
+            };
 
             // Extract P2P broadcaster before moving swarm
             let p2p_broadcaster = p2p_swarm.broadcaster();
@@ -700,7 +746,7 @@ async fn main() -> anyhow::Result<()> {
                         block_hash: block_hash.to_string(),
                     });
 
-                    // Broadcast individual transaction events
+                    // Broadcast individual transaction events + swap events
                     for (i, tx) in produced.block.transactions.iter().enumerate() {
                         let status = produced.execution_results.get(i)
                             .map(|r| match &r.effect.status {
@@ -725,6 +771,44 @@ async fn main() -> anyhow::Result<()> {
                             block_height: height,
                             status,
                         });
+
+                        // Broadcast swap events for DEX real-time charts
+                        if let Some(result) = produced.execution_results.get(i) {
+                            for event in &result.effect.events {
+                                if event.event_type == "Swap" {
+                                    if let Ok(sd) = serde_json::from_slice::<serde_json::Value>(&event.data) {
+                                        let amount_in = sd["amount_in"].as_u64().unwrap_or(0);
+                                        let amount_out = sd["amount_out"].as_u64().unwrap_or(0);
+                                        let price = if amount_in > 0 { amount_out as f64 / amount_in as f64 } else { 0.0 };
+                                        ws_broadcaster.broadcast(pichain_rpc::WsEvent::SwapExecuted {
+                                            pool_id: sd["pool"].as_str().unwrap_or("").to_string(),
+                                            sender: tx.data.sender.to_string(),
+                                            mint_in: sd["mint_in"].as_str().unwrap_or("").to_string(),
+                                            mint_out: sd["mint_out"].as_str().unwrap_or("").to_string(),
+                                            amount_in,
+                                            amount_out,
+                                            fee: sd["fee"].as_u64().unwrap_or(0),
+                                            price,
+                                            timestamp_ms: produced.block.header.timestamp_ms,
+                                            block_height: height,
+                                        });
+                                    }
+                                }
+                                // Broadcast betting match updates
+                                if matches!(event.event_type.as_str(),
+                                    "CreateMatch" | "JoinMatch" | "StartMatch" | "ResolveMatch" | "CancelMatch"
+                                ) {
+                                    if let Ok(ed) = serde_json::from_slice::<serde_json::Value>(&event.data) {
+                                        ws_broadcaster.broadcast(pichain_rpc::WsEvent::MatchUpdate {
+                                            match_id: ed["match_id"].as_str().unwrap_or("").to_string(),
+                                            event_type: event.event_type.clone(),
+                                            state: ed.get("state").and_then(|s| s.as_str()).unwrap_or("unknown").to_string(),
+                                            block_height: height,
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if tx_count > 0 {

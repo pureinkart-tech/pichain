@@ -4,6 +4,7 @@
 //! Object (Sui-inspired ownership model), and genesis configuration.
 
 pub mod account;
+pub mod betting;
 pub mod block;
 pub mod dex;
 pub mod genesis;
@@ -15,6 +16,7 @@ pub mod token;
 pub mod transaction;
 
 pub use account::{Account, AccountState};
+pub use betting::{BettingMatch, MatchId};
 pub use block::{Block, BlockHeader};
 pub use dex::{LiquidityPool, PoolId};
 pub use genesis::GenesisConfig;

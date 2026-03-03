@@ -48,6 +48,28 @@ pub enum WsEvent {
         difficulty_bits: u32,
         unique_miners: u64,
     },
+    /// Swap/trade executed on DEX.
+    #[serde(rename = "swapExecuted")]
+    SwapExecuted {
+        pool_id: String,
+        sender: String,
+        mint_in: String,
+        mint_out: String,
+        amount_in: u64,
+        amount_out: u64,
+        fee: u64,
+        price: f64,
+        timestamp_ms: u64,
+        block_height: u64,
+    },
+    /// Betting match state update (created, joined, started, resolved, cancelled).
+    #[serde(rename = "matchUpdate")]
+    MatchUpdate {
+        match_id: String,
+        event_type: String,
+        state: String,
+        block_height: u64,
+    },
 }
 
 /// Subscription request from the client.
@@ -150,11 +172,13 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
     let mut sub_blocks = true;
     let mut sub_txs = true;
     let mut sub_mining = true;
+    let mut sub_swaps = true;
+    let mut sub_betting = true;
 
     // Spawn a task to read incoming messages (subscription filters)
     // SECURITY: Limit incoming message size to prevent memory exhaustion DoS.
     const MAX_WS_MESSAGE_SIZE: usize = 1024; // Subscription requests are tiny
-    let (filter_tx, mut filter_rx) = tokio::sync::mpsc::channel::<(bool, bool, bool)>(4);
+    let (filter_tx, mut filter_rx) = tokio::sync::mpsc::channel::<(bool, bool, bool, bool, bool)>(4);
 
     // Use an AbortHandle to ensure the receiver task is cleaned up when
     // the sender loop exits (Fix 196: prevents zombie tasks).
@@ -174,8 +198,10 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
                     let blocks = req.subscribe.iter().any(|s| s == "newBlocks");
                     let txs = req.subscribe.iter().any(|s| s == "newTransactions");
                     let mining = req.subscribe.iter().any(|s| s == "miningStatus");
+                    let swaps = req.subscribe.iter().any(|s| s == "swapExecuted");
+                    let betting = req.subscribe.iter().any(|s| s == "matchUpdate");
                     // If the send fails, the main loop has exited — break.
-                    if filter_tx.send((blocks, txs, mining)).await.is_err() {
+                    if filter_tx.send((blocks, txs, mining, swaps, betting)).await.is_err() {
                         break;
                     }
                 }
@@ -191,12 +217,14 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
     loop {
         tokio::select! {
             // Check for filter updates from client
-            Some((b, t, m)) = filter_rx.recv() => {
+            Some((b, t, m, s, bet)) = filter_rx.recv() => {
                 sub_blocks = b;
                 sub_txs = t;
                 sub_mining = m;
+                sub_swaps = s;
+                sub_betting = bet;
                 last_activity = tokio::time::Instant::now();
-                debug!(blocks = b, txs = t, mining = m, "WS subscription updated");
+                debug!(blocks = b, txs = t, mining = m, swaps = s, betting = bet, "WS subscription updated");
             }
 
             // Forward matching events
@@ -207,6 +235,8 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
                             WsEvent::NewBlock { .. } => sub_blocks,
                             WsEvent::NewTransaction { .. } => sub_txs,
                             WsEvent::MiningStatus { .. } => sub_mining,
+                            WsEvent::SwapExecuted { .. } => sub_swaps,
+                            WsEvent::MatchUpdate { .. } => sub_betting,
                         };
                         if should_send {
                             if let Ok(json) = serde_json::to_string(&event) {

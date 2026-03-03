@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+use tower_http::compression::CompressionLayer;
 use tracing::{info, warn};
 
 use crate::RpcError;
@@ -267,7 +268,19 @@ async fn rate_limit_middleware(
             .into_response();
     }
 
-    next.run(request).await
+    // Add short cache headers for GET API responses to reduce duplicate requests
+    let is_get = request.method() == axum::http::Method::GET;
+    let is_api = path.starts_with("/api/");
+    let mut response = next.run(request).await;
+    if is_get && is_api {
+        // 3-second cache: enough to deduplicate concurrent page-load requests
+        // and polling intervals without showing stale data
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            "public, max-age=3, stale-while-revalidate=10".parse().unwrap(),
+        );
+    }
+    response
 }
 
 /// Node info returned by RPC.
@@ -384,6 +397,12 @@ pub trait StateProvider: Send + Sync + 'static {
         None
     }
 
+    /// Get or assign a mining slot for the given address.
+    /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
+    fn get_mining_slot(&self, _address: &pichain_crypto::ed25519::Address) -> Option<(u64, u32, usize)> {
+        None
+    }
+
     // --- Wallet activation ---
 
     /// Get total number of activated wallets.
@@ -412,6 +431,19 @@ pub trait StateProvider: Send + Sync + 'static {
         &self,
         _owner: &pichain_crypto::ed25519::Address,
     ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> { vec![] }
+
+    // --- DEX analytics queries ---
+
+    /// Get recent trades for a specific pool.
+    fn get_pool_trades(&self, _pool_id: &pichain_types::PoolId, _limit: usize, _before_ms: Option<u64>) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    /// Get globally recent trades across all pools.
+    fn get_recent_trades(&self, _limit: usize) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    /// Get trades in a time range for OHLCV candle computation.
+    fn get_pool_trades_in_range(&self, _pool_id: &pichain_types::PoolId, _from_ms: u64, _to_ms: u64) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    /// Scan all token accounts (for holder analysis).
+    fn scan_all_token_accounts(&self) -> Vec<pichain_types::TokenAccount> { vec![] }
+    /// Scan all LP balances.
+    fn scan_all_lp_balances(&self) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> { vec![] }
 
     /// Bridge operator: mint wrapped tokens to a recipient address.
     /// Only callable from localhost by the bridge operator.
@@ -537,6 +569,21 @@ pub trait StateProvider: Send + Sync + 'static {
     fn validator_count(&self) -> usize { 0 }
     /// Get total stake.
     fn total_stake(&self) -> u64 { 0 }
+
+    // --- Betting queries ---
+
+    /// Get a betting match by ID.
+    fn get_betting_match(&self, _match_id: &pichain_types::betting::MatchId) -> Option<pichain_types::betting::BettingMatch> { None }
+    /// Get all active betting matches.
+    fn get_active_matches(&self) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    /// Get matches by category (pvp=0, poker=1, arcade=2).
+    fn get_matches_by_category(&self, _category: u8) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    /// Get matches involving an address.
+    fn get_matches_by_player(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    /// Get betting stats (total wagered, active count, etc.).
+    fn get_betting_stats(&self) -> BettingStatsData { BettingStatsData::default() }
+    /// Get match nonce for an address.
+    fn get_match_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
 }
 
 /// Bridge registered addresses.
@@ -622,12 +669,27 @@ pub struct MiningStatusData {
     pub fee_income: u64,
     pub reward_per_digit: u64,
     pub emission_year: u32,
-    /// Current PoW difficulty in leading zero bits.
+    /// Current PoW difficulty in leading zero bits (frontier-scaled).
     pub difficulty_bits: u32,
-    /// Current difficulty target as hex string.
+    /// Current difficulty target as hex string (frontier-scaled).
     pub difficulty_target_hex: String,
     /// Last block hash (anchor for PoW nonce grinding).
     pub anchor_block_hash: String,
+    /// Minimum digits per proof at current frontier.
+    #[serde(default)]
+    pub min_batch_size: u32,
+    /// Maximum position allowed (frontier + max_frontier_distance).
+    #[serde(default)]
+    pub max_allowed_position: u64,
+    /// Current frontier bonus multiplier at next_position (e.g. "2.5x").
+    #[serde(default)]
+    pub frontier_bonus_at_next: String,
+    /// Accumulated staking reward pool from unmined emission recycling.
+    #[serde(default)]
+    pub staking_reward_pool: u64,
+    /// Total mining rewards actually minted in the current epoch.
+    #[serde(default)]
+    pub epoch_actual_minted: u64,
 }
 
 /// Swap quote returned by the RPC.
@@ -636,6 +698,16 @@ pub struct SwapQuote {
     pub amount_out: u64,
     pub fee: u64,
     pub price_impact_bps: u64,
+}
+
+/// Betting statistics data.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct BettingStatsData {
+    pub total_wagered: u64,
+    pub active_matches: u64,
+    pub total_matches: u64,
+    pub total_players: u64,
+    pub house_burns: u64,
 }
 
 /// Check whether an origin string is allowed for CORS (Fix RPC-237).
@@ -728,7 +800,7 @@ impl RpcServer {
         Router::new()
             .route("/", get(serve_homepage))
             .route("/explorer", get(serve_explorer))
-            .route("/mining", get(serve_mining_dashboard))
+            .route("/mining", get(redirect_mining_to_mine))
             .route("/mine", get(serve_miner_setup))
             .route("/download", get(serve_download_page))
             .route("/dashboard", get(serve_dashboard))
@@ -740,6 +812,7 @@ impl RpcServer {
             .route("/api/v1/tx/:hash", get(get_transaction))
             .route("/api/v1/account/:address", get(get_account))
             .route("/api/v1/mining/status", get(get_mining_status))
+            .route("/api/v1/mining/slot/:address", get(get_mining_slot))
             .route("/api/v1/receipt/:hash", get(get_receipt))
             .route("/api/v1/blocks", get(get_block_range))
             .route("/api/v1/wallet/challenge", post(get_activation_challenge))
@@ -765,7 +838,7 @@ impl RpcServer {
             .route("/api/v1/portfolio/:address", get(get_portfolio))
             .route("/launch", get(serve_launch_page))
             .route("/trade", get(serve_trade_page))
-            .route("/bridge", get(serve_bridge_page))
+            .route("/bridge", get(redirect_bridge_to_home))
             .route("/staking", get(serve_staking_page))
             .route("/blocks", get(serve_blocks_page))
             .route("/address", get(serve_address_page))
@@ -799,6 +872,26 @@ impl RpcServer {
             .route("/api/v1/header/:height", get(get_block_header))
             // Richlist
             .route("/api/v1/richlist", get(get_richlist))
+            // DEX analytics endpoints
+            .route("/api/v1/dex/pairs", get(get_dex_pairs))
+            .route("/api/v1/dex/pair/:pool_id/trades", get(get_pair_trades))
+            .route("/api/v1/dex/pair/:pool_id/ohlcv", get(get_pair_ohlcv))
+            .route("/api/v1/dex/pair/:pool_id/info", get(get_pair_info))
+            .route("/api/v1/dex/recent-trades", get(get_dex_recent_trades))
+            .route("/api/v1/dex/top-movers", get(get_top_movers))
+            .route("/api/v1/token/:mint_id/holders", get(get_token_holders))
+            // Betting API
+            .route("/api/v1/betting/matches", get(get_betting_matches))
+            .route("/api/v1/betting/match/:match_id", get(get_betting_match))
+            .route("/api/v1/betting/history/:address", get(get_betting_history))
+            .route("/api/v1/betting/stats", get(get_betting_stats))
+            .route("/api/v1/betting/verify/:match_id", get(verify_betting_match))
+            .route("/api/v1/betting/match-nonce/:address", get(get_match_nonce))
+            // DEX page
+            .route("/dex", get(serve_dex_page))
+            // Games page (kept /betting for backwards compat)
+            .route("/games", get(serve_betting_page))
+            .route("/betting", get(serve_betting_page))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -824,6 +917,7 @@ impl RpcServer {
                     .allow_headers([axum::http::header::CONTENT_TYPE])
             )
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body (tokens can carry large metadata)
+            .layer(CompressionLayer::new()) // gzip + brotli + deflate — typically 70-85% size reduction
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
             .with_state(state)
@@ -882,64 +976,49 @@ async fn ws_upgrade(
         .on_upgrade(move |socket| crate::ws::handle_ws(socket, broadcaster, client_ip)).into_response()
 }
 
+/// Serve a static HTML page with cache headers.
+/// 60s browser cache + revalidation allows fast loads while picking up deploys within a minute.
+fn serve_html(html: &'static str) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "text/html; charset=utf-8"),
+            ("cache-control", "public, max-age=60, stale-while-revalidate=300"),
+            ("vary", "Accept-Encoding"),
+        ],
+        html,
+    )
+}
+
 /// Serve the PIChain homepage / landing page.
 async fn serve_homepage() -> impl IntoResponse {
     const HOME_HTML: &str = include_str!("../../../explorer/home.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        HOME_HTML,
-    )
+    serve_html(HOME_HTML)
 }
 
 /// Serve the block explorer UI.
 async fn serve_explorer() -> impl IntoResponse {
-    const EXPLORER_HTML: &str = include_str!("../../../explorer/index.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        EXPLORER_HTML,
-    )
+    serve_html(include_str!("../../../explorer/index.html"))
 }
 
-/// Live mining dashboard — auto-refreshing web UI.
-async fn serve_mining_dashboard() -> impl IntoResponse {
-    const MINING_HTML: &str = include_str!("../../../explorer/mining.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        MINING_HTML,
-    )
+/// Redirect /mining to /mine (dashboard is now a tab inside /mine).
+async fn redirect_mining_to_mine() -> impl IntoResponse {
+    (StatusCode::MOVED_PERMANENTLY, [("location", "/mine")], "")
 }
 
 /// Miner setup guide — instructions for external miners to join.
 async fn serve_miner_setup() -> impl IntoResponse {
-    const MINE_HTML: &str = include_str!("../../../explorer/mine.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        MINE_HTML,
-    )
+    serve_html(include_str!("../../../explorer/mine.html"))
 }
 
 /// Real-time mining dashboard.
 async fn serve_dashboard() -> impl IntoResponse {
-    const DASHBOARD_HTML: &str = include_str!("../../../explorer/dashboard.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        DASHBOARD_HTML,
-    )
+    serve_html(include_str!("../../../explorer/dashboard.html"))
 }
 
 /// Download page — pre-built miner binaries.
 async fn serve_download_page() -> impl IntoResponse {
-    const DOWNLOAD_HTML: &str = include_str!("../../../explorer/download.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        DOWNLOAD_HTML,
-    )
+    serve_html(include_str!("../../../explorer/download.html"))
 }
 
 /// Detailed health check with structured JSON response.
@@ -1377,6 +1456,11 @@ async fn get_transaction(
                         pichain_types::TransactionKind::CreateMultisig { .. } => "CreateMultisig",
                         pichain_types::TransactionKind::ExecuteMultisig { .. } => "ExecuteMultisig",
                         pichain_types::TransactionKind::BridgeWithdraw { .. } => "BridgeWithdraw",
+                        pichain_types::TransactionKind::CreateMatch { .. } => "CreateMatch",
+                        pichain_types::TransactionKind::JoinMatch { .. } => "JoinMatch",
+                        pichain_types::TransactionKind::StartMatch { .. } => "StartMatch",
+                        pichain_types::TransactionKind::ResolveMatch { .. } => "ResolveMatch",
+                        pichain_types::TransactionKind::CancelMatch { .. } => "CancelMatch",
                     };
 
                     let receipt_status = receipt.as_ref().map(|r| {
@@ -1492,6 +1576,11 @@ struct MiningStatus {
     difficulty_target_hex: String,
     anchor_block_hash: String,
     base_fee: u64,
+    min_batch_size: u32,
+    max_allowed_position: u64,
+    frontier_bonus_at_next: String,
+    staking_reward_pool: u64,
+    epoch_actual_minted: u64,
 }
 
 async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningStatus> {
@@ -1512,6 +1601,11 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
                 difficulty_target_hex: stats.difficulty_target_hex.clone(),
                 anchor_block_hash: stats.anchor_block_hash.clone(),
                 base_fee: provider.current_base_fee(),
+                min_batch_size: stats.min_batch_size,
+                max_allowed_position: stats.max_allowed_position,
+                frontier_bonus_at_next: stats.frontier_bonus_at_next.clone(),
+                staking_reward_pool: stats.staking_reward_pool,
+                epoch_actual_minted: stats.epoch_actual_minted,
             });
         }
     }
@@ -1531,7 +1625,60 @@ async fn get_mining_status(State(state): State<Arc<RpcState>>) -> Json<MiningSta
         difficulty_target_hex: hex::encode(pichain_mining::difficulty::INITIAL_DIFFICULTY),
         anchor_block_hash: String::new(),
         base_fee: 1000,
+        min_batch_size: 10,
+        max_allowed_position: 100_000,
+        frontier_bonus_at_next: "3.0x".to_string(),
+        staking_reward_pool: 0,
+        epoch_actual_minted: 0,
     })
+}
+
+// --- Mining slot assignment ---
+
+#[derive(Serialize)]
+struct MiningSlotResponse {
+    address: String,
+    slot_index: u32,
+    recommended_position: u64,
+    active_miners: usize,
+    slot_range_size: u64,
+}
+
+async fn get_mining_slot(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> Result<Json<MiningSlotResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let addr_bytes = hex::decode(&address_hex).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid hex address"})),
+        )
+    })?;
+    if addr_bytes.len() != 20 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 20 bytes (40 hex chars)"})),
+        ));
+    }
+    let mut addr = pichain_crypto::ed25519::Address([0u8; 20]);
+    addr.0.copy_from_slice(&addr_bytes);
+
+    if let Some(provider) = &state.state_provider {
+        if let Some((position, slot_index, active_miners)) = provider.get_mining_slot(&addr) {
+            return Ok(Json(MiningSlotResponse {
+                address: address_hex,
+                slot_index,
+                recommended_position: position,
+                active_miners,
+                slot_range_size: pichain_mining::onchain::SLOT_RANGE_SIZE,
+            }));
+        }
+    }
+
+    Err((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "mining slot assignment not available"})),
+    ))
 }
 
 // --- Wallet activation (PoW challenge + verification) ---
@@ -2169,112 +2316,57 @@ async fn get_swap_quote(
 // ─── Launch page serving ────────────────────────────────────────────────────
 
 async fn serve_launch_page() -> impl IntoResponse {
-    const LAUNCH_HTML: &str = include_str!("../../../explorer/launch.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        LAUNCH_HTML,
-    )
+    serve_html(include_str!("../../../explorer/launch.html"))
 }
 
-/// Trade page — DEX swap interface and cross-chain bridge.
+/// Trade page — DEX swap interface.
 async fn serve_trade_page() -> impl IntoResponse {
-    const TRADE_HTML: &str = include_str!("../../../explorer/trade.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        TRADE_HTML,
-    )
+    serve_html(include_str!("../../../explorer/trade.html"))
 }
 
-/// Bridge monitor page — real-time bridge activity dashboard.
-async fn serve_bridge_page() -> impl IntoResponse {
-    const BRIDGE_HTML: &str = include_str!("../../../explorer/bridge.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        BRIDGE_HTML,
-    )
+/// Bridge page removed — redirect to home.
+async fn redirect_bridge_to_home() -> impl IntoResponse {
+    (StatusCode::MOVED_PERMANENTLY, [("location", "/")], "")
 }
 
 /// Staking page — validators, delegations, rewards.
 async fn serve_staking_page() -> impl IntoResponse {
-    const STAKING_HTML: &str = include_str!("../../../explorer/staking.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        STAKING_HTML,
-    )
+    serve_html(include_str!("../../../explorer/staking.html"))
 }
 
 /// Block list page — paginated block browsing.
 async fn serve_blocks_page() -> impl IntoResponse {
-    const BLOCKS_HTML: &str = include_str!("../../../explorer/blocks.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        BLOCKS_HTML,
-    )
+    serve_html(include_str!("../../../explorer/blocks.html"))
 }
 
 /// Address detail page — balance, nonce, tx history.
 async fn serve_address_page() -> impl IntoResponse {
-    const ADDRESS_HTML: &str = include_str!("../../../explorer/address.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        ADDRESS_HTML,
-    )
+    serve_html(include_str!("../../../explorer/address.html"))
 }
 
 /// Rich list page — top accounts by balance.
 async fn serve_richlist_page() -> impl IntoResponse {
-    const RICHLIST_HTML: &str = include_str!("../../../explorer/richlist.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        RICHLIST_HTML,
-    )
+    serve_html(include_str!("../../../explorer/richlist.html"))
 }
 
 /// Token detail page — info and holders.
 async fn serve_token_page() -> impl IntoResponse {
-    const TOKEN_HTML: &str = include_str!("../../../explorer/token.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        TOKEN_HTML,
-    )
+    serve_html(include_str!("../../../explorer/token.html"))
 }
 
 /// NFT marketplace page — collections, items, marketplace.
 async fn serve_nft_page() -> impl IntoResponse {
-    const NFT_HTML: &str = include_str!("../../../explorer/nft.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        NFT_HTML,
-    )
+    serve_html(include_str!("../../../explorer/nft.html"))
 }
 
 /// Terms of Service page.
 async fn serve_terms_page() -> impl IntoResponse {
-    const TERMS_HTML: &str = include_str!("../../../explorer/terms.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        TERMS_HTML,
-    )
+    serve_html(include_str!("../../../explorer/terms.html"))
 }
 
 /// Privacy Policy page.
 async fn serve_privacy_page() -> impl IntoResponse {
-    const PRIVACY_HTML: &str = include_str!("../../../explorer/privacy.html");
-    (
-        StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
-        PRIVACY_HTML,
-    )
+    serve_html(include_str!("../../../explorer/privacy.html"))
 }
 
 /// Bridge deposit address request.
@@ -3203,6 +3295,665 @@ async fn get_richlist(
         return (StatusCode::OK, Json(serde_json::json!({"richlist": data, "count": data.len()})));
     }
     (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+}
+
+// ======================== DEX Analytics Endpoints ========================
+
+async fn serve_dex_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/dex.html"))
+}
+
+async fn serve_betting_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/betting.html"))
+}
+
+/// GET /api/v1/dex/pairs — All trading pairs with stats (price, volume, TVL, 24h change).
+async fn get_dex_pairs(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(data) = tokio::task::spawn_blocking(move || {
+            let pools = provider.scan_all_pools();
+            let mints = provider.scan_all_mints();
+            let launches = provider.scan_all_launches();
+            (pools, mints, launches)
+        }).await {
+            let (pools, mints, launches) = data;
+            let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
+                mints.iter().map(|m| (m.id.0, m)).collect();
+
+            // Build set of ungraduated mints to filter out
+            let ungraduated: std::collections::HashSet<[u8; 32]> = launches.iter()
+                .filter(|l| l.state != pichain_types::launchpad::LaunchState::Finalized)
+                .map(|l| l.mint.0)
+                .collect();
+
+            let pairs: Vec<serde_json::Value> = pools.iter().filter(|p| {
+                // Filter out pools involving ungraduated tokens
+                !ungraduated.contains(&p.mint_a.0) && !ungraduated.contains(&p.mint_b.0)
+            }).map(|pool| {
+                let symbol_a = mint_map.get(&pool.mint_a.0)
+                    .map(|m| m.symbol.as_str()).unwrap_or(if pool.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
+                let symbol_b = mint_map.get(&pool.mint_b.0)
+                    .map(|m| m.symbol.as_str()).unwrap_or(if pool.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+                let decimals_a = mint_map.get(&pool.mint_a.0).map(|m| m.decimals).unwrap_or(9);
+                let decimals_b = mint_map.get(&pool.mint_b.0).map(|m| m.decimals).unwrap_or(9);
+                let price = if pool.reserve_a > 0 {
+                    (pool.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
+                    (pool.reserve_a as f64 / 10f64.powi(decimals_a as i32))
+                } else { 0.0 };
+                let tvl_a = pool.reserve_a as f64 / 10f64.powi(decimals_a as i32);
+                let tvl_b = pool.reserve_b as f64 / 10f64.powi(decimals_b as i32);
+                serde_json::json!({
+                    "pool_id": hex::encode(pool.id.0),
+                    "mint_a": hex::encode(pool.mint_a.0),
+                    "mint_b": hex::encode(pool.mint_b.0),
+                    "symbol_a": symbol_a,
+                    "symbol_b": symbol_b,
+                    "decimals_a": decimals_a,
+                    "decimals_b": decimals_b,
+                    "reserve_a": pool.reserve_a,
+                    "reserve_b": pool.reserve_b,
+                    "price": price,
+                    "tvl_a": tvl_a,
+                    "tvl_b": tvl_b,
+                    "cumulative_volume_a": pool.cumulative_volume_a.to_string(),
+                    "cumulative_volume_b": pool.cumulative_volume_b.to_string(),
+                    "fee_bps": pool.fee_bps,
+                    "lp_supply": pool.lp_supply,
+                    "active": pool.active,
+                    "created_at_ms": pool.created_at_ms,
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "pairs": pairs })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "pairs": [] })))
+}
+
+/// GET /api/v1/dex/pair/:pool_id/trades — Recent trades for a pair.
+async fn get_pair_trades(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(pool_id_hex): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let pool_bytes = match hex::decode(&pool_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&pool_bytes);
+    let pool_id = pichain_types::dex::PoolId(arr);
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+    let before_ms = params.get("before").and_then(|v| v.parse::<u64>().ok());
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(trades) = tokio::task::spawn_blocking(move || {
+            provider.get_pool_trades(&pool_id, limit, before_ms)
+        }).await {
+            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
+                serde_json::json!({
+                    "sender": hex::encode(t.sender.0),
+                    "mint_in": hex::encode(t.mint_in.0),
+                    "mint_out": hex::encode(t.mint_out.0),
+                    "amount_in": t.amount_in,
+                    "amount_out": t.amount_out,
+                    "fee": t.fee,
+                    "timestamp_ms": t.timestamp_ms,
+                    "block_height": t.block_height,
+                    "tx_hash": hex::encode(t.tx_hash),
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "trades": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "trades": [] })))
+}
+
+/// OHLCV candle data — computed from trade records.
+#[derive(serde::Serialize)]
+struct Candle {
+    time: u64,      // candle start timestamp (seconds)
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: f64,
+}
+
+/// GET /api/v1/dex/pair/:pool_id/ohlcv — Candlestick data for charts.
+async fn get_pair_ohlcv(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(pool_id_hex): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let pool_bytes = match hex::decode(&pool_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&pool_bytes);
+    let pool_id = pichain_types::dex::PoolId(arr);
+
+    // Parse interval (default 1m = 60s)
+    let interval_secs: u64 = match params.get("interval").map(|s| s.as_str()) {
+        Some("1s") => 1,
+        Some("15s") => 15,
+        Some("30s") => 30,
+        Some("1m") | None => 60,
+        Some("5m") => 300,
+        Some("15m") => 900,
+        Some("1h") => 3600,
+        Some("4h") => 14400,
+        Some("8h") => 28800,
+        Some("1d") => 86400,
+        _ => 60,
+    };
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    // Default: last 500 candles
+    let candle_count = params.get("count").and_then(|v| v.parse::<u64>().ok()).unwrap_or(500).min(1000);
+    let to_ms = params.get("to").and_then(|v| v.parse::<u64>().ok()).unwrap_or(now_ms);
+    let from_ms = params.get("from").and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| to_ms.saturating_sub(candle_count * interval_secs * 1000));
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok((trades, pool)) = tokio::task::spawn_blocking(move || {
+            let trades = provider.get_pool_trades_in_range(&pool_id, from_ms, to_ms);
+            // Also get current pool state for price reference
+            let pools = provider.scan_all_pools();
+            let pool = pools.into_iter().find(|p| p.id == pool_id);
+            (trades, pool)
+        }).await {
+            // Compute candles from trades
+            let mut candles: Vec<Candle> = Vec::new();
+
+            if trades.is_empty() {
+                // No trades — return single candle at current price if pool exists
+                if let Some(p) = &pool {
+                    if p.reserve_a > 0 {
+                        let price = p.reserve_b as f64 / p.reserve_a as f64;
+                        candles.push(Candle {
+                            time: now_ms / 1000,
+                            open: price, high: price, low: price, close: price,
+                            volume: 0.0,
+                        });
+                    }
+                }
+            } else {
+                // Bucket trades into candles
+                let interval_ms = interval_secs * 1000;
+                let mut buckets: std::collections::BTreeMap<u64, Vec<&pichain_storage::TradeRecord>> = std::collections::BTreeMap::new();
+                for t in &trades {
+                    let bucket = (t.timestamp_ms / interval_ms) * interval_ms;
+                    buckets.entry(bucket).or_default().push(t);
+                }
+
+                let mut last_close = 0.0f64;
+                for (bucket_start, bucket_trades) in &buckets {
+                    let mut open = 0.0f64;
+                    let mut high = f64::MIN;
+                    let mut low = f64::MAX;
+                    let mut close = 0.0f64;
+                    let mut volume = 0.0f64;
+
+                    for (i, t) in bucket_trades.iter().enumerate() {
+                        let price = if t.amount_in > 0 {
+                            t.amount_out as f64 / t.amount_in as f64
+                        } else { last_close };
+                        if i == 0 { open = price; }
+                        if price > high { high = price; }
+                        if price < low { low = price; }
+                        close = price;
+                        volume += t.amount_in as f64;
+                    }
+                    if open == 0.0 { open = last_close; }
+                    if high == f64::MIN { high = open; }
+                    if low == f64::MAX { low = open; }
+                    last_close = close;
+
+                    candles.push(Candle {
+                        time: bucket_start / 1000,
+                        open, high, low, close, volume,
+                    });
+                }
+            }
+
+            return (StatusCode::OK, Json(serde_json::json!({ "candles": candles })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "candles": [] })))
+}
+
+/// GET /api/v1/dex/pair/:pool_id/info — Detailed pair info (reserves, volume, holders).
+async fn get_pair_info(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(pool_id_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let pool_bytes = match hex::decode(&pool_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&pool_bytes);
+    let pool_id = pichain_types::dex::PoolId(arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(data) = tokio::task::spawn_blocking(move || {
+            let pools = provider.scan_all_pools();
+            let pool = pools.into_iter().find(|p| p.id == pool_id);
+            let mints = provider.scan_all_mints();
+            let lp_balances = provider.scan_all_lp_balances();
+            (pool, mints, lp_balances)
+        }).await {
+            let (pool, mints, lp_balances) = data;
+            if let Some(p) = pool {
+                let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
+                    mints.iter().map(|m| (m.id.0, m)).collect();
+                let symbol_a = mint_map.get(&p.mint_a.0)
+                    .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
+                let symbol_b = mint_map.get(&p.mint_b.0)
+                    .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+
+                // LP holders for this pool
+                let lp_holders: Vec<serde_json::Value> = lp_balances.iter()
+                    .filter(|(pid, _, bal)| *pid == p.id && *bal > 0)
+                    .map(|(_, addr, bal)| serde_json::json!({
+                        "address": hex::encode(addr.0),
+                        "lp_balance": bal,
+                        "share_pct": if p.lp_supply > 0 { *bal as f64 / p.lp_supply as f64 * 100.0 } else { 0.0 },
+                    }))
+                    .collect();
+
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "found": true,
+                    "pool_id": hex::encode(p.id.0),
+                    "mint_a": hex::encode(p.mint_a.0),
+                    "mint_b": hex::encode(p.mint_b.0),
+                    "symbol_a": symbol_a,
+                    "symbol_b": symbol_b,
+                    "reserve_a": p.reserve_a,
+                    "reserve_b": p.reserve_b,
+                    "fee_bps": p.fee_bps,
+                    "lp_supply": p.lp_supply,
+                    "active": p.active,
+                    "created_at_ms": p.created_at_ms,
+                    "cumulative_volume_a": p.cumulative_volume_a.to_string(),
+                    "cumulative_volume_b": p.cumulative_volume_b.to_string(),
+                    "creator": hex::encode(p.creator.0),
+                    "lp_holders": lp_holders,
+                })));
+            }
+        }
+    }
+    (StatusCode::NOT_FOUND, Json(serde_json::json!({"found": false})))
+}
+
+/// GET /api/v1/dex/recent-trades — Globally recent trades across all pools.
+async fn get_dex_recent_trades(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(trades) = tokio::task::spawn_blocking(move || {
+            provider.get_recent_trades(limit)
+        }).await {
+            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
+                serde_json::json!({
+                    "pool_id": hex::encode(t.pool_id.0),
+                    "sender": hex::encode(t.sender.0),
+                    "mint_in": hex::encode(t.mint_in.0),
+                    "mint_out": hex::encode(t.mint_out.0),
+                    "amount_in": t.amount_in,
+                    "amount_out": t.amount_out,
+                    "fee": t.fee,
+                    "timestamp_ms": t.timestamp_ms,
+                    "block_height": t.block_height,
+                    "tx_hash": hex::encode(t.tx_hash),
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "trades": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "trades": [] })))
+}
+
+/// GET /api/v1/dex/top-movers — Top pairs by price change / volume.
+async fn get_top_movers(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(data) = tokio::task::spawn_blocking(move || {
+            let pools = provider.scan_all_pools();
+            let mints = provider.scan_all_mints();
+            (pools, mints)
+        }).await {
+            let (pools, mints) = data;
+            let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
+                mints.iter().map(|m| (m.id.0, m)).collect();
+
+            let mut movers: Vec<serde_json::Value> = pools.iter()
+                .filter(|p| p.reserve_a > 0 && p.reserve_b > 0 && p.active)
+                .map(|p| {
+                    let symbol_a = mint_map.get(&p.mint_a.0)
+                        .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
+                    let symbol_b = mint_map.get(&p.mint_b.0)
+                        .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+                    let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
+                    let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
+                    let price = (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
+                        (p.reserve_a as f64 / 10f64.powi(decimals_a as i32));
+                    let vol = p.cumulative_volume_a as f64 / 10f64.powi(decimals_a as i32);
+                    serde_json::json!({
+                        "pool_id": hex::encode(p.id.0),
+                        "pair": format!("{}/{}", symbol_a, symbol_b),
+                        "symbol_a": symbol_a,
+                        "symbol_b": symbol_b,
+                        "price": price,
+                        "volume": vol,
+                        "tvl": (p.reserve_a as f64 / 10f64.powi(decimals_a as i32)) +
+                               (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)),
+                    })
+                }).collect();
+            movers.sort_by(|a, b| {
+                b["volume"].as_f64().unwrap_or(0.0)
+                    .partial_cmp(&a["volume"].as_f64().unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            movers.truncate(20);
+            return (StatusCode::OK, Json(serde_json::json!({ "movers": movers })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "movers": [] })))
+}
+
+/// GET /api/v1/token/:mint_id/holders — Top holders for a token.
+async fn get_token_holders(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let mint_bytes = match hex::decode(&mint_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"}))),
+    };
+    let mut mint_arr = [0u8; 32];
+    mint_arr.copy_from_slice(&mint_bytes);
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(data) = tokio::task::spawn_blocking(move || {
+            let accounts = provider.scan_all_token_accounts();
+            let mints = provider.scan_all_mints();
+            (accounts, mints)
+        }).await {
+            let (accounts, mints) = data;
+            let mint_info = mints.iter().find(|m| m.id.0 == mint_arr);
+            let total_supply = mint_info.map(|m| m.total_supply).unwrap_or(0);
+
+            let mut holders: Vec<(String, u64)> = accounts.iter()
+                .filter(|a| a.mint.0 == mint_arr && a.balance > 0)
+                .map(|a| (hex::encode(a.owner.0), a.balance))
+                .collect();
+            holders.sort_by(|a, b| b.1.cmp(&a.1));
+            holders.truncate(limit);
+
+            let items: Vec<serde_json::Value> = holders.iter().map(|(addr, bal)| {
+                serde_json::json!({
+                    "address": addr,
+                    "balance": bal,
+                    "pct": if total_supply > 0 { *bal as f64 / total_supply as f64 * 100.0 } else { 0.0 },
+                })
+            }).collect();
+
+            return (StatusCode::OK, Json(serde_json::json!({
+                "holders": items,
+                "total_holders": accounts.iter().filter(|a| a.mint.0 == mint_arr && a.balance > 0).count(),
+                "total_supply": total_supply,
+            })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "holders": [], "total_holders": 0 })))
+}
+
+// ── Betting API handlers ────────────────────────────────────────────────
+
+async fn get_betting_matches(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let category = params.get("category").cloned();
+    let status_filter = params.get("status").cloned();
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(matches) = tokio::task::spawn_blocking(move || {
+            let all = if let Some(cat_str) = category.as_deref() {
+                let cat_tag = match cat_str {
+                    "pvp" => 0u8,
+                    "poker" => 1,
+                    "arcade" => 2,
+                    _ => return vec![],
+                };
+                provider.get_matches_by_category(cat_tag)
+            } else {
+                provider.get_active_matches()
+            };
+
+            if let Some(status) = status_filter.as_deref() {
+                all.into_iter().filter(|m| {
+                    match status {
+                        "open" => matches!(m.state, pichain_types::betting::MatchState::Open),
+                        "active" | "in_progress" => matches!(m.state, pichain_types::betting::MatchState::InProgress),
+                        "completed" => matches!(m.state, pichain_types::betting::MatchState::Completed { .. }),
+                        "cancelled" => matches!(m.state, pichain_types::betting::MatchState::Cancelled),
+                        _ => true,
+                    }
+                }).collect()
+            } else {
+                all
+            }
+        }).await {
+            let items: Vec<serde_json::Value> = matches.iter().map(|m| {
+                serde_json::json!({
+                    "id": m.id.to_string(),
+                    "category": m.category.to_tag(),
+                    "game_id": m.game_id,
+                    "state": format!("{:?}", m.state),
+                    "creator": hex::encode(m.creator.0),
+                    "wager": m.wager,
+                    "max_players": m.max_players,
+                    "participants": m.participants.iter().map(|p| hex::encode(p.0)).collect::<Vec<_>>(),
+                    "escrow_total": m.escrow_total,
+                    "created_at_ms": m.created_at_ms,
+                })
+            }).collect();
+
+            return (StatusCode::OK, Json(serde_json::json!({ "matches": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "matches": [] })))
+}
+
+async fn get_betting_match(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(match_id_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if match_id_hex.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id length"})));
+    }
+    let id_bytes = match hex::decode(&match_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id hex"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&id_bytes);
+    let match_id = pichain_types::betting::MatchId(arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(Some(m)) = tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "id": m.id.to_string(),
+                "category": m.category.to_tag(),
+                "game_id": m.game_id,
+                "state": format!("{:?}", m.state),
+                "creator": hex::encode(m.creator.0),
+                "wager": m.wager,
+                "max_players": m.max_players,
+                "participants": m.participants.iter().map(|p| hex::encode(p.0)).collect::<Vec<_>>(),
+                "escrow_total": m.escrow_total,
+                "house_fee_bps": m.house_fee_bps,
+                "created_at_height": m.created_at_height,
+                "resolve_deadline_height": m.resolve_deadline_height,
+                "created_at_ms": m.created_at_ms,
+                "server_seed_hash": hex::encode(m.server_seed_hash),
+                "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
+                "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
+            })));
+        }
+    }
+    (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "match not found"})))
+}
+
+async fn get_betting_history(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})));
+    }
+    let addr_bytes = match hex::decode(&address_hex) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address hex"}))),
+    };
+    let mut addr_arr = [0u8; 20];
+    addr_arr.copy_from_slice(&addr_bytes);
+    let address = pichain_crypto::ed25519::Address(addr_arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(matches) = tokio::task::spawn_blocking(move || provider.get_matches_by_player(&address)).await {
+            let items: Vec<serde_json::Value> = matches.iter().map(|m| {
+                serde_json::json!({
+                    "id": m.id.to_string(),
+                    "category": m.category.to_tag(),
+                    "game_id": m.game_id,
+                    "state": format!("{:?}", m.state),
+                    "wager": m.wager,
+                    "escrow_total": m.escrow_total,
+                    "created_at_ms": m.created_at_ms,
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "matches": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "matches": [] })))
+}
+
+async fn get_betting_stats(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(stats) = tokio::task::spawn_blocking(move || provider.get_betting_stats()).await {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "total_wagered": stats.total_wagered,
+                "active_matches": stats.active_matches,
+                "total_matches": stats.total_matches,
+                "total_players": stats.total_players,
+                "house_burns": stats.house_burns,
+            })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({
+        "total_wagered": 0,
+        "active_matches": 0,
+        "total_matches": 0,
+        "total_players": 0,
+        "house_burns": 0,
+    })))
+}
+
+async fn verify_betting_match(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(match_id_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if match_id_hex.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id length"})));
+    }
+    let id_bytes = match hex::decode(&match_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id hex"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&id_bytes);
+    let match_id = pichain_types::betting::MatchId(arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(Some(m)) = tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await {
+            let verified = if let Some(ref seed) = m.server_seed_revealed {
+                let hash = pichain_crypto::hash(seed);
+                hash.as_bytes() == &m.server_seed_hash
+            } else {
+                false
+            };
+
+            return (StatusCode::OK, Json(serde_json::json!({
+                "match_id": m.id.to_string(),
+                "verified": verified,
+                "server_seed_hash": hex::encode(m.server_seed_hash),
+                "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
+                "client_seeds": m.client_seeds.iter().map(|(addr, seed)| {
+                    serde_json::json!({
+                        "address": hex::encode(addr.0),
+                        "seed": hex::encode(seed),
+                    })
+                }).collect::<Vec<_>>(),
+                "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
+                "state": format!("{:?}", m.state),
+            })));
+        }
+    }
+    (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "match not found"})))
+}
+
+async fn get_match_nonce(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if address_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})));
+    }
+    let addr_bytes = match hex::decode(&address_hex) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address hex"}))),
+    };
+    let mut addr_arr = [0u8; 20];
+    addr_arr.copy_from_slice(&addr_bytes);
+    let address = pichain_crypto::ed25519::Address(addr_arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(nonce) = tokio::task::spawn_blocking(move || provider.get_match_nonce(&address)).await {
+            return (StatusCode::OK, Json(serde_json::json!({ "nonce": nonce })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "nonce": 0 })))
 }
 
 #[cfg(test)]

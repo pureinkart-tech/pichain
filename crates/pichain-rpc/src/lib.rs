@@ -8,7 +8,7 @@ pub mod server;
 pub mod ws;
 
 pub use server::{
-    BridgeAddressesInfo, BridgeStatusInfo, BridgeTokenStatus, BridgeTransferInfo,
+    BettingStatsData, BridgeAddressesInfo, BridgeStatusInfo, BridgeTokenStatus, BridgeTransferInfo,
     DelegationInfo, MiningStatusData, RpcServer, StateProvider, SwapQuote, TxHistoryEntry,
     ValidatorInfo,
 };

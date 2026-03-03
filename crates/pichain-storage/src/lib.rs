@@ -3,6 +3,7 @@
 //! RocksDB-backed storage with Jellyfish Merkle Tree for authenticated state,
 //! column family separation, and efficient state pruning.
 
+pub mod betting_store;
 pub mod contract_store;
 pub mod db;
 pub mod dex_store;
@@ -15,10 +16,11 @@ pub mod nft_store;
 pub mod state;
 pub mod token_store;
 
+pub use betting_store::BettingStore;
 pub use contract_store::ContractStorageStore;
 pub use db::PiChainDB;
 pub use evm_store::EvmStore;
-pub use dex_store::DexStore;
+pub use dex_store::{DexStore, TradeRecord};
 pub use jmt::{JellyfishMerkleTree, StateProof, ProofSibling};
 pub use jmt_db::DbJellyfishMerkleTree;
 pub use launchpad_store::LaunchpadStore;

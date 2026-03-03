@@ -81,7 +81,7 @@ anyhow = "1"
 # Web / RPC
 axum = { version = "0.7", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "compression-full", "set-header"] }
 jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 
 # WASM VM

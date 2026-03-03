@@ -270,6 +270,15 @@ impl BlockProducer {
             self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
         }
 
+        // Drip staking rewards from unmined emission recycling to proposer
+        {
+            let staking_drip = self.executor.mining_processor().lock().drain_staking_drip();
+            if staking_drip > 0 {
+                let proposer = self.config.validator_address;
+                self.executor.credit_account(proposer, staking_drip);
+            }
+        }
+
         // 4. Compute transaction root (Merkle root of tx hashes)
         let tx_hashes: Vec<Hash> = transactions.iter().map(|tx| tx.hash()).collect();
         let tx_root = if tx_hashes.is_empty() {

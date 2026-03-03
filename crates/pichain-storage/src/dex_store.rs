@@ -1,11 +1,15 @@
-//! DEX store — persists liquidity pools and LP balances in RocksDB.
+//! DEX store — persists liquidity pools, LP balances, and trade history in RocksDB.
 //!
 //! Uses the `state` column family with key prefixes:
 //! - `p:` + pool_id → LiquidityPool data
 //! - `L:` + pool_id + owner → LP token balance (u64)
+//! - `T` + pool_id(32) + inverted_timestamp(8) + idx(2) → TradeRecord JSON
+//! - `R` + inverted_timestamp(8) + pool_id(32) + idx(2) → same TradeRecord (global recent index)
 
 use pichain_crypto::ed25519::Address;
 use pichain_types::dex::{LiquidityPool, PoolId};
+use pichain_types::token::MintId;
+use serde::{Deserialize, Serialize};
 
 use crate::db::PiChainDB;
 use crate::StorageError;
@@ -14,6 +18,25 @@ use crate::StorageError;
 const POOL_PREFIX: u8 = b'p';
 /// Prefix for LP balance entries in the state column family.
 const LP_BALANCE_PREFIX: u8 = b'L';
+/// Prefix for per-pool trade records (newest-first via inverted timestamp).
+const TRADE_PREFIX: u8 = b'T';
+/// Prefix for global recent trades (newest-first via inverted timestamp).
+const RECENT_TRADE_PREFIX: u8 = b'R';
+
+/// A recorded swap/trade for analytics and charting.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TradeRecord {
+    pub pool_id: PoolId,
+    pub sender: Address,
+    pub mint_in: MintId,
+    pub mint_out: MintId,
+    pub amount_in: u64,
+    pub amount_out: u64,
+    pub fee: u64,
+    pub timestamp_ms: u64,
+    pub block_height: u64,
+    pub tx_hash: [u8; 32],
+}
 
 /// DEX storage operations.
 pub struct DexStore<'a> {
@@ -135,6 +158,107 @@ impl<'a> DexStore<'a> {
     ) -> Result<(), StorageError> {
         let key = lp_balance_key(pool_id, owner);
         self.db.put_state(&key, &balance.to_le_bytes())
+    }
+
+    // --- Trade history operations ---
+
+    /// Record a trade in the batch (atomic with block persist).
+    /// Writes to both per-pool and global recent indices.
+    pub fn batch_record_trade(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        trade: &TradeRecord,
+        idx: u16,
+    ) -> Result<(), StorageError> {
+        let data = serde_json::to_vec(trade)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+
+        // Per-pool index: T + pool_id(32) + inverted_ts(8) + idx(2)
+        let inv_ts = !trade.timestamp_ms;
+        let mut key = Vec::with_capacity(43);
+        key.push(TRADE_PREFIX);
+        key.extend_from_slice(&trade.pool_id.0);
+        key.extend_from_slice(&inv_ts.to_be_bytes());
+        key.extend_from_slice(&idx.to_be_bytes());
+        self.db.batch_put_state(batch, &key, &data);
+
+        // Global recent index: R + inverted_ts(8) + pool_id(32) + idx(2)
+        let mut gkey = Vec::with_capacity(43);
+        gkey.push(RECENT_TRADE_PREFIX);
+        gkey.extend_from_slice(&inv_ts.to_be_bytes());
+        gkey.extend_from_slice(&trade.pool_id.0);
+        gkey.extend_from_slice(&idx.to_be_bytes());
+        self.db.batch_put_state(batch, &gkey, &data);
+
+        Ok(())
+    }
+
+    /// Get recent trades for a specific pool (newest first).
+    pub fn get_pool_trades(
+        &self,
+        pool_id: &PoolId,
+        limit: usize,
+        before_ms: Option<u64>,
+    ) -> Result<Vec<TradeRecord>, StorageError> {
+        // Scan prefix: T + pool_id
+        let mut prefix = Vec::with_capacity(33);
+        prefix.push(TRADE_PREFIX);
+        prefix.extend_from_slice(&pool_id.0);
+
+        let entries = self.db.scan_state_prefix(&prefix)?;
+        let mut trades = Vec::new();
+        for (_, value) in entries {
+            if trades.len() >= limit { break; }
+            let trade: TradeRecord = serde_json::from_slice(&value)
+                .map_err(|e| StorageError::Serialization(e.to_string()))?;
+            if let Some(before) = before_ms {
+                if trade.timestamp_ms >= before { continue; }
+            }
+            trades.push(trade);
+        }
+        Ok(trades)
+    }
+
+    /// Get globally recent trades across all pools (newest first).
+    pub fn get_recent_trades(&self, limit: usize) -> Result<Vec<TradeRecord>, StorageError> {
+        let prefix = &[RECENT_TRADE_PREFIX];
+        let entries = self.db.scan_state_prefix(prefix)?;
+        let mut trades = Vec::new();
+        for (_, value) in entries {
+            if trades.len() >= limit { break; }
+            let trade: TradeRecord = serde_json::from_slice(&value)
+                .map_err(|e| StorageError::Serialization(e.to_string()))?;
+            trades.push(trade);
+        }
+        Ok(trades)
+    }
+
+    /// Get trades for a pool within a time range (for OHLCV computation).
+    pub fn get_pool_trades_in_range(
+        &self,
+        pool_id: &PoolId,
+        from_ms: u64,
+        to_ms: u64,
+    ) -> Result<Vec<TradeRecord>, StorageError> {
+        let mut prefix = Vec::with_capacity(33);
+        prefix.push(TRADE_PREFIX);
+        prefix.extend_from_slice(&pool_id.0);
+
+        let entries = self.db.scan_state_prefix(&prefix)?;
+        let mut trades = Vec::new();
+        for (_, value) in entries {
+            let trade: TradeRecord = serde_json::from_slice(&value)
+                .map_err(|e| StorageError::Serialization(e.to_string()))?;
+            if trade.timestamp_ms >= from_ms && trade.timestamp_ms <= to_ms {
+                trades.push(trade);
+            } else if trade.timestamp_ms < from_ms {
+                // Since keys are inverted (newest first), once we pass from_ms we're done
+                break;
+            }
+        }
+        // Reverse to chronological order for OHLCV
+        trades.reverse();
+        Ok(trades)
     }
 }
 

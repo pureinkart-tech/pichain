@@ -6,6 +6,7 @@
 //! - Re-execute conflicting transactions sequentially
 //! - ~8-16x speedup under moderate contention
 
+pub mod betting_executor;
 pub mod block_producer;
 pub mod block_stm;
 pub mod dex_executor;
@@ -20,6 +21,7 @@ pub mod sdk;
 pub mod token_executor;
 pub mod wasm_vm;
 
+pub use betting_executor::BettingExecutor;
 pub use block_producer::{BlockProducer, BlockProducerConfig, ProducedBlock};
 pub use block_stm::{BlockSTM, MVHashMap};
 pub use dex_executor::DexExecutor;
