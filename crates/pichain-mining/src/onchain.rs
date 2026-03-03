@@ -31,7 +31,9 @@ pub const UNMINED_TO_STAKING_BPS: u32 = 8000; // 80% → staking
 
 /// Size of each miner's assigned slot range (in digits).
 /// Each miner gets a non-overlapping range of this size ahead of the frontier.
-pub const SLOT_RANGE_SIZE: u64 = 100_000;
+/// 500K gives ~30 minutes of buffer at current mining speeds, preventing
+/// fast CLI miners from overwriting slower browser miners' work.
+pub const SLOT_RANGE_SIZE: u64 = 500_000;
 
 /// Maximum distance ahead of the frontier that a proof can be submitted.
 ///

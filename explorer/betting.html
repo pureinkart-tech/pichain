@@ -381,7 +381,10 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
       <div class="game-header">
         <button class="btn btn-outline btn-sm" onclick="leavePokerTable()">&larr; Leave Table</button>
         <h3 id="pokerTableTitle">Texas Hold'em</h3>
-        <div class="provably-fair-badge">Provably Fair</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div class="provably-fair-badge">Provably Fair</div>
+          <button class="btn btn-outline btn-sm" id="pokerFullscreenBtn" onclick="togglePokerFullscreen()" title="Toggle Fullscreen" style="padding:4px 10px;font-size:16px;">&#x26F6;</button>
+        </div>
       </div>
       <div class="poker-info">
         <span>Blinds: <strong id="pokerBlinds">5/10 PI</strong></span>
@@ -617,6 +620,16 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
         <option value="10" selected>10 hands</option>
         <option value="20">20 hands</option>
         <option value="50">50 hands</option>
+      </select>
+    </div>
+    <div class="form-row" id="aiPlayersRow">
+      <label>AI Players <span style="font-size:11px;color:var(--dim);">(Demo mode only)</span></label>
+      <select id="tableAIPlayers">
+        <option value="0">None</option>
+        <option value="1">1 AI</option>
+        <option value="2">2 AI</option>
+        <option value="3" selected>3 AI</option>
+        <option value="5">5 AI</option>
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:20px;">
@@ -8369,7 +8382,7 @@ function describeHand(evalResult){
 // ═══════════════════════════════════════════════════════════════
 // SECTION 3: CARD RENDERING ON CANVAS
 // ═══════════════════════════════════════════════════════════════
-const CARD_W=60,CARD_H=84,CARD_R=6;
+const CARD_W=80,CARD_H=112,CARD_R=8;
 
 function drawCard(ctx,x,y,card,faceDown,scale,angle,flipProgress){
   ctx.save();
@@ -8415,7 +8428,7 @@ function drawCard(ctx,x,y,card,faceDown,scale,angle,flipProgress){
     }
     // PI symbol in center
     ctx.fillStyle='rgba(100,180,255,0.3)';
-    ctx.font='bold 18px serif';
+    ctx.font='bold 24px serif';
     ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText('\u03C0',CARD_W/2,CARD_H/2);
     // Border inset
@@ -8443,29 +8456,29 @@ function drawCard(ctx,x,y,card,faceDown,scale,angle,flipProgress){
 
     // Top-left rank and suit
     ctx.fillStyle=color;
-    ctx.font='bold 13px "Segoe UI",Arial,sans-serif';
+    ctx.font='bold 17px "Segoe UI",Arial,sans-serif';
     ctx.textAlign='center';ctx.textBaseline='top';
-    ctx.fillText(rankStr,11,4);
-    ctx.font='12px "Segoe UI Symbol",Arial,sans-serif';
-    ctx.fillText(suitStr,11,17);
+    ctx.fillText(rankStr,14,5);
+    ctx.font='16px "Segoe UI Symbol",Arial,sans-serif';
+    ctx.fillText(suitStr,14,22);
 
     // Bottom-right rank and suit (inverted)
     ctx.save();
-    ctx.translate(CARD_W-11,CARD_H-4);
+    ctx.translate(CARD_W-14,CARD_H-5);
     ctx.rotate(Math.PI);
     ctx.fillStyle=color;
-    ctx.font='bold 13px "Segoe UI",Arial,sans-serif';
+    ctx.font='bold 17px "Segoe UI",Arial,sans-serif';
     ctx.textAlign='center';ctx.textBaseline='top';
     ctx.fillText(rankStr,0,0);
-    ctx.font='12px "Segoe UI Symbol",Arial,sans-serif';
-    ctx.fillText(suitStr,0,13);
+    ctx.font='16px "Segoe UI Symbol",Arial,sans-serif';
+    ctx.fillText(suitStr,0,17);
     ctx.restore();
 
     // Center artwork
     if(card.rank>=10){ // Face cards J, Q, K
       drawFaceCard(ctx,card,CARD_W,CARD_H,color);
     }else if(card.rank===12){ // Ace
-      ctx.font='36px "Segoe UI Symbol",Arial,sans-serif';
+      ctx.font='48px "Segoe UI Symbol",Arial,sans-serif';
       ctx.fillStyle=color;
       ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.fillText(suitStr,CARD_W/2,CARD_H/2);
@@ -9033,7 +9046,7 @@ function drawPlayerSeat(ctx,player,pos,idx,table,isMe,time){
 function drawPlayerCards(ctx,player,pos,isMe,scale){
   if(!player.cards||player.folded)return;
   const cx=pos.cardX,cy=pos.cardY;
-  const cardScale=scale||0.7;
+  const cardScale=scale||0.85;
   const cardW=CARD_W*cardScale;
   const spacing=cardW*0.6;
   const startX=cx-spacing/2;
@@ -9052,9 +9065,9 @@ function drawPlayerCards(ctx,player,pos,isMe,scale){
     roundRect(ctx,cx-nameW/2,cy+CARD_H*cardScale/2+2,nameW,16,4);
     ctx.fill();
     ctx.fillStyle='#ffd700';
-    ctx.font='bold 9px Arial';
+    ctx.font='bold 12px Arial';
     ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(eval_.name,cx,cy+CARD_H*cardScale/2+10);
+    ctx.fillText(eval_.name,cx,cy+CARD_H*cardScale/2+12);
   }
 }
 
@@ -9063,7 +9076,7 @@ function drawPlayerCards(ctx,player,pos,isMe,scale){
 // ═══════════════════════════════════════════════════════════════
 function drawCommunityCards(ctx,w,h,time){
   const cx=w/2,cy=h/2-10;
-  const cardScale=0.85;
+  const cardScale=1.0;
   const cardW=CARD_W*cardScale;
   const spacing=cardW+6;
   const startX=cx-spacing*2;
@@ -9120,13 +9133,20 @@ function drawPot(ctx,w,h,table){
 // ═══════════════════════════════════════════════════════════════
 // SECTION 9: GAME LOGIC (ENHANCED)
 // ═══════════════════════════════════════════════════════════════
-function showCreateTableModal(){showModal('createTableModal');}
+function showCreateTableModal(){
+  const isDemo=!document.getElementById('modeSwitch').classList.contains('real');
+  const aiRow=document.getElementById('aiPlayersRow');
+  if(aiRow)aiRow.style.display=isDemo?'':'none';
+  showModal('createTableModal');
+}
 
 function createPokerTable(){
   const buyIn=parseFloat(document.getElementById('tableBuyIn').value);
   const sb=parseFloat(document.getElementById('tableSmallBlind').value);
   const maxSeats=parseInt(document.getElementById('tableMaxSeats').value);
   const blindTimer=parseInt(document.getElementById('tableBlindTimer').value);
+  const isDemo=!document.getElementById('modeSwitch').classList.contains('real');
+  const aiCount=isDemo?parseInt(document.getElementById('tableAIPlayers').value):0;
   const table={
     id:hexEncode(crypto.getRandomValues(new Uint8Array(8))),
     buy_in:Math.floor(buyIn*1e9),
@@ -9137,6 +9157,7 @@ function createPokerTable(){
     blind_level:1,
     hands_played:0,
     max_seats:maxSeats,
+    aiCount:aiCount,
     players:[],
     state:'waiting',
     current_bet:0,
@@ -9163,16 +9184,21 @@ function joinPokerTable(id){
     return;
   }
   if(table.players.length>=table.max_seats){showToast('Table is full','error');return;}
-  // Add AI players if needed
-  const aiNames=['Maverick','Ace','Blaze','Cobra','Shadow','Phantom','Viper','Storm','Wolf'];
-  while(table.players.length<Math.min(table.max_seats,3)){
-    const aiName=aiNames[table.players.length%aiNames.length];
-    if(!table.players.find(p=>p.name===aiName)){
-      table.players.push({
-        name:aiName,stack:table.buy_in,folded:false,bet:0,allIn:false,isAI:true,
-        style:['tight','loose','aggressive','passive'][Math.floor(Math.random()*4)],
-        tiltLevel:0
-      });
+  const isDemo=!document.getElementById('modeSwitch').classList.contains('real');
+  // Add AI players only in demo mode, respecting the table's aiCount setting
+  if(isDemo&&table.aiCount>0){
+    const aiNames=['Maverick','Ace','Blaze','Cobra','Shadow','Phantom','Viper','Storm','Wolf'];
+    const targetAI=Math.min(table.aiCount,table.max_seats-1);
+    while(table.players.filter(p=>p.isAI).length<targetAI){
+      const aiIdx=table.players.length;
+      const aiName=aiNames[aiIdx%aiNames.length];
+      if(!table.players.find(p=>p.name===aiName)){
+        table.players.push({
+          name:aiName,stack:table.buy_in,folded:false,bet:0,allIn:false,isAI:true,
+          style:['tight','loose','aggressive','passive'][Math.floor(Math.random()*4)],
+          tiltLevel:0
+        });
+      }
     }
   }
   table.players.push({name,stack:table.buy_in,folded:false,bet:0,allIn:false,isAI:false});
@@ -9236,12 +9262,17 @@ function enterPokerGame(table){
   if(pokerSounds)pokerSounds.startAmbience();
 
   const activePlayers=table.players.filter(p=>p.stack>0);
-  if(activePlayers.length>=2){
+  const realPlayers=table.players.filter(p=>!p.isAI&&p.stack>0);
+  const isDemo=!document.getElementById('modeSwitch').classList.contains('real');
+  // In real mode, need at least 2 real players. In demo mode, 1 real + AI is fine.
+  const canStart=isDemo?activePlayers.length>=2:(realPlayers.length>=2);
+  if(canStart){
     table.state='playing';
     startPokerHand();
   }else{
     document.getElementById('pokerActions').style.display='none';
-    showToast('Waiting for more players to join...','info');
+    const msg=isDemo?'Waiting for more players to join...':'Waiting for another player to join...';
+    showToast(msg,'info');
     renderPokerState();
   }
 }
@@ -9253,10 +9284,10 @@ function initPokerCanvas(){
   if(old)old.remove();
 
   pokerCanvas=document.createElement('canvas');
-  pokerCanvas.width=680;
-  pokerCanvas.height=440;
+  pokerCanvas.width=960;
+  pokerCanvas.height=620;
   pokerCanvas.style.width='100%';
-  pokerCanvas.style.maxWidth='680px';
+  pokerCanvas.style.maxWidth='960px';
   pokerCanvas.style.height='auto';
   pokerCanvas.style.display='block';
   pokerCanvas.style.margin='0 auto';
@@ -9329,7 +9360,7 @@ function renderPokerCanvas(ctx,w,h,time,dt){
     const progress=anim.update(dt*1000);
     if(anim.type==='deal'){
       const x=anim.currentX(),y=anim.currentY();
-      drawCard(ctx,x,y,anim.data.card,anim.data.faceDown,0.6,0);
+      drawCard(ctx,x,y,anim.data.card,anim.data.faceDown,0.8,0);
       if(anim.done&&anim.data.onComplete)anim.data.onComplete();
     }else if(anim.type==='chip'){
       const x=anim.currentX(),y=anim.currentY();
@@ -9450,6 +9481,50 @@ function checkBlindIncrease(){
     updateBlindsDisplay();
   }
 }
+
+function togglePokerFullscreen(){
+  const gameArea=document.getElementById('pokerGameArea');
+  if(!document.fullscreenElement){
+    gameArea.requestFullscreen().then(()=>{
+      gameArea.style.background='#0a0e14';
+      gameArea.style.padding='20px';
+      gameArea.style.overflow='auto';
+      if(pokerCanvas){
+        pokerCanvas.style.maxWidth='1200px';
+        pokerCanvas.width=1200;
+        pokerCanvas.height=780;
+      }
+      document.getElementById('pokerFullscreenBtn').textContent='\u2716';
+    }).catch(()=>{});
+  }else{
+    document.exitFullscreen().then(()=>{
+      gameArea.style.background='';
+      gameArea.style.padding='';
+      gameArea.style.overflow='';
+      if(pokerCanvas){
+        pokerCanvas.style.maxWidth='960px';
+        pokerCanvas.width=960;
+        pokerCanvas.height=620;
+      }
+      document.getElementById('pokerFullscreenBtn').textContent='\u26F6';
+    }).catch(()=>{});
+  }
+}
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement){
+    const gameArea=document.getElementById('pokerGameArea');
+    gameArea.style.background='';
+    gameArea.style.padding='';
+    gameArea.style.overflow='';
+    if(pokerCanvas){
+      pokerCanvas.style.maxWidth='960px';
+      pokerCanvas.width=960;
+      pokerCanvas.height=620;
+    }
+    const btn=document.getElementById('pokerFullscreenBtn');
+    if(btn)btn.textContent='\u26F6';
+  }
+});
 
 function leavePokerTable(){
   if(currentPokerTable){

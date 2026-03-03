@@ -1185,6 +1185,7 @@ let currentStatus=null;
 let proofsAccepted=0, proofsConfirmed=0, proofsFailed=0;
 let miningStartBalance=0;
 let browserMiningPosition=0;
+let browserSlotEnd=0; // End of our assigned slot range
 let roundStartTime=0, roundDigitsTotal=0, roundDigitsDone=0;
 let consecutiveErrors=0;
 
@@ -1361,18 +1362,35 @@ async function miningLoop(){
       return;
     }
 
-    // On first round, compute a unique starting position for this browser miner.
-    // BBP algorithm is O(n) per digit — at position 2M each digit takes ~0.7s in JS,
-    // at 7M it takes ~3s, at 1B+ it takes minutes. Keep positions LOW.
-    // Offset 200K-1.2M ahead: fast computation, 10-60 min buffer before CLI catches up.
+    // On first round, request a slot from the server's miner coordination system.
+    // The server assigns a non-overlapping 500K-digit range per miner so the CLI
+    // miner and browser miners don't overwrite each other's work.
     if(miningRound===1){
-      const addrHash=BLAKE3.hash(walletAddress);
-      const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
-      // 1000 lanes, 1K digits apart, starting 200K ahead of frontier.
-      // Range: frontier + 200K to frontier + 1.2M (fast to compute, well under 10B limit)
-      const laneOffset=200000+(lane%1000)*1000;
-      browserMiningPosition=frontier+laneOffset;
-      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1000).toFixed(0)+'K ahead of frontier, '+batchSize+' digits/batch)','info');
+      try{
+        const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
+        const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
+        if(slotResp.ok){
+          const slot=await slotResp.json();
+          browserMiningPosition=slot.recommended_position;
+          browserSlotEnd=slot.recommended_position+slot.slot_range_size;
+          addLog('Mining slot #'+slot.slot_index+': position '+browserMiningPosition.toLocaleString()+' ('+((slot.recommended_position-frontier)/1000).toFixed(0)+'K ahead of frontier, '+batchSize+' digits/batch, '+slot.active_miners+' active miners)','info');
+        } else {
+          // Fallback: use deterministic lane if slot endpoint fails
+          const addrHash=BLAKE3.hash(walletAddress);
+          const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
+          const laneOffset=200000+(lane%1000)*1000;
+          browserMiningPosition=frontier+laneOffset;
+          browserSlotEnd=browserMiningPosition+500000;
+          addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
+        }
+      }catch(e){
+        const addrHash=BLAKE3.hash(walletAddress);
+        const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
+        const laneOffset=200000+(lane%1000)*1000;
+        browserMiningPosition=frontier+laneOffset;
+        browserSlotEnd=browserMiningPosition+500000;
+        addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
+      }
     }
 
     // Capture round-local snapshot of status to avoid race conditions
@@ -1467,14 +1485,19 @@ async function checkRoundDone(){
     // Refresh mining status before next round to get fresh position/difficulty.
     // Prevents submitting to positions the CLI miner already covered.
     try{await refreshNetStats();}catch(e){}
-    // Recompute lane position from fresh frontier if our position is behind or at frontier
+    // Re-query slot if our position is behind frontier or past our slot range
     const freshFrontier=currentStatus.next_position||currentStatus.frontier_position||0;
-    if(browserMiningPosition<=freshFrontier){
-      const addrHash=BLAKE3.hash(walletAddress);
-      const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
-      const laneOffset=200000+(lane%1000)*1000;
-      browserMiningPosition=freshFrontier+laneOffset;
-      addLog('Repositioned to '+browserMiningPosition.toLocaleString()+' (frontier advanced)','info');
+    if(browserMiningPosition<=freshFrontier||browserMiningPosition>=browserSlotEnd){
+      try{
+        const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
+        const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
+        if(slotResp.ok){
+          const slot=await slotResp.json();
+          browserMiningPosition=slot.recommended_position;
+          browserSlotEnd=slot.recommended_position+slot.slot_range_size;
+          addLog('Repositioned to slot #'+slot.slot_index+': '+browserMiningPosition.toLocaleString()+' (frontier advanced)','info');
+        }
+      }catch(e){}
     }
     setTimeout(miningLoop,1000);
   }
@@ -1579,13 +1602,18 @@ async function checkReceipt(txHash,digitCount){
           totalProofs=proofsConfirmed;
           updateStats();refreshBalance();
           addLog('Proof FAILED: '+d.status+' (tx: '+txHash.slice(0,16)+'...)','error');
-          // If range already computed, force position reset on next round
+          // If range already computed, re-query slot for fresh position
           if(d.status.includes('already')&&isMining){
-            const f=currentStatus.next_position||currentStatus.frontier_position||0;
-            const ah=BLAKE3.hash(walletAddress);
-            const ln=(ah[0]|(ah[1]<<8))&0xFFFF;
-            browserMiningPosition=f+200000+(ln%1000)*1000;
-            addLog('Position reset to '+browserMiningPosition.toLocaleString()+' due to conflict','info');
+            try{
+              const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
+              const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
+              if(slotResp.ok){
+                const slot=await slotResp.json();
+                browserMiningPosition=slot.recommended_position;
+                browserSlotEnd=slot.recommended_position+slot.slot_range_size;
+                addLog('Repositioned to slot #'+slot.slot_index+': '+browserMiningPosition.toLocaleString()+' due to conflict','info');
+              }
+            }catch(e){}
           }
         }
         return;

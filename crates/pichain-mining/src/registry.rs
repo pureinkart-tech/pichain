@@ -201,7 +201,12 @@ impl DigitRegistry {
     /// Searches forward from the frontier, skipping gaps smaller than min_size.
     /// Returns (gap_start, gap_size).
     pub fn find_mineable_gap(&self, min_size: u32) -> (u64, u64) {
-        let mut pos = self.frontier;
+        self.find_mineable_gap_from(min_size, self.frontier)
+    }
+
+    /// Find a gap large enough starting from a specific position.
+    pub fn find_mineable_gap_from(&self, min_size: u32, from: u64) -> (u64, u64) {
+        let mut pos = from;
         loop {
             let (gap_start, gap_size) = self.find_gap_from(pos);
             if gap_size >= min_size as u64 || gap_size == u64::MAX {
