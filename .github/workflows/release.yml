@@ -173,20 +173,20 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           mkdir -p dist
-          APP_PATH=$(find target/${{ matrix.target }}/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
-          if [ -n "$APP_PATH" ]; then
-            codesign --remove-signature "$APP_PATH" 2>/dev/null || true
-            BINARY="$APP_PATH/Contents/MacOS/pichain-miner-gui"
-            if [ -f "$BINARY" ]; then
-              codesign --sign - --force "$BINARY"
+          # Use the DMG that cargo tauri build already created (includes .app + Applications symlink)
+          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
+          # Verify the DMG was copied and is a reasonable size
+          if [ -f "dist/${{ matrix.artifact }}.dmg" ]; then
+            SIZE=$(stat -f%z "dist/${{ matrix.artifact }}.dmg" 2>/dev/null || stat -c%s "dist/${{ matrix.artifact }}.dmg" 2>/dev/null)
+            echo "DMG size: $SIZE bytes"
+            if [ "$SIZE" -lt 1000000 ]; then
+              echo "WARNING: DMG seems too small ($SIZE bytes), may be corrupted"
+              exit 1
             fi
-            DMG_STAGING=$(mktemp -d)
-            cp -R "$APP_PATH" "$DMG_STAGING/"
-            ln -s /Applications "$DMG_STAGING/Applications"
-            hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
-            rm -rf "$DMG_STAGING"
           else
-            cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg dist/${{ matrix.artifact }}.dmg 2>/dev/null || true
+            echo "ERROR: No DMG found in bundle output"
+            ls -la target/${{ matrix.target }}/release/bundle/dmg/ 2>/dev/null || true
+            exit 1
           fi
 
       - name: Sign Windows artifacts
