@@ -622,7 +622,8 @@ async fn main() -> anyhow::Result<()> {
             };
 
             // --- 12. Start RPC Server (with real state) ---
-            let rpc = pichain_rpc::RpcServer::with_state(node_state.clone());
+            let rpc = pichain_rpc::RpcServer::with_state(node_state.clone())
+                .with_games_dir(std::path::PathBuf::from("explorer/games"));
             let rpc_addr: SocketAddr = rpc_addr.parse()?;
             info!(%rpc_addr, "Starting RPC server");
 

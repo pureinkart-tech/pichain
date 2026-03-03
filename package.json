@@ -1,0 +1,28 @@
+{
+  "name": "pichain",
+  "version": "1.0.0",
+  "description": "A high-performance Layer 1 blockchain with Proof of Useful Work mining based on computing digits of Pi.",
+  "main": "match-relay.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pureinkart-tech/pichain.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/pureinkart-tech/pichain/issues"
+  },
+  "homepage": "https://github.com/pureinkart-tech/pichain#readme",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

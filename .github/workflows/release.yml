@@ -110,7 +110,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: gui-${{ matrix.target }}
+          key: gui-v2-${{ matrix.target }}
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --locked
@@ -161,16 +161,22 @@ jobs:
             printf '%s\n' \
               '#!/bin/bash' \
               'set -e' \
-              'APP="/Applications/PIChain Miner.app"' \
+              'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"' \
+              'APP=""' \
+              'for CAND in "$SELF_DIR/PIChain Miner.app" "$SELF_DIR/PIchain Miner.app" "$SELF_DIR/PIChain miner.app" "$SELF_DIR/PIchain miner.app" "/Applications/PIChain Miner.app" "/Applications/PIchain Miner.app" "/Applications/PIChain miner.app" "/Applications/PIchain miner.app" "$HOME/Applications/PIChain Miner.app" "$HOME/Applications/PIchain Miner.app" "$HOME/Applications/PIChain miner.app" "$HOME/Applications/PIchain miner.app"; do' \
+              '  if [ -d "$CAND" ]; then APP="$CAND"; break; fi' \
+              'done' \
               'if [ ! -d "$APP" ]; then' \
-              '  osascript -e '\''display dialog "PIChain Miner.app not found in /Applications. Please install the app first." buttons {"OK"} default button "OK"'\''' \
-              '  echo "PIChain Miner.app not found in /Applications"' \
+              '  osascript -e '\''display dialog "PIChain Miner app not found. Open the DMG, drag the app to Applications, then run this script again." buttons {"OK"} default button "OK"'\''' \
+              '  echo "PIChain Miner app not found in known locations"' \
               '  exit 1' \
               'fi' \
               'xattr -rd com.apple.quarantine "$APP" || true' \
+              'xattr -r -d com.apple.provenance "$APP" || true' \
               'codesign --force --deep --sign - "$APP" || true' \
               'open "$APP"' \
-              'echo "Done. PIChain Miner launched."' \
+              'osascript -e '\''display dialog "PIChain Miner fixed and launched." buttons {"OK"} default button "OK"'\''' \
+              'echo "Done. PIChain Miner fixed and launched: $APP"' \
               > "$DMG_STAGING/fix-pichain-miner-macos.command"
             chmod +x "$DMG_STAGING/fix-pichain-miner-macos.command"
             hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
@@ -201,16 +207,22 @@ jobs:
           printf '%s\n' \
             '#!/bin/bash' \
             'set -e' \
-            'APP="/Applications/PIChain Miner.app"' \
+            'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"' \
+            'APP=""' \
+            'for CAND in "$SELF_DIR/PIChain Miner.app" "$SELF_DIR/PIchain Miner.app" "$SELF_DIR/PIChain miner.app" "$SELF_DIR/PIchain miner.app" "/Applications/PIChain Miner.app" "/Applications/PIchain Miner.app" "/Applications/PIChain miner.app" "/Applications/PIchain miner.app" "$HOME/Applications/PIChain Miner.app" "$HOME/Applications/PIchain Miner.app" "$HOME/Applications/PIChain miner.app" "$HOME/Applications/PIchain miner.app"; do' \
+            '  if [ -d "$CAND" ]; then APP="$CAND"; break; fi' \
+            'done' \
             'if [ ! -d "$APP" ]; then' \
-            '  osascript -e '\''display dialog "PIChain Miner.app not found in /Applications. Please install the app first." buttons {"OK"} default button "OK"'\''' \
-            '  echo "PIChain Miner.app not found in /Applications"' \
+            '  osascript -e '\''display dialog "PIChain Miner app not found. Open the DMG, drag the app to Applications, then run this script again." buttons {"OK"} default button "OK"'\''' \
+            '  echo "PIChain Miner app not found in known locations"' \
             '  exit 1' \
             'fi' \
             'xattr -rd com.apple.quarantine "$APP" || true' \
+            'xattr -r -d com.apple.provenance "$APP" || true' \
             'codesign --force --deep --sign - "$APP" || true' \
             'open "$APP"' \
-            'echo "Done. PIChain Miner launched."' \
+            'osascript -e '\''display dialog "PIChain Miner fixed and launched." buttons {"OK"} default button "OK"'\''' \
+            'echo "Done. PIChain Miner fixed and launched: $APP"' \
             > "$MOUNT_DIR/fix-pichain-miner-macos.command"
           chmod +x "$MOUNT_DIR/fix-pichain-miner-macos.command"
           hdiutil detach "$MOUNT_DIR" -force

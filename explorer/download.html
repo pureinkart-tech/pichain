@@ -206,9 +206,9 @@ pre .c { color: var(--dim); }
       <p style="color:var(--muted);font-size:14px;margin:0;">
         <strong style="color:var(--text);">macOS first launch (hardcoded fix):</strong>
         The installer now includes <code style="color:var(--cyan);">fix-pichain-miner-macos.command</code> inside the same DMG.
-        If macOS says the app is damaged, run that script from the mounted installer.
+        If macOS says the app is damaged, run that script directly from the mounted installer window.
       </p>
-      <pre style="margin-top:10px;">bash ~/Downloads/fix-pichain-miner-macos.command</pre>
+      <pre style="margin-top:10px;">bash "/Volumes/PIChain Miner/fix-pichain-miner-macos.command"</pre>
     </div>
   </div>
 
@@ -333,9 +333,10 @@ chmod +x pichain-miner-linux-x86_64</pre>
       <div class="step-card">
         <div class="step-header"><span class="step-num">2</span><h4>Auto-fix app launch (recommended)</h4></div>
         <p>After opening the DMG and dragging <strong>PIChain Miner.app</strong> to Applications, run the included script <code style="color:var(--cyan);">fix-pichain-miner-macos.command</code> from the DMG window.</p>
-        <pre><span class="c"># Example if you copied script to Downloads:</span>
-bash ~/Downloads/fix-pichain-miner-macos.command</pre>
+        <pre><span class="c"># Run directly from mounted DMG:</span>
+bash "/Volumes/PIChain Miner/fix-pichain-miner-macos.command"</pre>
         <div class="note">
+          <strong>If script is blocked:</strong> Right-click <code style="color:var(--cyan);">fix-pichain-miner-macos.command</code> &rarr; Open, then confirm.<br><br>
           <strong>CLI Miner (fallback, no .app needed):</strong><br>
           <pre style="margin-top:6px;margin-bottom:0;"><span class="c"># Apple Silicon (M1/M2/M3/M4)</span>
 curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64

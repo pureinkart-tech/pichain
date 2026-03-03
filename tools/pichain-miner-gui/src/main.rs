@@ -296,8 +296,11 @@ async fn activate_wallet(
     Ok(result)
 }
 
-/// Solve PoW: find nonce where blake3(challenge || nonce_le) has `diff_bits` leading zero bits.
+/// Solve PoW: find nonce where SHA-256(challenge || nonce_le) has `diff_bits` leading zero bits.
+/// Must use SHA-256 to match the server-side verification (browsers use crypto.subtle).
 fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
+    use sha2::{Sha256, Digest};
+
     let full_bytes = (diff_bits / 8) as usize;
     let rem_bits = diff_bits % 8;
     let mask = if rem_bits > 0 {
@@ -307,8 +310,11 @@ fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
     };
 
     for nonce in 0u64.. {
-        let hash = pichain_crypto::hash_concat(&[challenge, &nonce.to_le_bytes()]);
-        let h = hash.as_bytes();
+        let mut hasher = Sha256::new();
+        hasher.update(challenge);
+        hasher.update(nonce.to_le_bytes());
+        let result = hasher.finalize();
+        let h: &[u8] = result.as_ref();
         let mut ok = true;
         for byte in h.iter().take(full_bytes) {
             if *byte != 0 {

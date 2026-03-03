@@ -1,0 +1,185 @@
+*{
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body{
+  background: #000;
+  font-family: 'Press Start 2P', monospace;
+  color: white;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+html::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+html {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+main{
+  height: 100vh;
+  width: 100vw;
+}
+canvas{
+  width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+img{
+  display: none;
+}
+
+/* ============================================
+   OVERLAYS
+   ============================================ */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay-content {
+  text-align: center;
+  padding: 40px;
+}
+
+.overlay-title {
+  color: #DE0000;
+  font-size: 28px;
+  margin-bottom: 30px;
+  text-shadow: 3px 3px 0 #600, -1px -1px 0 #F66;
+}
+
+.overlay-label {
+  color: #888;
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+
+/* ============================================
+   LOBBY BUTTONS
+   ============================================ */
+.lobby-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.lobby-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  padding: 12px 24px;
+  border: 3px solid;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 220px;
+}
+
+.lobby-btn:hover:not(:disabled) { transform: scale(1.05); }
+.lobby-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lobby-btn-primary {
+  background: #DE0000;
+  color: white;
+  border-color: #FF4444;
+}
+.lobby-btn-primary:hover:not(:disabled) { background: #FF2222; }
+
+.lobby-btn-secondary {
+  background: #333;
+  color: #50E661;
+  border-color: #50E661;
+}
+.lobby-btn-secondary:hover:not(:disabled) { background: #444; }
+
+.lobby-btn-back {
+  background: transparent;
+  color: #888;
+  border-color: #555;
+  font-size: 9px;
+  min-width: 100px;
+  padding: 8px 16px;
+  margin-top: 15px;
+}
+.lobby-btn-back:hover { color: white; border-color: white; }
+
+/* ============================================
+   ROOM CODE & INPUT
+   ============================================ */
+#join-section {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.room-input {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px;
+  width: 140px;
+  padding: 10px;
+  text-align: center;
+  background: #222;
+  border: 3px solid #555;
+  color: #FFD700;
+  text-transform: uppercase;
+  letter-spacing: 6px;
+}
+
+.room-input:focus { outline: none; border-color: #50E661; }
+
+.room-code {
+  color: #FFD700;
+  font-size: 42px;
+  letter-spacing: 12px;
+  margin: 10px 0;
+}
+
+.status-text {
+  font-size: 10px;
+  color: #50E661;
+  margin: 15px 0;
+  min-height: 20px;
+}
+
+.blink-text {
+  font-size: 8px;
+  color: #888;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ============================================
+   RESULT OVERLAY
+   ============================================ */
+.result-title {
+  font-size: 32px;
+  margin-bottom: 30px;
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.5);
+}
+
+.hidden { display: none !important; }

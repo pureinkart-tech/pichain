@@ -22,4 +22,5 @@ anyhow.workspace = true
 hex.workspace = true
 dashmap.workspace = true
 futures.workspace = true
+tokio-tungstenite.workspace = true
 sha2.workspace = true

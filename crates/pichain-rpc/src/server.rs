@@ -1,7 +1,7 @@
 //! JSON-RPC server implementation using axum.
 
 use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, State, WebSocketUpgrade},
+    extract::{ws::Message as AxumWsMessage, ConnectInfo, DefaultBodyLimit, Query, State, WebSocketUpgrade},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -9,14 +9,18 @@ use axum::{
     Json, Router,
 };
 use dashmap::DashMap;
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tower_http::compression::CompressionLayer;
+use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tracing::{info, warn};
 
 use crate::RpcError;
@@ -710,6 +714,38 @@ pub struct BettingStatsData {
     pub house_burns: u64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct QuakeSessionStartRequest {
+    match_id: String,
+    #[serde(default)]
+    max_players: Option<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct QuakeWsRelayQuery {
+    host: Option<String>,
+    port: Option<u16>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct QuakeSessionInfo {
+    match_id: String,
+    server_host: String,
+    server_port: u16,
+    max_players: u8,
+    connect_cmd: String,
+    play_url: String,
+    status: String,
+    pid: Option<u32>,
+    error: Option<String>,
+}
+
+static QUAKE_SESSIONS: OnceLock<Mutex<HashMap<String, QuakeSessionInfo>>> = OnceLock::new();
+
+fn quake_sessions() -> &'static Mutex<HashMap<String, QuakeSessionInfo>> {
+    QUAKE_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Check whether an origin string is allowed for CORS (Fix RPC-237).
 ///
 /// Extracts the hostname from the origin URL and checks it EXACTLY,
@@ -752,6 +788,7 @@ fn is_allowed_origin(origin: &str) -> bool {
 /// PIChain RPC server.
 pub struct RpcServer {
     state: Arc<RpcState>,
+    games_dir: Option<std::path::PathBuf>,
 }
 
 impl RpcServer {
@@ -770,6 +807,7 @@ impl RpcServer {
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
                 activation_challenges: DashMap::new(),
             }),
+            games_dir: None,
         }
     }
 
@@ -790,14 +828,21 @@ impl RpcServer {
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
                 activation_challenges: DashMap::new(),
             }),
+            games_dir: None,
         }
+    }
+
+    /// Set the directory for serving game assets (models, textures, audio).
+    pub fn with_games_dir(mut self, path: std::path::PathBuf) -> Self {
+        self.games_dir = Some(path);
+        self
     }
 
     /// Build the axum router with all RPC endpoints.
     pub fn router(&self) -> Router {
         let state = self.state.clone();
 
-        Router::new()
+        let mut router = Router::new()
             .route("/", get(serve_homepage))
             .route("/explorer", get(serve_explorer))
             .route("/mining", get(redirect_mining_to_mine))
@@ -887,6 +932,11 @@ impl RpcServer {
             .route("/api/v1/betting/stats", get(get_betting_stats))
             .route("/api/v1/betting/verify/:match_id", get(verify_betting_match))
             .route("/api/v1/betting/match-nonce/:address", get(get_match_nonce))
+            // QuakeJS FPS session API (beta)
+            .route("/api/v1/fps/quake/session/start", post(start_quake_session))
+            .route("/api/v1/fps/quake/session/:match_id", get(get_quake_session))
+            .route("/api/v1/fps/quake/session/:match_id/stop", post(stop_quake_session))
+            .route("/api/v1/fps/quake/ws", get(quake_ws_upgrade))
             // DEX page
             .route("/dex", get(serve_dex_page))
             // Games page (kept /betting for backwards compat)
@@ -920,7 +970,39 @@ impl RpcServer {
             .layer(CompressionLayer::new()) // gzip + brotli + deflate — typically 70-85% size reduction
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-            .with_state(state)
+            .with_state(state);
+
+        // Serve game assets (3D models, textures, audio) from disk if configured
+        // Assets get compression + 1-year cache headers (immutable static files)
+        if let Some(ref games_dir) = self.games_dir {
+            if games_dir.exists() {
+                info!(?games_dir, "Serving game assets from disk");
+                use axum::http::header;
+                let game_service = tower_http::services::ServeDir::new(games_dir);
+                let game_router = Router::new()
+                    .nest_service("/", game_service)
+                    .layer(axum::middleware::from_fn(|req: Request<axum::body::Body>, next: Next| async move {
+                        let uri = req.uri().path().to_string();
+                        let mut resp = next.run(req).await;
+                        // No-cache for JS/HTML so code updates take effect immediately;
+                        // cache images/audio/other assets for 1 hour
+                        let cache_val = if uri.ends_with(".js") || uri.ends_with(".html") {
+                            "no-store, no-cache, must-revalidate"
+                        } else {
+                            "public, max-age=3600"
+                        };
+                        resp.headers_mut().insert(
+                            header::CACHE_CONTROL,
+                            header::HeaderValue::from_static(cache_val),
+                        );
+                        resp
+                    }))
+                    .layer(CompressionLayer::new());
+                router = router.nest_service("/game-assets", game_router);
+            }
+        }
+
+        router
     }
 
     /// Start the RPC server with per-IP rate limiting.
@@ -3954,6 +4036,283 @@ async fn get_match_nonce(
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "nonce": 0 })))
+}
+
+fn sanitize_quake_match_id(raw: &str) -> String {
+    let s: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    s
+}
+
+fn choose_quake_port(match_id: &str, sessions: &HashMap<String, QuakeSessionInfo>) -> u16 {
+    let mut h: u64 = 1469598103934665603;
+    for b in match_id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    let base: u16 = 27960;
+    let span: u16 = 300;
+    let mut port = base + (h as u16 % span);
+    let used: std::collections::HashSet<u16> = sessions.values().map(|s| s.server_port).collect();
+    while used.contains(&port) {
+        port += 1;
+        if port >= base + span {
+            port = base;
+        }
+    }
+    port
+}
+
+fn quake_pid_is_alive(pid: u32) -> bool {
+    let stat_path = format!("/proc/{}/stat", pid);
+    let Ok(stat) = std::fs::read_to_string(stat_path) else {
+        return false;
+    };
+    // /proc/<pid>/stat format includes state as 3rd whitespace token.
+    // State 'Z' means zombie process and should be treated as dead.
+    let mut parts = stat.split_whitespace();
+    let _ = parts.next();
+    let _ = parts.next();
+    match parts.next() {
+        Some(state) => state != "Z",
+        None => false,
+    }
+}
+
+async fn start_quake_session(
+    Json(req): Json<QuakeSessionStartRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let match_id = sanitize_quake_match_id(&req.match_id);
+    if match_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid match_id"})));
+    }
+    let max_players = req.max_players.unwrap_or(10).clamp(2, 10);
+
+    let mut sessions = match quake_sessions().lock() {
+        Ok(g) => g,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+    };
+
+    if let Some(existing) = sessions.get(&match_id).cloned() {
+        let alive = existing.pid.map(quake_pid_is_alive).unwrap_or(false);
+        if alive {
+            return (StatusCode::OK, Json(serde_json::json!({ "session": existing })));
+        }
+        sessions.remove(&match_id);
+    }
+
+    let quake_root = std::path::PathBuf::from("/home/dave/Crypto/pichain/explorer/games/quakejs");
+    let ded_bin = quake_root.join("build/ioq3ded.js");
+    if !ded_bin.exists() {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error":"QuakeJS dedicated binary missing"})));
+    }
+
+    let port = choose_quake_port(&match_id, &sessions);
+    let host = "127.0.0.1".to_string();
+    let connect_cmd = format!("connect {}:{}", host, port);
+    let play_url = format!("/game-assets/quakejs/play.html?connect%20{}:{}", host, port);
+
+    let work_dir = std::path::PathBuf::from("/tmp/pichain-quakejs").join(&match_id);
+    if let Err(e) = std::fs::create_dir_all(&work_dir) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("create work dir failed: {}", e)})));
+    }
+
+    let server_cfg_path = quake_root
+        .join("base")
+        .join("baseq3")
+        .join(format!("pichain_{}.cfg", match_id));
+    let server_cfg = format!(
+        "seta sv_hostname \"PIChain FPS {}\"\n\
+         seta sv_maxclients {}\n\
+         seta g_motd \"PIChain QuakeJS Beta\"\n\
+         seta g_gametype 0\n\
+         seta timelimit 12\n\
+         seta fraglimit 20\n\
+         seta g_inactivity 180\n\
+         seta g_forcerespawn 1\n\
+         map q3dm7\n",
+        match_id, max_players
+    );
+    if let Err(e) = std::fs::write(&server_cfg_path, server_cfg) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("write server.cfg failed: {}", e)})));
+    }
+
+    let log_path = work_dir.join("dedicated.log");
+    let log_file = match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(f) => f,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("open log failed: {}", e)}))),
+    };
+    let log_file_err = match log_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("clone log failed: {}", e)}))),
+    };
+
+    let mut cmd = Command::new("node");
+    cmd.arg(ded_bin)
+        .arg("+set").arg("fs_cdn").arg("127.0.0.1:8314/game-assets/quakejs")
+        .arg("+set").arg("fs_game").arg("baseq3")
+        .arg("+set").arg("dedicated").arg("1")
+        .arg("+set").arg("net_port").arg(port.to_string())
+        .arg("+set").arg("sv_maxclients").arg(max_players.to_string())
+        .arg("+exec").arg(server_cfg_path.file_name().unwrap_or_default().to_string_lossy().to_string())
+        .current_dir(quake_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err));
+
+    let (pid, status, error) = match cmd.spawn() {
+        Ok(child) => {
+            (Some(child.id()), "starting".to_string(), None)
+        }
+        Err(e) => (None, "failed".to_string(), Some(e.to_string())),
+    };
+
+    let session = QuakeSessionInfo {
+        match_id: match_id.clone(),
+        server_host: host,
+        server_port: port,
+        max_players,
+        connect_cmd,
+        play_url,
+        status,
+        pid,
+        error,
+    };
+    sessions.insert(match_id.clone(), session.clone());
+
+    (StatusCode::OK, Json(serde_json::json!({ "session": session })))
+}
+
+async fn get_quake_session(
+    axum::extract::Path(match_id): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = sanitize_quake_match_id(&match_id);
+    let sessions = match quake_sessions().lock() {
+        Ok(g) => g,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+    };
+    match sessions.get(&key).cloned() {
+        Some(mut s) => {
+            let alive = s.pid.map(quake_pid_is_alive).unwrap_or(false);
+            s.status = if alive { "running".to_string() } else { "failed".to_string() };
+            if !alive && s.error.is_none() {
+                s.error = Some("dedicated server process exited".to_string());
+            }
+            (StatusCode::OK, Json(serde_json::json!({ "session": s })))
+        }
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+    }
+}
+
+async fn stop_quake_session(
+    axum::extract::Path(match_id): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = sanitize_quake_match_id(&match_id);
+    let mut sessions = match quake_sessions().lock() {
+        Ok(g) => g,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+    };
+    let Some(session) = sessions.remove(&key) else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"})));
+    };
+
+    if let Some(pid) = session.pid {
+        let _ = Command::new("kill").arg("-TERM").arg(pid.to_string()).status();
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "stopped": true, "match_id": key })))
+}
+
+async fn quake_ws_upgrade(
+    Query(query): Query<QuakeWsRelayQuery>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let host = query.host.unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = query.port.unwrap_or(0);
+    let host_ok = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
+    let port_ok = (27000..=28999).contains(&port);
+    if !host_ok || !port_ok {
+        return (StatusCode::BAD_REQUEST, "invalid quake ws target").into_response();
+    }
+
+    ws.protocols(["binary"]).on_upgrade(move |socket| async move {
+        let _ = relay_quake_ws(socket, host, port).await;
+    })
+    .into_response()
+}
+
+async fn relay_quake_ws(
+    client_socket: axum::extract::ws::WebSocket,
+    host: String,
+    port: u16,
+) -> anyhow::Result<()> {
+    let upstream_url = format!("ws://{}:{}/", host, port);
+    let (upstream, _) = tokio_tungstenite::connect_async(&upstream_url).await?;
+
+    let (mut client_tx, mut client_rx) = client_socket.split();
+    let (mut upstream_tx, mut upstream_rx) = upstream.split();
+
+    let to_upstream = async {
+        while let Some(msg) = client_rx.next().await {
+            let msg = match msg {
+                Ok(m) => m,
+                Err(_) => break,
+            };
+            let mapped = match msg {
+                AxumWsMessage::Text(t) => TungsteniteMessage::Text(t.to_string()),
+                AxumWsMessage::Binary(b) => TungsteniteMessage::Binary(b.to_vec()),
+                AxumWsMessage::Ping(b) => TungsteniteMessage::Ping(b.to_vec()),
+                AxumWsMessage::Pong(b) => TungsteniteMessage::Pong(b.to_vec()),
+                AxumWsMessage::Close(cf) => {
+                    let close = cf.map(|c| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(c.code),
+                        reason: c.reason.to_string().into(),
+                    });
+                    let _ = upstream_tx.send(TungsteniteMessage::Close(close)).await;
+                    break;
+                }
+            };
+            if upstream_tx.send(mapped).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    let to_client = async {
+        while let Some(msg) = upstream_rx.next().await {
+            let msg = match msg {
+                Ok(m) => m,
+                Err(_) => break,
+            };
+            let mapped = match msg {
+                TungsteniteMessage::Text(t) => AxumWsMessage::Text(t.into()),
+                TungsteniteMessage::Binary(b) => AxumWsMessage::Binary(b.into()),
+                TungsteniteMessage::Ping(b) => AxumWsMessage::Ping(b.into()),
+                TungsteniteMessage::Pong(b) => AxumWsMessage::Pong(b.into()),
+                TungsteniteMessage::Close(cf) => {
+                    let close = cf.map(|c| axum::extract::ws::CloseFrame {
+                        code: c.code.into(),
+                        reason: c.reason.to_string().into(),
+                    });
+                    let _ = client_tx.send(AxumWsMessage::Close(close)).await;
+                    break;
+                }
+                TungsteniteMessage::Frame(_) => continue,
+            };
+            if client_tx.send(mapped).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = to_upstream => {},
+        _ = to_client => {},
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

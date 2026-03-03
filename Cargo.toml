@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/pureinkart-tech/pichain"
@@ -46,6 +46,7 @@ serde_json = "1"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
+tokio-tungstenite = "0.24.0"
 
 # Networking
 libp2p = { version = "0.54", features = [
@@ -81,7 +82,7 @@ anyhow = "1"
 # Web / RPC
 axum = { version = "0.7", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "limit", "compression-full", "set-header"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "compression-full", "set-header", "fs"] }
 jsonrpsee = { version = "0.24", features = ["server", "macros"] }
 
 # WASM VM

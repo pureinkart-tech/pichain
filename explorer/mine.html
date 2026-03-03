@@ -1186,8 +1186,58 @@ let proofsAccepted=0, proofsConfirmed=0, proofsFailed=0;
 let miningStartBalance=0;
 let browserMiningPosition=0;
 let browserSlotEnd=0; // End of our assigned slot range
+let lastConflictRepositionMs=0;
+let conflictStreak=0;
 let roundStartTime=0, roundDigitsTotal=0, roundDigitsDone=0;
 let consecutiveErrors=0;
+
+function miningCursorKey(){
+  return walletAddressHex ? ('pichain_browser_cursor_'+walletAddressHex) : null;
+}
+function saveMiningCursor(){
+  try{
+    const k=miningCursorKey();
+    if(!k)return;
+    localStorage.setItem(k,String(Math.max(0,Math.floor(browserMiningPosition||0))));
+  }catch(e){}
+}
+function loadMiningCursor(){
+  try{
+    const k=miningCursorKey();
+    if(!k)return null;
+    const v=Number(localStorage.getItem(k));
+    return Number.isFinite(v)&&v>0?v:null;
+  }catch(e){return null;}
+}
+
+function getMiningStride(){
+  const threads=Math.max(1,parseInt(document.getElementById('thread-count').value)||1);
+  const serverMin=(currentStatus&&currentStatus.min_batch_size!=null)?currentStatus.min_batch_size:10;
+  const batchVal=document.getElementById('batch-size').value;
+  const batch=batchVal==='auto'?serverMin:Math.max(parseInt(batchVal)||serverMin,serverMin);
+  return Math.max(threads*batch,120);
+}
+
+function applySlotPosition(slot, reason, frontierHint){
+  const rec=Number(slot&&slot.recommended_position)||0;
+  const range=Number(slot&&slot.slot_range_size)||500000;
+  const old=browserMiningPosition||0;
+  let next=rec;
+  if(Number.isFinite(frontierHint)) next=Math.max(next,frontierHint);
+  // Never rewind to a stale recommendation; always move forward.
+  if(next<=old) next=old+getMiningStride();
+  browserMiningPosition=next;
+  browserSlotEnd=Math.max(browserSlotEnd||0, rec+range);
+  saveMiningCursor();
+  addLog('Repositioned to slot #'+slot.slot_index+': '+browserMiningPosition.toLocaleString()+' ('+reason+')','info');
+}
+
+function parseRejectedRangeEnd(statusText){
+  const m=/range\s+(\d+)\.\.(\d+)\s+already fully computed/i.exec(String(statusText||''));
+  if(!m)return null;
+  const end=Number(m[2]);
+  return Number.isFinite(end)?end:null;
+}
 
 function addLog(msg,type=''){
   const el=document.getElementById('log');
@@ -1305,7 +1355,12 @@ async function startMining(){
   // Pre-flight: verify RPC is reachable
   document.getElementById('status-text').textContent='Connecting...';
   try{
-    const r=await fetch(API+'/api/v1/mining/status',{signal:AbortSignal.timeout(8000)});
+    // Safari/older browsers may not support AbortSignal.timeout()
+    const ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+    let timeoutId=null;
+    if(ctl) timeoutId=setTimeout(()=>ctl.abort(),8000);
+    const r=await fetch(API+'/api/v1/mining/status',ctl?{signal:ctl.signal}:{});
+    if(timeoutId)clearTimeout(timeoutId);
     if(!r.ok)throw new Error('HTTP '+r.status);
   }catch(e){
     addLog('Cannot reach node at '+API+': '+e.message,'error');
@@ -1338,15 +1393,15 @@ async function miningLoop(){
     await refreshBalance(); // balance only — nonce managed locally during mining
 
     const batchVal=document.getElementById('batch-size').value;
-    const serverMin=currentStatus.min_batch_size||10;
+    const serverMin=currentStatus.min_batch_size??10;
     let batchSize=batchVal==='auto'?serverMin:Math.max(parseInt(batchVal),serverMin);
     document.getElementById('batch-min-label').textContent='(min: '+serverMin+')';
     const threadCount=parseInt(document.getElementById('thread-count').value);
-    const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
-    const maxBatch=currentStatus.max_batch_at_position||Infinity;
+    const frontier=currentStatus.next_position??currentStatus.frontier_position??0;
+    const maxBatch=currentStatus.max_batch_at_position??Infinity;
 
     // Enforce max_allowed_position from frontier distance limit
-    const maxPos=currentStatus.max_allowed_position||0;
+    const maxPos=currentStatus.max_allowed_position??0;
     if(maxPos>0&&browserMiningPosition>maxPos){
       addLog('Position '+browserMiningPosition+' exceeds max allowed '+maxPos+', resetting to frontier','info');
       browserMiningPosition=frontier;
@@ -1371,8 +1426,13 @@ async function miningLoop(){
         const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
         if(slotResp.ok){
           const slot=await slotResp.json();
+          const remembered=loadMiningCursor();
           browserMiningPosition=slot.recommended_position;
+          if(remembered&&remembered>browserMiningPosition){
+            browserMiningPosition=remembered;
+          }
           browserSlotEnd=slot.recommended_position+slot.slot_range_size;
+          saveMiningCursor();
           addLog('Mining slot #'+slot.slot_index+': position '+browserMiningPosition.toLocaleString()+' ('+((slot.recommended_position-frontier)/1000).toFixed(0)+'K ahead of frontier, '+batchSize+' digits/batch, '+slot.active_miners+' active miners)','info');
         } else {
           // Fallback: use deterministic lane if slot endpoint fails
@@ -1381,6 +1441,7 @@ async function miningLoop(){
           const laneOffset=200000+(lane%1000)*1000;
           browserMiningPosition=frontier+laneOffset;
           browserSlotEnd=browserMiningPosition+500000;
+          saveMiningCursor();
           addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
         }
       }catch(e){
@@ -1389,6 +1450,7 @@ async function miningLoop(){
         const laneOffset=200000+(lane%1000)*1000;
         browserMiningPosition=frontier+laneOffset;
         browserSlotEnd=browserMiningPosition+500000;
+        saveMiningCursor();
         addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
       }
     }
@@ -1398,8 +1460,9 @@ async function miningLoop(){
     const roundStatus={
       anchor_block_hash:currentStatus.anchor_block_hash||'0'.repeat(64),
       difficulty_target_hex:currentStatus.difficulty_target_hex||'00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-      base_fee:currentStatus.base_fee||1000,
-      reward_per_digit:currentStatus.reward_per_digit||0
+      difficulty_bits:currentStatus.difficulty_bits??8,
+      base_fee:currentStatus.base_fee??1000,
+      reward_per_digit:currentStatus.reward_per_digit??0
     };
 
     const position=browserMiningPosition;
@@ -1414,6 +1477,7 @@ async function miningLoop(){
     workers.forEach(w=>w.terminate());workers=[];
     pendingWorkers=threadCount;
     browserMiningPosition=position+threadCount*batchSize;
+    saveMiningCursor();
 
     for(let t=0;t<threadCount;t++){
       const w=createBBPWorker();workers.push(w);
@@ -1446,8 +1510,15 @@ async function miningLoop(){
         const anchorHash=hexDecode(roundStatus.anchor_block_hash);
         const target=hexDecode(roundStatus.difficulty_target_hex);
 
-        const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,5000000);
-        if(nonce===null){addLog('PoW not found (5M attempts, difficulty may be too high for browser)','error');pendingWorkers--;checkRoundDone();return;}
+        const powCfg=computePowAttemptBudget(roundStatus.difficulty_bits);
+        const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,powCfg.maxAttempts);
+        if(nonce===null){
+          addLog('PoW not found ('+powCfg.maxAttempts.toLocaleString()+' attempts at '+roundStatus.difficulty_bits+' bits, ~'+powCfg.successPct.toFixed(1)+'% expected success). Difficulty may be too high for browser miner.','error');
+          if(roundStatus.difficulty_bits>=24){
+            addLog('Tip: use CLI miner for high difficulty rounds; browser mining becomes probabilistic at 24+ bits.','warn');
+          }
+          pendingWorkers--;checkRoundDone();return;
+        }
 
         try{
           const txHash=await submitMiningProof(startPosition,count,digits,nonce,anchorHash);
@@ -1486,16 +1557,14 @@ async function checkRoundDone(){
     // Prevents submitting to positions the CLI miner already covered.
     try{await refreshNetStats();}catch(e){}
     // Re-query slot if our position is behind frontier or past our slot range
-    const freshFrontier=currentStatus.next_position||currentStatus.frontier_position||0;
+    const freshFrontier=currentStatus.next_position??currentStatus.frontier_position??0;
     if(browserMiningPosition<=freshFrontier||browserMiningPosition>=browserSlotEnd){
       try{
         const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
         const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
         if(slotResp.ok){
           const slot=await slotResp.json();
-          browserMiningPosition=slot.recommended_position;
-          browserSlotEnd=slot.recommended_position+slot.slot_range_size;
-          addLog('Repositioned to slot #'+slot.slot_index+': '+browserMiningPosition.toLocaleString()+' (frontier advanced)','info');
+          applySlotPosition(slot,'frontier sync',freshFrontier);
         }
       }catch(e){}
     }
@@ -1506,6 +1575,15 @@ async function checkRoundDone(){
 // =====================================================================
 // PoW NONCE SEARCH
 // =====================================================================
+function computePowAttemptBudget(difficultyBits){
+  const bits=Math.max(1,Math.min(60,Number.isFinite(difficultyBits)?difficultyBits:8));
+  const expected=Math.pow(2,bits);
+  // Keep browser responsive: cap attempts even if expected work is much higher.
+  // 24 bits already implies ~16.7M expected attempts.
+  const maxAttempts=Math.floor(Math.min(20000000,Math.max(5000000,expected*1.5)));
+  const successPct=(1-Math.exp(-maxAttempts/expected))*100;
+  return {bits,maxAttempts,successPct};
+}
 function findPoWNonce(digits,anchorHash,target,minerAddr,maxAttempts){
   const d=digits instanceof Uint8Array?digits:new Uint8Array(digits);
   for(let nonce=0;nonce<maxAttempts;nonce++){
@@ -1591,6 +1669,7 @@ async function checkReceipt(txHash,digitCount){
       const d=await r.json();
       if(d.status){
         if(d.status==='success'){
+          conflictStreak=0;
           proofsConfirmed++;
           const reward=(currentStatus.reward_per_digit||0)*digitCount;
           totalEarned+=reward;
@@ -1605,13 +1684,28 @@ async function checkReceipt(txHash,digitCount){
           // If range already computed, re-query slot for fresh position
           if(d.status.includes('already')&&isMining){
             try{
+              conflictStreak=Math.min(12,conflictStreak+1);
+              const rejectedEnd=parseRejectedRangeEnd(d.status);
+              const skipMul=Math.min(16,1+conflictStreak);
+              if(rejectedEnd!==null){
+                browserMiningPosition=Math.max(browserMiningPosition,rejectedEnd+getMiningStride()*skipMul);
+              }else{
+                browserMiningPosition+=getMiningStride()*skipMul;
+              }
+              saveMiningCursor();
               const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
               const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
               if(slotResp.ok){
                 const slot=await slotResp.json();
-                browserMiningPosition=slot.recommended_position;
-                browserSlotEnd=slot.recommended_position+slot.slot_range_size;
-                addLog('Repositioned to slot #'+slot.slot_index+': '+browserMiningPosition.toLocaleString()+' due to conflict','info');
+                const now=Date.now();
+                if(now-lastConflictRepositionMs>700){
+                  applySlotPosition(slot,'conflict recovery',browserMiningPosition);
+                  lastConflictRepositionMs=now;
+                } else {
+                  // Keep moving cursor forward if multiple conflicts arrive at once.
+                  browserMiningPosition+=getMiningStride();
+                  saveMiningCursor();
+                }
               }
             }catch(e){}
           }
