@@ -28,6 +28,30 @@ pub struct MiningStatus {
     #[serde(default)]
     #[allow(dead_code)]
     pub unique_miners: u64,
+    /// Minimum digits per proof at current frontier.
+    #[serde(default)]
+    pub min_batch_size: u32,
+    /// Maximum position allowed (frontier + max_frontier_distance).
+    #[serde(default)]
+    pub max_allowed_position: u64,
+    /// Current frontier bonus multiplier at next_position.
+    #[serde(default)]
+    pub frontier_bonus_at_next: String,
+    /// Accumulated staking reward pool from unmined emission recycling.
+    #[serde(default)]
+    pub staking_reward_pool: u64,
+}
+
+/// Slot assignment response from the RPC.
+#[derive(Deserialize, Debug)]
+pub struct SlotResponse {
+    #[allow(dead_code)]
+    pub address: String,
+    pub slot_index: u32,
+    pub recommended_position: u64,
+    pub active_miners: usize,
+    #[allow(dead_code)]
+    pub slot_range_size: u64,
 }
 
 fn default_max_batch() -> u64 {
@@ -88,11 +112,11 @@ impl MiningConfig {
     pub fn from_profile(rpc_url: String, chain_id: u64, profile: &str) -> Self {
         let total_cores = num_cpus::get();
         let (threads, digits, batches) = match profile {
-            "laptop" => (2.min(total_cores), 200u32, 1u32),
-            "desktop" => ((total_cores / 2).max(2), 1000, 2),
-            "server" => (total_cores, 2000, 4),
+            "low" => (2.min(total_cores), 200u32, 1u32),
+            "normal" => ((total_cores / 2).max(2), 500, 1),
             "max" => (total_cores, 5000, 8),
             _ => {
+                // Auto-detect optimal settings based on available cores
                 if total_cores <= 4 {
                     (total_cores, 500, 1)
                 } else if total_cores <= 16 {
@@ -245,40 +269,86 @@ pub async fn mining_loop(
             }
         };
 
+        // Enforce server-reported minimum batch size (frontier-scaled)
+        let effective_min_batch = if mining_status.min_batch_size > 0 {
+            config.digits_per_batch.max(mining_status.min_batch_size)
+        } else {
+            config.digits_per_batch
+        };
+
         // Calculate position with collision avoidance:
         // - If we have a local_position from last round, use it (prevents self-collision)
-        // - Otherwise, use server's next_position + auto-offset (prevents inter-miner collision)
+        // - Otherwise, query slot endpoint for server-assigned position
         let (position, effective_batch_size) = if let Some(local_pos) = local_position {
             let pos = local_pos.max(mining_status.next_position);
-            (pos, config.digits_per_batch)
+            (pos, effective_min_batch)
         } else {
-            // Auto-offset from miner address to avoid collisions with other miners
-            let stride = config.digits_per_batch as u64 * config.concurrent_batches as u64;
-            let offset = if stride > 0 {
-                let addr_seed = u32::from_le_bytes([
-                    address.0[0], address.0[1], address.0[2], address.0[3],
-                ]);
-                let slot = (addr_seed as u64) % 8;
-                slot.saturating_mul(stride)
-            } else {
-                0
+            // Query slot endpoint for server-assigned position
+            let slot_position = match client
+                .get(format!("{}/api/v1/mining/slot/{}", config.rpc_url, hex::encode(address.0)))
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.json::<SlotResponse>().await {
+                    Ok(slot) => {
+                        emit_log(
+                            &app,
+                            &format!(
+                                "Assigned slot {} (position {}, {} active miners)",
+                                slot.slot_index, slot.recommended_position, slot.active_miners
+                            ),
+                            "info",
+                        );
+                        Some(slot.recommended_position)
+                    }
+                    Err(_) => None,
+                },
+                Err(_) => None,
             };
-            let pos = mining_status.next_position.saturating_add(offset);
+
+            let pos = if let Some(slot_pos) = slot_position {
+                slot_pos
+            } else {
+                // Fallback: old-style offset from address
+                let stride = effective_min_batch as u64 * config.concurrent_batches as u64;
+                let offset = if stride > 0 {
+                    let addr_seed = u32::from_le_bytes([
+                        address.0[0], address.0[1], address.0[2], address.0[3],
+                    ]);
+                    let slot = (addr_seed as u64) % 8;
+                    slot.saturating_mul(stride)
+                } else {
+                    0
+                };
+                mining_status.next_position.saturating_add(offset)
+            };
+
+            // Enforce max_allowed_position from frontier distance limit
+            let pos = if mining_status.max_allowed_position > 0 {
+                pos.min(mining_status.max_allowed_position)
+            } else {
+                pos
+            };
+
             // Cap batch size to available gap
             let max_gap = mining_status.max_batch_at_position;
-            let effective = if max_gap < config.digits_per_batch as u64 && max_gap >= 10 {
-                emit_log(
-                    &app,
-                    &format!("Capping batch to {} digits (gap size)", max_gap),
-                    "info",
-                );
-                max_gap as u32
-            } else if max_gap < 10 {
-                emit_log(&app, "Gap too small (< 10 digits), waiting...", "warn");
+            let min_required = mining_status.min_batch_size.max(10) as u64;
+            let effective = if max_gap < min_required {
+                // Gap too small for minimum proof size
+                if pos != mining_status.next_position && mining_status.max_batch_at_position >= min_required {
+                    emit_log(&app, &format!("Jumping to server position {} (local gap too small)", mining_status.next_position), "info");
+                    local_position = Some(mining_status.next_position);
+                    continue;
+                }
+                emit_log(&app, &format!("Gap too small ({} < {} min), waiting...", max_gap, min_required), "warn");
+                local_position = None;
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 continue;
+            } else if max_gap < effective_min_batch as u64 {
+                emit_log(&app, &format!("Capping batch to {} digits (gap size)", max_gap), "info");
+                max_gap as u32
             } else {
-                config.digits_per_batch
+                effective_min_batch
             };
             (pos, effective)
         };

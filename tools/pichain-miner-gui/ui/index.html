@@ -131,6 +131,32 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 .settings-row input[type=checkbox] { -webkit-app-region: no-drag; cursor: pointer; accent-color: var(--accent); }
 .settings-row label { font-size: 12px; color: var(--muted); cursor: pointer; }
 
+/* Stat card hover */
+.stat-card { transition: border-color 0.2s, transform 0.15s; }
+.stat-card:hover { border-color: var(--border-light); transform: translateY(-1px); }
+
+/* Log scrollbar */
+.log-container::-webkit-scrollbar { width: 6px; }
+.log-container::-webkit-scrollbar-track { background: transparent; }
+.log-container::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+.log-container::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* Loading spinner on buttons */
+.btn.loading { position: relative; color: transparent !important; pointer-events: none; }
+.btn.loading::after {
+  content: ''; position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: white;
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Screen transitions */
+.main { transition: opacity 0.15s ease; }
+
+/* Subtle background */
+body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04) 0%, transparent 60%); }
+
 /* Responsive */
 @media (max-width: 700px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -154,7 +180,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
       <div class="status-dot idle" id="conn-dot"></div>
       <span id="conn-text" style="font-size:11px;color:var(--dim);">Offline</span>
     </div>
-    <span class="version" id="app-version">v0.5.1</span>
+    <span class="version" id="app-version">v0.6.0</span>
   </div>
 </div>
 
@@ -232,12 +258,12 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
         <input type="text" id="rpc-url" value="https://pichain.net" placeholder="https://pichain.net" title="Public node: https://pichain.net. Local node: http://127.0.0.1:8314">
       </div>
       <div class="control-group">
-        <label for="profile">Profile</label>
+        <label for="profile">Power</label>
         <select id="profile" onchange="updateProfileWarning(); saveSettings();" title="Controls how much CPU power mining uses">
-          <option value="laptop">Laptop (2 threads, light)</option>
-          <option value="desktop" selected>Desktop (half CPU)</option>
-          <option value="server">Server (all CPU cores)</option>
-          <option value="max">Max (all cores + large batches)</option>
+          <option value="low">Low (2 threads, light)</option>
+          <option value="normal">Normal (half CPU)</option>
+          <option value="auto" selected>Auto (optimized for your hardware)</option>
+          <option value="max">Max (all cores, large batches)</option>
         </select>
       </div>
       <div class="control-group" style="flex:0.5;">
@@ -392,9 +418,20 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 </div>
 
 <script>
-// Tauri v2 IPC
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+// Tauri v2 IPC — lazy initialization to handle injection race on Windows
+let invoke, listen;
+
+async function waitForTauri(maxWait = 5000) {
+  const start = Date.now();
+  while (!window.__TAURI__ && (Date.now() - start) < maxWait) {
+    await new Promise(r => setTimeout(r, 50));
+  }
+  if (!window.__TAURI__) {
+    throw new Error('Tauri API not available after ' + maxWait + 'ms. Please restart the application.');
+  }
+  invoke = window.__TAURI__.core.invoke;
+  listen = window.__TAURI__.event.listen;
+}
 
 let walletAddress = '';
 let walletPath = '';
@@ -569,10 +606,7 @@ async function init() {
     }
 
     if (!localStorage.getItem('pichain-settings')) {
-      const sys = await invoke('get_system_info');
-      if (sys.cpu_cores <= 4) document.getElementById('profile').value = 'laptop';
-      else if (sys.cpu_cores <= 8) document.getElementById('profile').value = 'desktop';
-      else document.getElementById('profile').value = 'server';
+      document.getElementById('profile').value = 'auto';
       updateProfileWarning();
     }
   } catch (e) {
@@ -749,15 +783,13 @@ async function doImportWallet() {
     return;
   }
 
-  hideImportModal();
-
-  // Ask for encryption password
+  // Ask for encryption password before hiding the import modal
   const password = await showPasswordModal('create', 'Set Wallet Password', 'Choose a strong password to encrypt your imported wallet.');
   if (!password) return;
 
-  const btn = document.getElementById('import-btn');
-  btn.disabled = true;
-  btn.textContent = 'Importing...';
+  hideImportModal();
+  document.getElementById('setup-status').textContent = 'Importing wallet...';
+
   try {
     walletPath = await invoke('get_wallet_path');
     const info = await invoke('import_wallet', { secretKey: key, savePath: walletPath, password: password });
@@ -769,11 +801,9 @@ async function doImportWallet() {
     await activateWallet();
     await refreshBalance();
   } catch (e) {
-    errEl.textContent = 'Import failed: ' + e;
-    errEl.style.display = 'block';
+    document.getElementById('setup-status').textContent = 'Import failed: ' + e;
+    showToast('Import failed: ' + e, 'error');
   }
-  btn.disabled = false;
-  btn.textContent = 'Import';
 }
 
 function showMiningScreen() {
@@ -803,6 +833,7 @@ async function refreshBalance() {
     }
   } catch (e) {
     console.error('Balance fetch error:', e);
+    showToast('Could not fetch balance — is the node running?', 'error');
   }
   btn.disabled = false;
   btn.textContent = 'Refresh';
@@ -863,10 +894,10 @@ async function toggleMining() {
 function showMiningWarning() {
   const profile = document.getElementById('profile').value;
   const profileDesc = {
-    'laptop': 'Laptop \u2014 uses 2 CPU threads (minimal impact)',
-    'desktop': 'Desktop \u2014 uses half your CPU cores (moderate impact)',
-    'server': 'Server \u2014 uses ALL CPU cores (heavy impact)',
-    'max': 'Max \u2014 uses ALL CPU cores with large batches (maximum impact)',
+    'low': 'Low \u2014 uses 2 CPU threads (minimal impact)',
+    'normal': 'Normal \u2014 uses half your CPU cores (moderate impact)',
+    'auto': 'Auto \u2014 optimized for your hardware (recommended)',
+    'max': 'Max \u2014 uses ALL CPU cores with large batches (heavy impact)',
   };
   document.getElementById('cpu-warning-profile').innerHTML =
     '<strong>Selected profile:</strong> ' + (profileDesc[profile] || profile);
@@ -1143,7 +1174,24 @@ function dismissUpdate() {
 }
 
 // ---------- Boot ----------
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await waitForTauri();
+  } catch (e) {
+    console.error('FATAL:', e);
+    const ls = document.getElementById('loading-screen');
+    if (ls) {
+      ls.style.display = 'flex';
+      ls.innerHTML =
+        '<div class="setup">' +
+        '<div class="pi-big" style="background:linear-gradient(135deg,var(--rose),#e11d48);">!</div>' +
+        '<h2>Initialization Error</h2>' +
+        '<p style="color:var(--muted);">Could not connect to the Tauri runtime.<br>Please restart the application.</p>' +
+        '<p style="font-size:11px;color:var(--dim);margin-top:8px;">' + e.message + '</p>' +
+        '</div>';
+    }
+    return;
+  }
   init();
   updateVersionDisplay();
   setTimeout(checkForUpdates, 5000);

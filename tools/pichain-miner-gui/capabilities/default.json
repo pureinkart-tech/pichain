@@ -6,6 +6,7 @@
     "core:default",
     "core:event:default",
     "notification:default",
-    "log:default"
+    "log:default",
+    "autostart:default"
   ]
 }

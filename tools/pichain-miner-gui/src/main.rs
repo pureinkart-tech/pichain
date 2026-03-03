@@ -143,6 +143,10 @@ async fn get_mining_status(
         "next_position": status.next_position,
         "reward_per_digit": status.reward_per_digit,
         "difficulty_bits": status.difficulty_bits,
+        "min_batch_size": status.min_batch_size,
+        "max_allowed_position": status.max_allowed_position,
+        "frontier_bonus_at_next": status.frontier_bonus_at_next,
+        "staking_reward_pool": status.staking_reward_pool,
     }))
 }
 
