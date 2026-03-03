@@ -230,6 +230,13 @@ impl Default for DifficultyAdjuster {
     }
 }
 
+/// Returns the harder (smaller) of two 256-bit difficulty targets.
+/// Used to combine the frontier-scaled target with the rate-based target
+/// so that the effective difficulty is always at least as hard as either layer.
+pub fn harder_target(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+    if a <= b { *a } else { *b }
+}
+
 /// Check if a mining proof meets the difficulty requirement.
 /// Computes blake3(digits || nonce_bytes || anchor_block_hash || miner) and checks against target.
 /// The miner address is included in the hash to bind the PoW to a specific miner,

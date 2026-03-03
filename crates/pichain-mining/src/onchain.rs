@@ -613,15 +613,21 @@ impl MiningProcessor {
         let frontier = self.registry.frontier();
         let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
         let required_bits = difficulty::frontier_pow_bits(frontier, year);
-        let target = difficulty::frontier_difficulty_target(frontier, year);
+        let frontier_target = difficulty::frontier_difficulty_target(frontier, year);
+
+        // Combine frontier-scaled and rate-based targets: use the HARDER (smaller) of the two.
+        // This ensures that if proofs are arriving too fast, the rate-based adjuster
+        // raises difficulty above the frontier floor.
+        let effective_target = difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
 
         if !difficulty::check_proof_difficulty(
             &proof.digits,
             pow_nonce,
             anchor_block_hash,
-            &target,
+            &effective_target,
             &proof.miner.0,
         ) {
+            let effective_bits = self.difficulty.difficulty_bits().max(required_bits);
             return VerificationResult {
                 valid: false,
                 spot_checks: 0,
@@ -631,7 +637,7 @@ impl MiningProcessor {
                 digit_count: proof.digit_count,
                 error: Some(format!(
                     "PoW difficulty not met (required: {} bits at frontier {}, year {})",
-                    required_bits, frontier, year
+                    effective_bits, frontier, year
                 )),
                 epoch_remaining_budget: None,
             };
@@ -782,7 +788,10 @@ impl MiningProcessor {
         let min_batch = min_batch_size(frontier);
         let (next_pos, gap_size) = self.registry.find_mineable_gap(min_batch);
         let pow_bits = difficulty::frontier_pow_bits(frontier, year);
-        let pow_target = difficulty::frontier_difficulty_target(frontier, year);
+        let frontier_target = difficulty::frontier_difficulty_target(frontier, year);
+        // Effective target is the harder (smaller) of frontier-scaled and rate-based targets
+        let effective_target = difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
+        let effective_bits = pow_bits.max(self.difficulty.difficulty_bits());
         MiningStats {
             total_digits_verified: reg_stats.total_digits_verified,
             frontier_position: frontier,
@@ -795,8 +804,8 @@ impl MiningProcessor {
             max_batch_at_position: gap_size,
             reward_per_digit: self.reward_calc.reward_per_digit(year),
             emission_year: year,
-            difficulty_bits: pow_bits,
-            difficulty_target_hex: hex::encode(pow_target),
+            difficulty_bits: effective_bits,
+            difficulty_target_hex: hex::encode(effective_target),
             mining_epoch: self.current_mining_epoch,
             epoch_miner_cap: self.epoch_emission_cap(),
             // New frontier mining fields
