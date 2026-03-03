@@ -1,0 +1,29 @@
+[Unit]
+Description=PIChain Miner (CPU-capped)
+After=pichain-node.service
+Wants=pichain-node.service
+
+[Service]
+Type=simple
+User=dave
+WorkingDirectory=/home/dave/Crypto/pichain
+ExecStart=/home/dave/Crypto/pichain/target/release/pichain-miner \
+    --keypair /home/dave/Crypto/pichain/live-data/miner-wallet.json \
+    --rpc-url http://127.0.0.1:8314 \
+    --profile auto
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+Restart=always
+RestartSec=10
+
+# CPU capping: 80% of available cores (224 threads * 80% = ~179 threads worth)
+# This leaves headroom for the node, RPC, cloudflared, and OS
+CPUQuota=17900%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pichain-miner
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

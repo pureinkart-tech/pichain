@@ -22,9 +22,9 @@ use tracing::{error, info, warn};
 /// Mine PI digits and earn PI tokens! Anyone can mine — from a laptop
 /// to a data center. Use --profile to automatically configure for your hardware:
 ///
-///   pichain-miner --keypair wallet.json --profile laptop
-///   pichain-miner --keypair wallet.json --profile desktop
-///   pichain-miner --keypair wallet.json --profile server
+///   pichain-miner --keypair wallet.json                  # auto-detect
+///   pichain-miner --keypair wallet.json --profile low    # light usage
+///   pichain-miner --keypair wallet.json --profile max    # maximum throughput
 ///
 /// Or fine-tune with --threads, --digits-per-batch, --concurrent-batches.
 /// Rewards are proportional to digits computed — more power = more PI, but
@@ -45,13 +45,13 @@ struct Args {
     /// Hardware profile — auto-configures threads, batch size, and concurrency.
     ///
     /// Profiles:
-    ///   laptop  — 2 threads, 200 digits/batch, light CPU usage
-    ///   desktop — half your cores, 1000 digits/batch, balanced
-    ///   server  — all cores, 2000 digits/batch, maximum throughput
-    ///   max     — all cores, 5000 digits/batch, 8 concurrent batches
+    ///   auto   — optimized for your hardware (default)
+    ///   low    — 2 threads, light CPU usage
+    ///   normal — half your cores, balanced
+    ///   max    — all cores, large batches, maximum throughput
     ///
     /// You can override individual settings after --profile.
-    #[arg(long, value_parser = ["laptop", "desktop", "server", "max"])]
+    #[arg(long, value_parser = ["auto", "low", "normal", "max"])]
     profile: Option<String>,
 
     /// Number of hex digits to compute per batch.
@@ -112,16 +112,15 @@ impl MiningConfig {
 
         // Start with profile defaults
         let (prof_threads, prof_digits, prof_batches) = match args.profile.as_deref() {
-            Some("laptop") => (2.min(total_cores), 200u32, 1u32),
-            Some("desktop") => ((total_cores / 2).max(2), 1000, 2),
-            Some("server") => (total_cores, 2000, 4),
+            Some("low") => (2.min(total_cores), 200u32, 1u32),
+            Some("normal") => ((total_cores / 2).max(2), 500, 1),
             Some("max") => (total_cores, 5000, 8),
             _ => {
-                // No profile: sensible auto-detect based on core count
+                // Auto-detect optimal settings based on core count
                 if total_cores <= 4 {
-                    (total_cores, 500, 1) // Laptop-class
+                    (total_cores, 500, 1)
                 } else if total_cores <= 16 {
-                    (total_cores, 1000, 2) // Desktop-class
+                    (total_cores, 1000, 2)
                 } else {
                     (total_cores, 2000, 4) // Server-class
                 }
@@ -176,10 +175,31 @@ struct MiningStatus {
     #[serde(default)]
     #[allow(dead_code)]
     unique_miners: u64,
+    /// Minimum digits per proof at current frontier.
+    #[serde(default)]
+    min_batch_size: u32,
+    /// Maximum position allowed (frontier + max_frontier_distance).
+    #[serde(default)]
+    max_allowed_position: u64,
+    /// Current frontier bonus multiplier at next_position.
+    #[serde(default)]
+    frontier_bonus_at_next: String,
 }
 
 fn default_max_batch() -> u64 {
     u64::MAX
+}
+
+/// Slot assignment response from the RPC.
+#[derive(Deserialize, Debug)]
+struct SlotResponse {
+    #[allow(dead_code)]
+    address: String,
+    slot_index: u32,
+    recommended_position: u64,
+    active_miners: usize,
+    #[allow(dead_code)]
+    slot_range_size: u64,
 }
 
 /// Transaction submission response.
@@ -313,7 +333,7 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("  slowdowns, high temperatures, and increased power");
         eprintln!("  usage. Make sure your cooling is adequate.");
     }
-    eprintln!("  Use --profile laptop for lighter CPU usage.");
+    eprintln!("  Use --profile low for lighter CPU usage.");
     eprintln!("  Use --max-cpu 50 to limit to ~50% CPU.");
     eprintln!("  Press Ctrl+C at any time to stop mining.");
     eprintln!("  By continuing, you accept responsibility for any");
@@ -369,59 +389,116 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
+        // Enforce server-reported minimum batch size (frontier-scaled)
+        let effective_min_batch = if mining_status.min_batch_size > 0 {
+            (batch_size).max(mining_status.min_batch_size)
+        } else {
+            batch_size
+        };
+
         // Calculate position and effective batch size.
         // Cap batch size to the available gap to avoid overlap with existing ranges
         // (e.g., browser miners may have submitted small non-aligned ranges).
         let (position, effective_batch_size) = if let Some(start) = args.start_at {
             // Manual override: mine sequentially from a fixed starting point
-            let pos = start.saturating_add(loop_count.saturating_mul(batch_size as u64));
-            (pos, batch_size)
+            let pos = start.saturating_add(loop_count.saturating_mul(effective_min_batch as u64));
+            (pos, effective_min_batch)
         } else if let Some(local_pos) = local_position {
             // Local position tracking: use the position we advanced to after
             // the last successful round. Take the max of local and server to
             // handle cases where another miner advanced past us.
             let pos = local_pos.max(mining_status.next_position);
-            (pos, batch_size)
+            (pos, effective_min_batch)
         } else {
-            // First round or after error: use server-provided position + offset.
-            // Auto-offset spreads miners across different slots based on their
-            // address to avoid computing the same range as other miners.
-            let stride = batch_size as u64 * batch_count as u64;
-            let offset = if args.position_offset > 0 {
-                // Explicit offset: use as-is (in batch_size units)
-                (args.position_offset as u64).saturating_mul(batch_size as u64)
-            } else if stride > 0 {
-                // Auto-offset from miner address: spread across 8 slots
-                let addr_seed = u32::from_le_bytes([
-                    address.0[0], address.0[1], address.0[2], address.0[3],
-                ]);
-                let slot = (addr_seed as u64) % 8;
-                slot.saturating_mul(stride)
-            } else {
-                0
+            // First round or after error: query the slot assignment endpoint
+            // for a server-assigned position based on active miner registry.
+            let slot_position = match client
+                .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, hex::encode(address.0)))
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.json::<SlotResponse>().await {
+                    Ok(slot) => {
+                        info!(
+                            slot_index = slot.slot_index,
+                            recommended_position = slot.recommended_position,
+                            active_miners = slot.active_miners,
+                            "Assigned mining slot"
+                        );
+                        Some(slot.recommended_position)
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse slot response: {e}, falling back to offset");
+                        None
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to query slot endpoint: {e}, falling back to offset");
+                    None
+                }
             };
-            let pos = mining_status.next_position.saturating_add(offset);
+
+            let pos = if let Some(slot_pos) = slot_position {
+                slot_pos
+            } else {
+                // Fallback: old-style offset from address
+                let stride = effective_min_batch as u64 * batch_count as u64;
+                let offset = if args.position_offset > 0 {
+                    (args.position_offset as u64).saturating_mul(effective_min_batch as u64)
+                } else if stride > 0 {
+                    let addr_seed = u32::from_le_bytes([
+                        address.0[0], address.0[1], address.0[2], address.0[3],
+                    ]);
+                    let slot = (addr_seed as u64) % 8;
+                    slot.saturating_mul(stride)
+                } else {
+                    0
+                };
+                mining_status.next_position.saturating_add(offset)
+            };
+
+            // Enforce max_allowed_position from frontier distance limit
+            let pos = if mining_status.max_allowed_position > 0 {
+                pos.min(mining_status.max_allowed_position)
+            } else {
+                pos
+            };
+
             // Cap batch size to available gap
             let max_gap = mining_status.max_batch_at_position;
-            let effective = if max_gap < batch_size as u64 && max_gap >= 10 {
-                // Gap is smaller than configured batch — use gap size
+            let min_required = mining_status.min_batch_size.max(10) as u64;
+            let effective = if max_gap < min_required {
+                // Gap too small for minimum proof size — use server's next_position
+                // which should point to a minable gap
+                if pos != mining_status.next_position && mining_status.max_batch_at_position >= min_required {
+                    info!(
+                        local_pos = pos,
+                        server_pos = mining_status.next_position,
+                        "Local position has small gap, jumping to server position"
+                    );
+                    local_position = Some(mining_status.next_position);
+                    continue;
+                }
+                warn!(
+                    gap = max_gap,
+                    min_required = min_required,
+                    position = pos,
+                    "Gap too small for minimum batch size, waiting..."
+                );
+                // Reset local position to force server re-query next round
+                local_position = None;
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                continue;
+            } else if max_gap < effective_min_batch as u64 {
+                // Gap is smaller than configured batch but >= min_required — use gap size
                 info!(
-                    configured = batch_size,
+                    configured = effective_min_batch,
                     available_gap = max_gap,
                     "Capping batch size to fit available gap"
                 );
                 max_gap as u32
-            } else if max_gap < 10 {
-                // Gap too small for minimum proof size, skip ahead
-                warn!(
-                    gap = max_gap,
-                    position = pos,
-                    "Gap too small (< 10 digits), waiting for gap to grow..."
-                );
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                continue;
             } else {
-                batch_size
+                effective_min_batch
             };
             (pos, effective)
         };
@@ -459,6 +536,8 @@ async fn main() -> anyhow::Result<()> {
             total_verified = mining_status.total_digits_verified,
             reward_per_digit = mining_status.reward_per_digit,
             difficulty_bits = mining_status.difficulty_bits,
+            bonus = %mining_status.frontier_bonus_at_next,
+            batch_size = effective_batch_size,
             "Mining round {}",
             loop_count + 1,
         );

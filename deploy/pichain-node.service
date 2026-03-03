@@ -1,0 +1,27 @@
+[Unit]
+Description=PIChain Validator Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dave
+WorkingDirectory=/home/dave/Crypto/pichain
+ExecStart=/home/dave/Crypto/pichain/target/release/pichain run \
+    --data-dir /home/dave/Crypto/pichain/live-data \
+    --rpc-addr 0.0.0.0:8314 \
+    --p2p-addr /ip4/0.0.0.0/tcp/9314 \
+    --chain-id 31415
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pichain-node
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
