@@ -171,6 +171,31 @@ pre .c { color: var(--dim); }
 
 .footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 48px; padding: 24px; border-top: 1px solid var(--border); }
 
+/* Dashboard tab */
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.dash-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; transition: border-color 0.2s; }
+.dash-card:hover { border-color: var(--border-light); }
+.dash-card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 12px; font-weight: 600; }
+.dash-card .value { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; }
+.dash-card .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.value.cyan { color: var(--cyan); }
+.value.green { color: var(--green); }
+.value.gold { color: var(--gold); }
+.value.purple { color: var(--accent-light); }
+.pool-bar-outer { width: 100%; height: 28px; background: var(--bg); border-radius: 8px; overflow: hidden; margin-top: 12px; }
+.pool-bar-inner { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: 8px; transition: width 1s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; font-size: 12px; font-weight: 700; color: white; min-width: 48px; }
+.dash-net-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.dash-net-item { text-align: center; padding: 16px; }
+.dash-net-item .label { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.dash-net-item .val { font-size: 22px; font-weight: 800; margin-top: 4px; }
+.info-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 24px; }
+.info-panel h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.info-panel p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 12px; }
+.info-panel strong { color: var(--text); }
+@media (max-width: 768px) {
+  .dash-net-grid { grid-template-columns: 1fr; }
+}
+
 /* Toast notifications */
 .toast-container { position: fixed; top: 80px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
 .toast { padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; animation: toastIn 0.3s ease, toastOut 0.3s ease 3.7s forwards; max-width: 360px; }
@@ -207,10 +232,11 @@ pre .c { color: var(--dim); }
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining" class="active">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine" class="active">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -225,6 +251,7 @@ pre .c { color: var(--dim); }
   <div class="tabs">
     <button class="tab active" onclick="switchTab('browser')">Mine in Browser</button>
     <button class="tab" onclick="switchTab('cli')">Download &amp; CLI</button>
+    <button class="tab" onclick="switchTab('dashboard')">Dashboard</button>
   </div>
 
   <!-- ==================== BROWSER MINER TAB ==================== -->
@@ -255,7 +282,7 @@ pre .c { color: var(--dim); }
         <div>
           <strong>Browser mining is great for trying out PiChain.</strong> For 10-50x more speed,
           download the <a onclick="switchTab('cli');return false;">CLI miner</a> (native Rust binary).
-          Monitor all mining activity on the <a href="/dashboard">live dashboard</a>.
+          Monitor all mining activity on the <a onclick="switchTab('dashboard');return false;" style="cursor:pointer;">live dashboard</a>.
         </div>
       </div>
 
@@ -285,18 +312,21 @@ pre .c { color: var(--dim); }
           </div>
           <div style="margin-top:16px;" class="mining-controls">
             <div class="control-group">
-              <label>Threads</label>
-              <input type="range" id="thread-count" min="1" max="8" value="1" oninput="document.getElementById('thread-label').textContent=this.value;saveSettings()">
-              <span id="thread-label" style="font-size:14px;color:var(--text);text-align:center;">1</span>
+              <label>Power <span style="font-size:11px;color:var(--muted);" id="thread-auto-label"></span></label>
+              <input type="range" id="thread-count" min="1" max="8" value="4" style="display:none">
+              <select id="power-mode" onchange="applyPowerMode()">
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="auto" selected>Auto</option>
+                <option value="max">Max</option>
+              </select>
             </div>
             <div class="control-group">
-              <label>Batch Size</label>
-              <select id="batch-size" onchange="saveSettings()">
-                <option value="10" selected>10 digits (light)</option>
-                <option value="20">20 digits</option>
-                <option value="50">50 digits</option>
-                <option value="100">100 digits</option>
+              <label>Batch <span id="batch-min-label" style="font-size:11px;color:var(--muted)"></span></label>
+              <select id="batch-size" style="display:none">
+                <option value="auto" selected>Auto</option>
               </select>
+              <span id="thread-label" style="font-size:14px;color:var(--text);">auto</span>
             </div>
           </div>
           <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
@@ -643,9 +673,118 @@ cargo build --release -p pichain-miner
 
 <span class="c"># Check your earnings</span>
 curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
-      <p style="margin-top:12px;color:var(--muted);font-size:14px;">Visit the <a href="/mining">Mining Dashboard</a> for real-time network stats.</p>
+      <p style="margin-top:12px;color:var(--muted);font-size:14px;">Switch to the <a onclick="switchTab('dashboard');return false;" style="cursor:pointer;">Dashboard tab</a> for real-time network stats.</p>
     </div>
   </div>
+</div>
+
+  <!-- ==================== DASHBOARD TAB ==================== -->
+  <div class="tab-content" id="tab-dashboard">
+    <p style="color:var(--muted);font-size:15px;margin-bottom:24px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;margin-right:6px;"></span><span id="dash-status-text">Connecting...</span> &mdash; auto-refreshes every 3s</p>
+
+    <div class="dash-grid">
+      <div class="dash-card">
+        <h3>PI Digits Frontier</h3>
+        <div class="value cyan" id="dash-frontier">--</div>
+        <div class="sub">Consecutive hex digits verified on-chain</div>
+      </div>
+      <div class="dash-card">
+        <h3>Total Verified</h3>
+        <div class="value green" id="dash-total-digits">--</div>
+        <div class="sub">Hex digits across all ranges</div>
+      </div>
+      <div class="dash-card">
+        <h3>Mining Reward</h3>
+        <div class="value gold" id="dash-reward">--</div>
+        <div class="sub">PI per hex digit computed</div>
+      </div>
+      <div class="dash-card">
+        <h3>Active Miners</h3>
+        <div class="value purple" id="dash-miners">--</div>
+        <div class="sub">Unique addresses that have mined</div>
+      </div>
+      <div class="dash-card">
+        <h3>Proof Ranges</h3>
+        <div class="value" id="dash-ranges">--</div>
+        <div class="sub">Mining proofs accepted on-chain</div>
+      </div>
+      <div class="dash-card">
+        <h3>Difficulty</h3>
+        <div class="value green" id="dash-difficulty">--</div>
+        <div class="sub">PoW scales with frontier depth</div>
+      </div>
+      <div class="dash-card">
+        <h3>Frontier Bonus</h3>
+        <div class="value gold" id="dash-bonus">--</div>
+        <div class="sub">Reward multiplier at next position</div>
+      </div>
+      <div class="dash-card">
+        <h3>Staking Pool</h3>
+        <div class="value cyan" id="dash-staking-pool">--</div>
+        <div class="sub">Unmined emission recycled to stakers</div>
+      </div>
+    </div>
+
+    <div class="dash-card" style="margin-bottom:24px">
+      <h3>Mining Pool Progress</h3>
+      <div style="font-size:13px;color:var(--muted)">Year 1 Emission: ~167,656,256 PI (2&pi;% of remaining pool)</div>
+      <div class="pool-bar-outer">
+        <div class="pool-bar-inner" id="dash-pool-bar" style="width:0%">0%</div>
+      </div>
+      <div class="sub" style="margin-top:10px">
+        <span id="dash-pool-mined">0</span> PI mined of ~2,670,353,755 PI total mining pool (85% of supply)
+      </div>
+    </div>
+
+    <div class="dash-card" style="margin-bottom:24px">
+      <h3 style="margin-bottom:16px">Network Status</h3>
+      <div class="dash-net-grid">
+        <div class="dash-net-item">
+          <div class="label">Block Height</div>
+          <div class="val" id="dash-block-height">--</div>
+        </div>
+        <div class="dash-net-item">
+          <div class="label">Total Burned</div>
+          <div class="val" style="color:var(--gold)" id="dash-burned">--</div>
+        </div>
+        <div class="dash-net-item">
+          <div class="label">Mempool</div>
+          <div class="val" id="dash-mempool">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="info-panel">
+        <h3>How Mining Works</h3>
+        <p>
+          PiChain miners compute hexadecimal digits of &pi; using the
+          <strong>Bailey-Borwein-Plouffe (BBP)</strong> algorithm.
+          This is useful work &mdash; every proof permanently extends humanity's
+          verified computation of PI.
+        </p>
+        <p>
+          Rewards are proportional to digits computed. A laptop earns less
+          than a server, but <strong style="color:var(--green)">everyone can mine</strong>.
+          No special hardware required.
+        </p>
+      </div>
+      <div class="info-panel">
+        <h3>Emission Schedule &mdash; 2&pi;% Geometric Decay</h3>
+        <p>
+          The mining pool contains <strong>~2,670,353,755 PI</strong> (85% of total supply).
+          Each year, 2&pi;% (6.28%) of the remaining pool is emitted:
+        </p>
+        <p>
+          <strong>Year 1:</strong> ~167,656,256 PI<br>
+          <strong>Year 5:</strong> ~126,481,028 PI<br>
+          <strong>Year 10:</strong> ~91,465,524 PI<br>
+          25% of transaction fees replenish the pool forever.
+        </p>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Import Wallet Modal -->
@@ -673,8 +812,8 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
       <li>Increase power consumption and reduce battery life</li>
       <li>Make your system less responsive while mining</li>
     </ul>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:4px;"><strong style="color:var(--text);">Your settings:</strong> <span id="cpu-warn-threads">1</span> thread(s), <span id="cpu-warn-batch">10</span> digits/batch</p>
-    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">Reduce threads or batch size for lighter CPU usage. You can stop mining at any time.</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:4px;"><strong style="color:var(--text);">Power mode:</strong> <span id="cpu-warn-threads">Auto</span></p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">You can change the power mode or stop mining at any time.</p>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
       <input type="checkbox" id="cpu-warn-ack" style="cursor:pointer;">
       <label for="cpu-warn-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand the impact on my system and want to proceed</label>
@@ -778,24 +917,32 @@ function showToast(msg, type='info') {
   setTimeout(() => t.remove(), 4000);
 }
 
-// Settings persistence
-function saveSettings() {
-  const threads = document.getElementById('thread-count');
-  const batch = document.getElementById('batch-size');
-  if (threads) localStorage.setItem('pichain_mine_threads', threads.value);
-  if (batch) localStorage.setItem('pichain_mine_batch', batch.value);
+// Power mode management
+function applyPowerMode(){
+  const mode=document.getElementById('power-mode').value;
+  const maxT=navigator.hardwareConcurrency||4;
+  let threads;
+  switch(mode){
+    case 'low': threads=Math.min(2,maxT); break;
+    case 'normal': threads=Math.max(2,Math.floor(maxT/2)); break;
+    case 'max': threads=maxT; break;
+    default: // auto
+      threads=Math.min(maxT,8);
+      break;
+  }
+  document.getElementById('thread-count').value=threads;
+  document.getElementById('thread-label').textContent=threads+' threads';
+  document.getElementById('thread-auto-label').textContent='('+maxT+' cores)';
+  localStorage.setItem('pichain_power_mode',mode);
 }
-function loadSettings() {
-  const threads = localStorage.getItem('pichain_mine_threads');
-  const batch = localStorage.getItem('pichain_mine_batch');
-  if (threads) {
-    const el = document.getElementById('thread-count');
-    if (el) { el.value = threads; document.getElementById('thread-label').textContent = threads; }
+function saveSettings(){}
+function loadSettings(){
+  const mode=localStorage.getItem('pichain_power_mode');
+  if(mode){
+    const el=document.getElementById('power-mode');
+    if(el)el.value=mode;
   }
-  if (batch) {
-    const el = document.getElementById('batch-size');
-    if (el) el.value = batch;
-  }
+  applyPowerMode();
 }
 
 function hexEncode(bytes){return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join('');}
@@ -830,9 +977,9 @@ function initWallet(seed){
   document.getElementById('wallet-address').textContent='Pi314'+walletAddressHex;
   document.getElementById('mine-btn').disabled=false;
   const maxT=navigator.hardwareConcurrency||4;
-  const sl=document.getElementById('thread-count');
-  sl.max=Math.min(maxT,16);sl.value=1;
-  document.getElementById('thread-label').textContent=sl.value;
+  document.getElementById('thread-count').max=Math.min(maxT,16);
+  loadSettings();
+  applyPowerMode();
   activateWallet();
   updateBalance();
   addLog('Wallet ready: Pi314'+walletAddressHex,'info');
@@ -1081,6 +1228,9 @@ async function refreshNetStats(){
     document.getElementById('n-reward').textContent=(m.reward_per_digit/1e9).toFixed(6);
     document.getElementById('n-height').textContent=Number(info.block_height).toLocaleString();
     document.getElementById('n-difficulty').textContent=m.difficulty_bits+'-bit';
+    // Update batch size label with current server minimum
+    const minLabel=document.getElementById('batch-min-label');
+    if(minLabel&&m.min_batch_size)minLabel.textContent='(min: '+m.min_batch_size+')';
     // Connection indicator
     const dot=document.getElementById('status-dot');
     if(dot&&!isMining){dot.className='status-dot mining';document.getElementById('status-text').textContent='Connected';}
@@ -1114,10 +1264,9 @@ function toggleMining(){if(isMining)stopMining();else showMiningWarning();}
 
 function showMiningWarning(){
   if(!walletKeypair)return;
-  const threads=document.getElementById('thread-count').value;
-  const batch=document.getElementById('batch-size').value;
-  document.getElementById('cpu-warn-threads').textContent=threads;
-  document.getElementById('cpu-warn-batch').textContent=batch;
+  const mode=document.getElementById('power-mode');
+  const modeText=mode.options[mode.selectedIndex].text;
+  document.getElementById('cpu-warn-threads').textContent=modeText;
   document.getElementById('cpu-warn-ack').checked=false;
   document.getElementById('cpu-warn-proceed').disabled=true;
   document.getElementById('cpu-warning-modal').classList.add('active');
@@ -1136,8 +1285,7 @@ function stopMining(){
   document.getElementById('mine-btn').className='btn btn-success';
   document.getElementById('status-dot').className='status-dot idle';
   document.getElementById('status-text').textContent='Idle';
-  document.getElementById('thread-count').disabled=false;
-  document.getElementById('batch-size').disabled=false;
+  document.getElementById('power-mode').disabled=false;
   hideRoundProgress();
   // Session summary
   if(miningStartTime>0){
@@ -1172,8 +1320,7 @@ async function startMining(){
   miningStartBalance=accountBalance;
   document.getElementById('mine-btn').textContent='Stop Mining';
   document.getElementById('mine-btn').className='btn btn-danger';
-  document.getElementById('thread-count').disabled=true;
-  document.getElementById('batch-size').disabled=true;
+  document.getElementById('power-mode').disabled=true;
   document.getElementById('status-dot').className='status-dot mining';
   document.getElementById('status-text').textContent='Starting...';
   addLog('Mining started (nonce: '+accountNonce+')','success');
@@ -1189,17 +1336,27 @@ async function miningLoop(){
     currentStatus=await sr.json();
     await refreshBalance(); // balance only — nonce managed locally during mining
 
-    let batchSize=parseInt(document.getElementById('batch-size').value);
+    const batchVal=document.getElementById('batch-size').value;
+    const serverMin=currentStatus.min_batch_size||10;
+    let batchSize=batchVal==='auto'?serverMin:Math.max(parseInt(batchVal),serverMin);
+    document.getElementById('batch-min-label').textContent='(min: '+serverMin+')';
     const threadCount=parseInt(document.getElementById('thread-count').value);
     const frontier=currentStatus.next_position||currentStatus.frontier_position||0;
     const maxBatch=currentStatus.max_batch_at_position||Infinity;
 
+    // Enforce max_allowed_position from frontier distance limit
+    const maxPos=currentStatus.max_allowed_position||0;
+    if(maxPos>0&&browserMiningPosition>maxPos){
+      addLog('Position '+browserMiningPosition+' exceeds max allowed '+maxPos+', resetting to frontier','info');
+      browserMiningPosition=frontier;
+    }
+
     // Clamp batch size to available gap to avoid oversized batches being rejected
-    if(maxBatch<batchSize&&maxBatch>=10){
+    if(maxBatch<batchSize&&maxBatch>=serverMin){
       addLog('Capping batch to '+maxBatch+' digits (gap size)','info');
       batchSize=maxBatch;
-    } else if(maxBatch<10){
-      addLog('Gap too small (< 10 digits), waiting...','info');
+    } else if(maxBatch<serverMin){
+      addLog('Gap too small (< '+serverMin+' digits), waiting...','info');
       if(isMining)setTimeout(miningLoop,5000);
       return;
     }
@@ -1215,7 +1372,7 @@ async function miningLoop(){
       // Range: frontier + 200K to frontier + 1.2M (fast to compute, well under 10B limit)
       const laneOffset=200000+(lane%1000)*1000;
       browserMiningPosition=frontier+laneOffset;
-      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1000).toFixed(0)+'K ahead of frontier)','info');
+      addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' ('+(laneOffset/1000).toFixed(0)+'K ahead of frontier, '+batchSize+' digits/batch)','info');
     }
 
     // Capture round-local snapshot of status to avoid race conditions
@@ -1271,8 +1428,8 @@ async function miningLoop(){
         const anchorHash=hexDecode(roundStatus.anchor_block_hash);
         const target=hexDecode(roundStatus.difficulty_target_hex);
 
-        const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,100000);
-        if(nonce===null){addLog('PoW not found','error');pendingWorkers--;checkRoundDone();return;}
+        const nonce=findPoWNonce(digits,anchorHash,target,walletAddress,5000000);
+        if(nonce===null){addLog('PoW not found (5M attempts, difficulty may be too high for browser)','error');pendingWorkers--;checkRoundDone();return;}
 
         try{
           const txHash=await submitMiningProof(startPosition,count,digits,nonce,anchorHash);
@@ -1300,12 +1457,24 @@ async function miningLoop(){
   }
 }
 
-function checkRoundDone(){
+async function checkRoundDone(){
   if(pendingWorkers<=0&&isMining){
     const roundSec=((Date.now()-roundStartTime)/1000).toFixed(1);
     document.getElementById('status-text').textContent='Mining';
     document.getElementById('rp-detail').textContent='Round completed in '+roundSec+'s';
     refreshBalance(); // balance only — nonce managed locally during mining
+    // Refresh mining status before next round to get fresh position/difficulty.
+    // Prevents submitting to positions the CLI miner already covered.
+    try{await refreshNetStats();}catch(e){}
+    // Recompute lane position from fresh frontier if our position is behind or at frontier
+    const freshFrontier=currentStatus.next_position||currentStatus.frontier_position||0;
+    if(browserMiningPosition<=freshFrontier){
+      const addrHash=BLAKE3.hash(walletAddress);
+      const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
+      const laneOffset=200000+(lane%1000)*1000;
+      browserMiningPosition=freshFrontier+laneOffset;
+      addLog('Repositioned to '+browserMiningPosition.toLocaleString()+' (frontier advanced)','info');
+    }
     setTimeout(miningLoop,1000);
   }
 }
@@ -1404,6 +1573,14 @@ async function checkReceipt(txHash,digitCount){
           totalProofs=proofsConfirmed;
           updateStats();refreshBalance();
           addLog('Proof FAILED: '+d.status+' (tx: '+txHash.slice(0,16)+'...)','error');
+          // If range already computed, force position reset on next round
+          if(d.status.includes('already')&&isMining){
+            const f=currentStatus.next_position||currentStatus.frontier_position||0;
+            const ah=BLAKE3.hash(walletAddress);
+            const ln=(ah[0]|(ah[1]<<8))&0xFFFF;
+            browserMiningPosition=f+200000+(ln%1000)*1000;
+            addLog('Position reset to '+browserMiningPosition.toLocaleString()+' due to conflict','info');
+          }
         }
         return;
       }
@@ -1421,8 +1598,72 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  document.querySelectorAll('.tab')[tab==='browser'?0:1].classList.add('active');
+  const idx=tab==='browser'?0:tab==='cli'?1:2;
+  document.querySelectorAll('.tab')[idx].classList.add('active');
+  if(tab==='dashboard') refreshDashboard();
 }
+
+// =====================================================================
+// DASHBOARD TAB — merged from mining.html
+// =====================================================================
+let dashInterval=null;
+async function refreshDashboard(){
+  try{
+    const [miningRes,infoRes]=await Promise.all([
+      fetch(API+'/api/v1/mining/status'),
+      fetch(API+'/api/v1/info')
+    ]);
+    const mining=await miningRes.json();
+    const info=await infoRes.json();
+    document.getElementById('dash-frontier').textContent=Number(mining.frontier_position).toLocaleString();
+    document.getElementById('dash-total-digits').textContent=Number(mining.total_digits_verified).toLocaleString();
+    document.getElementById('dash-miners').textContent=mining.unique_miners;
+    document.getElementById('dash-ranges').textContent=Number(mining.total_ranges).toLocaleString();
+    document.getElementById('dash-difficulty').textContent=mining.difficulty_bits+' bits';
+    document.getElementById('dash-bonus').textContent=mining.frontier_bonus_at_next||'3.0x';
+    const stakingPool=(mining.staking_reward_pool||0)/1e9;
+    document.getElementById('dash-staking-pool').textContent=stakingPool.toFixed(2)+' PI';
+    const rpd=mining.reward_per_digit/1e9;
+    document.getElementById('dash-reward').textContent=rpd.toFixed(9)+' PI';
+    const totalPool=2670353755;
+    const remaining=mining.remaining_pool/1e9;
+    const mined=totalPool-remaining;
+    const pct=(mined/totalPool*100);
+    document.getElementById('dash-pool-bar').style.width=Math.max(pct,0.5)+'%';
+    document.getElementById('dash-pool-bar').textContent=pct.toFixed(4)+'%';
+    document.getElementById('dash-pool-mined').textContent=mined.toLocaleString(undefined,{maximumFractionDigits:2});
+    document.getElementById('dash-block-height').textContent=Number(info.block_height).toLocaleString();
+    document.getElementById('dash-burned').textContent=(info.total_burned/1e9).toFixed(4)+' PI';
+    document.getElementById('dash-mempool').textContent=info.mempool_size+' pending';
+    document.getElementById('dash-status-text').textContent='Live';
+  }catch(e){
+    document.getElementById('dash-status-text').textContent='Offline';
+  }
+}
+// Start dashboard polling when tab is active
+(function(){
+  const origSwitch=switchTab;
+  switchTab=function(tab){
+    origSwitch(tab);
+    if(tab==='dashboard'&&!dashInterval){
+      refreshDashboard();
+      dashInterval=setInterval(refreshDashboard,3000);
+    }else if(tab!=='dashboard'&&dashInterval){
+      clearInterval(dashInterval);dashInterval=null;
+    }
+  };
+})();
+
+// =====================================================================
+// NAVIGATION SAFETY — warn before leaving while mining
+// =====================================================================
+window.addEventListener('beforeunload',function(e){
+  if(isMining){
+    e.preventDefault();
+    e.returnValue='Mining is active. Are you sure you want to leave? Your mining session will stop.';
+    return e.returnValue;
+  }
+});
 
 // OS-specific download tab switching
 function switchOS(os){

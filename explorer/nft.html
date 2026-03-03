@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PiChain NFTs</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -75,10 +76,11 @@ a:hover{text-decoration:underline;}
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft" class="active">NFTs</a>
       <a href="/download">Download</a>
@@ -143,7 +145,7 @@ a:hover{text-decoration:underline;}
 </div>
 
 <!-- TweetNaCl for Ed25519 signing -->
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 
 <script>
 const API = window.location.origin;

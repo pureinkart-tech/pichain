@@ -132,10 +132,11 @@ a{color:var(--accent-light);text-decoration:none;}
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining" class="active">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine" class="active">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -308,7 +309,7 @@ async function refreshDashboard(){
     document.getElementById('d-reward').textContent=formatNum(mining.reward_per_digit);
     document.getElementById('d-reward-pi').textContent=(mining.reward_per_digit/1e9).toFixed(6)+' PI';
     document.getElementById('d-basefee').textContent=formatNum(mining.base_fee||0);
-    document.getElementById('d-difficulty').textContent=mining.difficulty_bits+'-bit';
+    document.getElementById('d-difficulty').textContent=mining.difficulty_bits+'-bit PoW';
     document.getElementById('d-peers').textContent=info.peer_count||0;
     document.getElementById('d-year').textContent=mining.emission_year;
 

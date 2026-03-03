@@ -145,10 +145,11 @@ a:hover { text-decoration: underline; }
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining" class="active">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine" class="active">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -279,7 +280,7 @@ async function refresh() {
     document.getElementById('total-digits').textContent = Number(mining.total_digits_verified).toLocaleString();
     document.getElementById('unique-miners').textContent = mining.unique_miners;
     document.getElementById('total-ranges').textContent = Number(mining.total_ranges).toLocaleString();
-    document.getElementById('difficulty').textContent = mining.difficulty_bits + ' bits (easy)';
+    document.getElementById('difficulty').textContent = mining.difficulty_bits + ' bits';
 
     const rpd = mining.reward_per_digit / 1e9;
     document.getElementById('reward-per-digit').textContent = rpd.toFixed(9) + ' PI';

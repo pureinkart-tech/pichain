@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PiChain Staking</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -93,10 +94,11 @@ tr:hover{background:rgba(99,102,241,0.04);}
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine">Mine</a>
       <a href="/staking" class="active">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -211,7 +213,7 @@ tr:hover{background:rgba(99,102,241,0.04);}
 <div style="text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);">PiChain &mdash; Computing the Infinite | <a href="/terms" style="color:var(--dim)">Terms</a> &middot; <a href="/privacy" style="color:var(--dim)">Privacy</a></div>
 
 <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 <script>
 // =====================================================================
 // BLAKE3 (pure JS, matches Rust blake3::hash exactly)

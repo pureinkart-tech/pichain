@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PiChain — Trade</title>
 <meta name="description" content="Swap tokens on PiChain DEX. Trade PI and tokens with instant AMM swaps.">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -177,10 +178,11 @@ a:hover { text-decoration: underline; }
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade" class="active">Trade</a>
+      <a href="/trade" class="active">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
-      <a href="/mining">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -462,7 +464,7 @@ a:hover { text-decoration: underline; }
 <div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
 <!-- TweetNaCl for Ed25519 signing -->
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 
 <script>
 // =====================================================================
@@ -1536,17 +1538,17 @@ async function fetchBridgeTransfers() {
   } catch(e) { /* silent */ }
 }
 
-// Poll bridge status periodically
-setInterval(() => { fetchBridgeStatus(); fetchBridgeTransfers(); }, 30000);
-
 // =====================================================================
 // INIT
 // =====================================================================
 loadWallet();
-loadTokens();
-loadPools();
-setInterval(updateBalance, 15000);
-setInterval(() => { loadTokens(); loadPools(); }, 30000);
+// Parallel initial load for faster page render
+Promise.all([loadTokens(), loadPools()]);
+// Single consolidated polling interval
+setInterval(() => {
+  loadTokens(); loadPools();
+  if(walletAddressHex) updateBalance();
+}, 30000);
 
 // Close modals on overlay click
 document.getElementById('tokenModal').addEventListener('click', function(e) {

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PiChain — Token Launchpad</title>
 <meta name="description" content="Create and trade meme coins on PiChain. Bonding curve launches with automatic DEX graduation.">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -68,6 +69,13 @@ a:hover { text-decoration: underline; }
 
 /* Token grid */
 .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+
+/* 3-column "All" layout */
+.columns-layout { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+.column-header { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 12px; border-bottom: 2px solid var(--border); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.column-header .col-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.column-cards { display: flex; flex-direction: column; gap: 12px; }
+.column-empty { text-align: center; padding: 32px 12px; color: var(--dim); font-size: 13px; }
 .token-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; cursor: pointer; transition: all 0.2s; }
 .token-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(99,102,241,0.12); }
 .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
@@ -177,6 +185,7 @@ a:hover { text-decoration: underline; }
   .nav-links { display: none; }
   .nav-links.active { display: flex; flex-direction: column; position: absolute; top: 64px; left: 0; right: 0; background: rgba(6, 8, 13, 0.98); border-bottom: 1px solid var(--border); padding: 16px 24px; gap: 4px; }
   .token-grid { grid-template-columns: 1fr; }
+  .columns-layout { grid-template-columns: 1fr; }
   .detail-grid { grid-template-columns: 1fr; }
   .header-row { flex-direction: column; align-items: flex-start; }
 }
@@ -190,10 +199,11 @@ a:hover { text-decoration: underline; }
     <div class="nav-links" id="navLinks">
       <a href="/">Home</a>
       <a href="/explorer">Explorer</a>
-      <a href="/trade">Trade</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/games">Games</a>
       <a href="/launch" class="active">Launch</a>
-      <a href="/mining">Mining</a>
-      <a href="/bridge">Bridge</a>
+      <a href="/mine">Mine</a>
       <a href="/staking">Staking</a>
       <a href="/nft">NFTs</a>
       <a href="/download">Download</a>
@@ -416,7 +426,7 @@ a:hover { text-decoration: underline; }
 <div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
 <!-- TweetNaCl for Ed25519 signing -->
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
 
 <script>
 // =====================================================================
@@ -782,60 +792,91 @@ function setFilter(f) {
   renderFeed();
 }
 
+function renderTokenCard(l) {
+  let cardImg = '';
+  if (l.metadata_uri) {
+    try {
+      const m = JSON.parse(l.metadata_uri);
+      if (m.image) cardImg = `<img src="${escHtml(m.image)}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">`;
+    } catch(e) {}
+  }
+  return `
+  <div class="token-card" onclick="viewToken('${l.mint_id}')">
+    <div class="card-top">
+      <div style="display:flex;align-items:center;gap:10px;">
+        ${cardImg}
+        <div class="card-symbol">$${escHtml(l.symbol||'???')}</div>
+      </div>
+      <span class="badge badge-${l.state}">${l.state==='TargetReached'?'Target Reached':l.state}</span>
+    </div>
+    <div class="card-name">${escHtml(l.name||'Unknown Token')}</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100,l.percent_complete).toFixed(1)}%"></div></div>
+    <div class="card-stats">
+      <span>${formatPI(l.pi_raised)} / ${formatPI(l.target_pi)} PI</span>
+      <span>${l.percent_complete.toFixed(1)}%</span>
+    </div>
+    <div class="card-price">Price: ${formatPI(l.current_price)} PI/token</div>
+    <div class="card-stats" style="margin-top:6px;">
+      <span>by ${shortAddr(l.creator)}</span>
+      <span>${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
+    </div>
+  </div>`;
+}
+
 function renderFeed() {
   const grid = document.getElementById('tokenGrid');
   const search = (document.getElementById('searchInput').value||'').toLowerCase();
   let filtered = allLaunches;
+  if(search) filtered = filtered.filter(l=>(l.name+l.symbol).toLowerCase().includes(search));
+
+  // 3-column "All" view
+  if(currentFilter==='all') {
+    const newLaunches = filtered.filter(l=>l.state==='Active' && (l.percent_complete||0) < 70);
+    const nearGrad = filtered.filter(l=>l.state!=='Finalized' && l.state!=='Cancelled' && (l.percent_complete||0) >= 70);
+    const graduated = filtered.filter(l=>l.state==='Finalized');
+
+    newLaunches.sort((a,b)=>(b.created_at_ms||0)-(a.created_at_ms||0));
+    nearGrad.sort((a,b)=>(b.percent_complete||0)-(a.percent_complete||0));
+    graduated.sort((a,b)=>(b.created_at_ms||0)-(a.created_at_ms||0));
+
+    grid.className = '';
+    grid.innerHTML = `
+      <div class="columns-layout">
+        <div>
+          <div class="column-header"><span class="col-dot" style="background:var(--cyan);"></span> New Launches</div>
+          <div class="column-cards">${newLaunches.length ? newLaunches.map(renderTokenCard).join('') : '<div class="column-empty">No new launches yet</div>'}</div>
+        </div>
+        <div>
+          <div class="column-header"><span class="col-dot" style="background:var(--gold);"></span> Near Graduated</div>
+          <div class="column-cards">${nearGrad.length ? nearGrad.map(renderTokenCard).join('') : '<div class="column-empty">No tokens near graduation</div>'}</div>
+        </div>
+        <div>
+          <div class="column-header"><span class="col-dot" style="background:var(--green);"></span> Graduated</div>
+          <div class="column-cards">${graduated.length ? graduated.map(renderTokenCard).join('') : '<div class="column-empty">No graduated tokens yet</div>'}</div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Single-filter views
+  grid.className = 'token-grid';
   if(currentFilter==='New') {
-    // New: created within last 1 hour, any non-finalized state
     const oneHourAgo = Date.now() - 3600000;
     filtered = filtered.filter(l=>l.state!=='Finalized' && l.created_at_ms >= oneHourAgo);
   } else if(currentFilter==='Active') {
-    // Active: non-finalized tokens under 70% progress
     filtered = filtered.filter(l=>l.state==='Active' && (l.percent_complete||0) < 70);
   } else if(currentFilter==='NearGrad') {
-    // Near Graduate: 70%+ progress but not yet finalized
     filtered = filtered.filter(l=>l.state!=='Finalized' && (l.percent_complete||0) >= 70);
   } else if(currentFilter==='Finalized') {
     filtered = filtered.filter(l=>l.state==='Finalized');
   }
-  if(search) filtered = filtered.filter(l=>(l.name+l.symbol).toLowerCase().includes(search));
 
   if(filtered.length===0) {
     grid.innerHTML = '<div class="empty"><h3>No tokens found</h3><p>Be the first to launch a token!</p></div>';
     return;
   }
 
-  grid.innerHTML = filtered.map(l => {
-    let cardImg = '';
-    if (l.metadata_uri) {
-      try {
-        const m = JSON.parse(l.metadata_uri);
-        if (m.image) cardImg = `<img src="${escHtml(m.image)}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">`;
-      } catch(e) {}
-    }
-    return `
-    <div class="token-card" onclick="viewToken('${l.mint_id}')">
-      <div class="card-top">
-        <div style="display:flex;align-items:center;gap:10px;">
-          ${cardImg}
-          <div class="card-symbol">$${escHtml(l.symbol||'???')}</div>
-        </div>
-        <span class="badge badge-${l.state}">${l.state==='TargetReached'?'Target Reached':l.state}</span>
-      </div>
-      <div class="card-name">${escHtml(l.name||'Unknown Token')}</div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100,l.percent_complete).toFixed(1)}%"></div></div>
-      <div class="card-stats">
-        <span>${formatPI(l.pi_raised)} / ${formatPI(l.target_pi)} PI</span>
-        <span>${l.percent_complete.toFixed(1)}%</span>
-      </div>
-      <div class="card-price">Price: ${formatPI(l.current_price)} PI/token</div>
-      <div class="card-stats" style="margin-top:6px;">
-        <span>by ${shortAddr(l.creator)}</span>
-        <span>${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
-      </div>
-    </div>`;
-  }).join('');
+  grid.innerHTML = filtered.map(renderTokenCard).join('');
 }
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1947,11 +1988,37 @@ async function loadPortfolio() {
 }
 
 // =====================================================================
+// WEBSOCKET — real-time updates
+// =====================================================================
+let launchWs = null;
+function connectLaunchWs() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    launchWs = new WebSocket(`${proto}//${location.host}/ws`);
+    launchWs.onopen = () => {
+      launchWs.send(JSON.stringify({ subscribe: ['newBlocks'] }));
+    };
+    launchWs.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        if(event.type === 'newBlock') {
+          loadLaunches();
+          updateBalance();
+        }
+      } catch(ex) {}
+    };
+    launchWs.onclose = () => { setTimeout(connectLaunchWs, 5000); };
+    launchWs.onerror = () => { launchWs.close(); };
+  } catch(e) {}
+}
+
+// =====================================================================
 // INIT
 // =====================================================================
 loadWallet();
 loadLaunches();
-setInterval(loadLaunches, 10000);
+connectLaunchWs();
+setInterval(loadLaunches, 30000); // Fallback polling (WS handles real-time)
 setInterval(updateBalance, 15000);
 
 // Close modal on overlay click
