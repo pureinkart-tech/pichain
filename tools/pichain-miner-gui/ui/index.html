@@ -157,6 +157,18 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 /* Subtle background */
 body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04) 0%, transparent 60%); }
 
+/* Pulse glow on mining button after wallet creation */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.4); }
+  50% { box-shadow: 0 0 20px 6px rgba(52,211,153,0.5); }
+}
+.pulse-glow { animation: pulseGlow 1s ease-in-out 3; }
+
+/* Advanced settings toggle */
+.advanced-toggle summary { padding: 4px 0; }
+.advanced-toggle summary:hover { color: var(--muted); }
+.advanced-toggle[open] summary { color: var(--accent-light); }
+
 /* Responsive */
 @media (max-width: 700px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -198,7 +210,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
   <div class="setup">
     <div class="pi-big" style="animation:pulse 1.5s infinite;">&pi;</div>
     <h2>Loading...</h2>
-    <p style="color:var(--dim);">Detecting wallet and connecting to network</p>
+    <p style="color:var(--dim);">Getting everything ready...</p>
   </div>
 </div>
 
@@ -206,14 +218,14 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
 <div class="main" id="setup-screen" style="display:none;">
   <div class="setup">
     <div class="pi-big">&pi;</div>
-    <h2>Welcome to PIChain Miner</h2>
-    <p>Compute PI digits and earn PI tokens by contributing to the PIChain network. Create a new wallet to get started, or import an existing one.</p>
+    <h2>Start Earning PI</h2>
+    <p style="max-width:420px;margin:0 auto;">Your computer computes digits of PI and earns tokens for every digit discovered. No special hardware needed &mdash; any computer can mine.</p>
     <div class="setup-actions">
-      <button class="btn btn-primary btn-lg" id="create-wallet-btn" onclick="doCreateWallet()">Create New Wallet</button>
-      <button class="btn btn-secondary btn-lg" onclick="showImportModal()">Import Wallet</button>
+      <button class="btn btn-primary btn-lg" id="create-wallet-btn" onclick="doCreateWallet()">Get Started</button>
+      <button class="btn btn-secondary btn-lg" onclick="showImportModal()">I Have a Wallet</button>
     </div>
     <p style="font-size:12px;color:var(--dim);margin-top:8px;" id="setup-status"></p>
-    <p style="font-size:11px;color:var(--dim);margin-top:4px;">Your wallet is encrypted with a password and saved locally.</p>
+    <p style="font-size:11px;color:var(--dim);margin-top:4px;">A password-encrypted wallet is created on your computer. Nothing is sent to any server.</p>
   </div>
 </div>
 
@@ -254,25 +266,17 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
     <h3>Mining Controls</h3>
     <div class="controls-row">
       <div class="control-group">
-        <label for="rpc-url">RPC Endpoint</label>
-        <input type="text" id="rpc-url" value="https://pichain.net" placeholder="https://pichain.net" title="Public node: https://pichain.net. Local node: http://127.0.0.1:8314">
-      </div>
-      <div class="control-group">
-        <label for="profile">Power</label>
+        <label for="profile">Mining Power</label>
         <select id="profile" onchange="updateProfileWarning(); saveSettings();" title="Controls how much CPU power mining uses">
-          <option value="low">Low (2 threads, light)</option>
-          <option value="normal">Normal (half CPU)</option>
-          <option value="auto" selected>Auto (optimized for your hardware)</option>
-          <option value="max">Max (all cores, large batches)</option>
+          <option value="low">Light &mdash; minimal impact</option>
+          <option value="normal">Balanced &mdash; half CPU</option>
+          <option value="auto" selected>Recommended &mdash; auto-optimized</option>
+          <option value="max">Maximum &mdash; all cores</option>
         </select>
-      </div>
-      <div class="control-group" style="flex:0.5;">
-        <label for="chain-id">Chain ID</label>
-        <input type="text" id="chain-id" value="31415" title="31415 for testnet/devnet">
       </div>
     </div>
     <div id="profile-warning" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);font-size:12px;color:var(--gold);display:none;" role="alert">
-      <strong>High CPU usage:</strong> This profile will heavily load your system. Your computer may slow down, run hot, and use more power. Make sure your cooling is adequate. Consider using "Laptop" or "Desktop" for lighter usage.
+      <strong>High CPU usage:</strong> This profile will heavily load your system. Your computer may slow down, run hot, and use more power.
     </div>
     <div class="mine-btn-wrap">
       <button class="btn btn-success btn-lg" id="mine-btn" onclick="toggleMining()" aria-label="Start or stop mining">&#x25B6; Start Mining</button>
@@ -281,10 +285,30 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
         <span id="status-text">Idle</span>
       </div>
     </div>
-    <div class="settings-row">
-      <input type="checkbox" id="autostart-toggle" onchange="toggleAutostart()">
-      <label for="autostart-toggle">Launch at system startup</label>
+    <div class="settings-row" style="gap:16px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="autostart-toggle" onchange="toggleAutostart()">
+        <label for="autostart-toggle">Launch at startup</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="automine-toggle" onchange="saveSettings()">
+        <label for="automine-toggle">Auto-mine on launch</label>
+      </div>
     </div>
+    <!-- Advanced settings (collapsed) -->
+    <details class="advanced-toggle" style="margin-top:10px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--dim);user-select:none;">Advanced Settings</summary>
+      <div class="controls-row" style="margin-top:8px;">
+        <div class="control-group">
+          <label for="rpc-url">Node Endpoint</label>
+          <input type="text" id="rpc-url" value="https://pichain.net" placeholder="https://pichain.net" title="Public node: https://pichain.net. Local node: http://127.0.0.1:8314">
+        </div>
+        <div class="control-group" style="flex:0.5;">
+          <label for="chain-id">Chain ID</label>
+          <input type="text" id="chain-id" value="31415">
+        </div>
+      </div>
+    </details>
   </div>
 
   <!-- Stats -->
@@ -393,22 +417,21 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
   </div>
 </div>
 
-<!-- CPU usage warning modal -->
+<!-- CPU usage notice modal -->
 <div class="modal-overlay" id="cpu-warning-modal" role="dialog" aria-modal="true" aria-labelledby="cpu-warning-title">
   <div class="modal">
-    <h3 id="cpu-warning-title" style="color:var(--gold);">CPU Usage Warning</h3>
-    <p style="margin-bottom:8px;">Mining uses significant CPU resources. Depending on your selected profile, this may:</p>
+    <h3 id="cpu-warning-title" style="color:var(--gold);">Before You Start</h3>
+    <p style="margin-bottom:8px;">Mining uses your CPU to compute digits of PI. You may notice:</p>
     <ul style="color:var(--muted);font-size:13px;margin:0 0 12px 18px;line-height:2;">
-      <li>Slow down other applications on your computer</li>
-      <li>Cause your CPU to run at high temperatures</li>
-      <li>Increase power consumption and fan noise</li>
-      <li>Reduce battery life on laptops</li>
+      <li>Your computer's fans may spin up</li>
+      <li>Other apps could feel slightly slower</li>
+      <li>Laptops may use more battery</li>
     </ul>
     <p id="cpu-warning-profile" style="font-size:13px;margin-bottom:8px;"></p>
-    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">You can stop mining at any time. Use the "Laptop" profile for minimal impact.</p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px;">You can stop at any time. Switch to "Light" mode for less impact.</p>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
       <input type="checkbox" id="cpu-warning-ack" style="-webkit-app-region:no-drag;cursor:pointer;">
-      <label for="cpu-warning-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand and accept the risks</label>
+      <label for="cpu-warning-ack" style="font-size:13px;color:var(--text);cursor:pointer;">Got it, let's go</label>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="cancelMiningWarning()">Cancel</button>
@@ -449,6 +472,7 @@ function saveSettings() {
       rpcUrl: document.getElementById('rpc-url').value,
       profile: document.getElementById('profile').value,
       chainId: document.getElementById('chain-id').value,
+      autoMine: document.getElementById('automine-toggle').checked,
     }));
   } catch (e) { /* ignore */ }
 }
@@ -462,6 +486,7 @@ function loadSettings() {
       if (typeof s.rpcUrl === 'string' && s.rpcUrl) document.getElementById('rpc-url').value = s.rpcUrl;
       if (typeof s.profile === 'string' && s.profile) document.getElementById('profile').value = s.profile;
       if (typeof s.chainId === 'string' && s.chainId) document.getElementById('chain-id').value = s.chainId;
+      if (typeof s.autoMine === 'boolean') document.getElementById('automine-toggle').checked = s.autoMine;
     }
   } catch (e) { localStorage.removeItem('pichain-settings'); }
 }
@@ -661,6 +686,20 @@ async function loadExistingWallet(encrypted) {
 
     await activateWallet();
     await refreshBalance();
+
+    // Auto-mine on launch if enabled
+    if (document.getElementById('automine-toggle').checked && !isMining) {
+      appendLog({ timestamp: now(), message: 'Auto-mine enabled — starting mining...', level: 'info' });
+      try {
+        const rpc = document.getElementById('rpc-url').value.trim();
+        if (rpc) {
+          await invoke('get_mining_status', { rpcUrl: rpc });
+          await startMining();
+        }
+      } catch (e) {
+        appendLog({ timestamp: now(), message: 'Auto-mine: could not connect to node', level: 'warn' });
+      }
+    }
   } catch (e) {
     document.getElementById('setup-screen').style.display = 'flex';
     console.error('Failed to load wallet:', e);
@@ -744,7 +783,10 @@ function dismissBackupModal() {
   document.getElementById('backup-modal').classList.remove('active');
   document.getElementById('backup-secret-key').textContent = '';
   pendingSecretKey = '';
-  showToast('Wallet ready! You can start mining.', 'success');
+  showToast('Wallet ready! Hit Start Mining to begin earning PI.', 'success');
+  // Pulse the mining button to draw attention
+  const btn = document.getElementById('mine-btn');
+  if (btn) { btn.classList.add('pulse-glow'); setTimeout(() => btn.classList.remove('pulse-glow'), 4000); }
 }
 
 function copySecretKey() {
@@ -867,7 +909,7 @@ async function toggleMining() {
   } else {
     const rpc = document.getElementById('rpc-url').value.trim();
     if (!rpc) {
-      showInfoModal('Missing RPC URL', 'Please enter a PIChain node RPC endpoint (e.g. https://pichain.net).');
+      showInfoModal('Connection Required', 'A node endpoint is needed to mine. The default (pichain.net) should work. Check Advanced Settings if you need to change it.');
       return;
     }
 
@@ -882,7 +924,7 @@ async function toggleMining() {
     } catch (e) {
       btn.disabled = false;
       btn.innerHTML = '&#x25B6; Start Mining';
-      showInfoModal('Cannot Reach Node', 'Failed to connect to ' + rpc + '. Make sure the PIChain node is running and the RPC URL is correct.\n\nError: ' + e);
+      showInfoModal('Cannot Connect', 'Could not reach the PIChain network at ' + rpc + '. This is usually temporary \u2014 please try again in a moment.\n\nIf the problem persists, check your internet connection or try a different node in Advanced Settings.');
       return;
     }
     btn.disabled = false;
@@ -894,10 +936,10 @@ async function toggleMining() {
 function showMiningWarning() {
   const profile = document.getElementById('profile').value;
   const profileDesc = {
-    'low': 'Low \u2014 uses 2 CPU threads (minimal impact)',
-    'normal': 'Normal \u2014 uses half your CPU cores (moderate impact)',
-    'auto': 'Auto \u2014 optimized for your hardware (recommended)',
-    'max': 'Max \u2014 uses ALL CPU cores with large batches (heavy impact)',
+    'low': 'Light \u2014 uses 2 CPU threads (minimal impact)',
+    'normal': 'Balanced \u2014 uses half your CPU cores (moderate impact)',
+    'auto': 'Recommended \u2014 optimized for your hardware',
+    'max': 'Maximum \u2014 uses ALL CPU cores with large batches (heavy impact)',
   };
   document.getElementById('cpu-warning-profile').innerHTML =
     '<strong>Selected profile:</strong> ' + (profileDesc[profile] || profile);
