@@ -386,7 +386,7 @@ pub async fn mining_loop(
             // Periodic balance check (non-blocking, doesn't reset nonce)
             let bal = if loop_count % 10 == 0 {
                 match client.get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex)).send().await {
-                    Ok(resp) => resp.json::<AccountResponse>().await.ok().map(|a| a.balance).unwrap_or(0),
+                    Ok(resp) => resp.json::<AccountResponse>().await.ok().map(|a| a.balance + a.locked_balance.unwrap_or(0)).unwrap_or(0),
                     Err(_) => 0,
                 }
             } else { 0 };
@@ -401,12 +401,13 @@ pub async fn mining_loop(
                     Ok(acct) if acct.found => {
                         let gas = 200_000u64 + effective_batch_size as u64 * 100;
                         let cost = gas * 1_100;
-                        if acct.balance < cost {
+                        let effective_balance = acct.balance + acct.locked_balance.unwrap_or(0);
+                        if effective_balance < cost {
                             emit_log(
                                 &app,
                                 &format!(
                                     "Low balance: {} PI — need {} for gas",
-                                    acct.balance as f64 / 1e9,
+                                    effective_balance as f64 / 1e9,
                                     cost as f64 / 1e9
                                 ),
                                 "warn",
@@ -414,7 +415,7 @@ pub async fn mining_loop(
                             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                             continue;
                         }
-                        (acct.nonce, acct.balance)
+                        (acct.nonce, effective_balance)
                     }
                     _ => (0, 0),
                 },

@@ -216,6 +216,8 @@ struct AccountResponse {
     balance: u64,
     nonce: u64,
     found: bool,
+    #[serde(default)]
+    locked_balance: Option<u64>,
 }
 
 
@@ -556,12 +558,14 @@ async fn main() -> anyhow::Result<()> {
             {
                 Ok(resp) => match resp.json::<AccountResponse>().await {
                     Ok(acct) if acct.found => {
-                        // Check balance covers gas
+                        // Check balance covers gas (locked_balance counts — it's for fees)
                         let estimated_gas = 200_000 + effective_batch_size as u64 * 100;
                         let min_cost = estimated_gas * 1_100; // base_fee + priority_fee estimate
-                        if acct.balance < min_cost {
+                        let effective_balance = acct.balance + acct.locked_balance.unwrap_or(0);
+                        if effective_balance < min_cost {
                             warn!(
                                 balance = acct.balance,
+                                locked = acct.locked_balance.unwrap_or(0),
                                 needed = min_cost,
                                 "Insufficient balance for gas, waiting..."
                             );
