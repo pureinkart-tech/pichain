@@ -215,7 +215,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
       <div class="status-dot idle" id="conn-dot"></div>
       <span id="conn-text" style="font-size:11px;color:var(--dim);">Offline</span>
     </div>
-    <span class="version" id="app-version">v0.6.0</span>
+    <span class="version" id="app-version">v...</span>
   </div>
 </div>
 
@@ -1343,10 +1343,7 @@ function setupTrayNotice() {
 
 // ---------- Boot ----------
 window.addEventListener('DOMContentLoaded', async () => {
-  try {
-    await waitForTauri();
-  } catch (e) {
-    console.error('FATAL:', e);
+  function showFatalError(msg) {
     const ls = document.getElementById('loading-screen');
     if (ls) {
       ls.style.display = 'flex';
@@ -1355,12 +1352,27 @@ window.addEventListener('DOMContentLoaded', async () => {
         '<div class="pi-big" style="background:linear-gradient(135deg,var(--rose),#e11d48);">!</div>' +
         '<h2>Initialization Error</h2>' +
         '<p style="color:var(--muted);">Could not connect to the Tauri runtime.<br>Please restart the application.</p>' +
-        '<p style="font-size:11px;color:var(--dim);margin-top:8px;">' + e.message + '</p>' +
+        '<p style="font-size:11px;color:var(--dim);margin-top:8px;">' + msg + '</p>' +
         '</div>';
     }
+  }
+
+  try {
+    await waitForTauri();
+  } catch (e) {
+    console.error('FATAL: Tauri init failed:', e);
+    showFatalError(e.message);
     return;
   }
-  init();
+
+  try {
+    await init();
+  } catch (e) {
+    console.error('FATAL: App init failed:', e);
+    showFatalError('App initialization failed: ' + (e.message || e));
+    return;
+  }
+
   updateVersionDisplay();
   setTimeout(checkForUpdates, 5000);
   setInterval(checkForUpdates, 6 * 60 * 60 * 1000);

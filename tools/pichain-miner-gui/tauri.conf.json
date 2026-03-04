@@ -1,15 +1,12 @@
 {
   "productName": "PIChain Miner",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "identifier": "net.pichain.miner",
   "build": {
     "frontendDist": "./ui"
   },
   "app": {
     "withGlobalTauri": true,
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost https://ipc.localhost"
-    },
     "windows": [
       {
         "label": "main",
