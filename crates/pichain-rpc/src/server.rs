@@ -1,7 +1,9 @@
 //! JSON-RPC server implementation using axum.
 
 use axum::{
-    extract::{ws::Message as AxumWsMessage, ConnectInfo, DefaultBodyLimit, Query, State, WebSocketUpgrade},
+    extract::{
+        ws::Message as AxumWsMessage, ConnectInfo, DefaultBodyLimit, Query, State, WebSocketUpgrade,
+    },
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -18,9 +20,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
-use tower_http::compression::CompressionLayer;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
 use crate::RpcError;
@@ -40,8 +42,7 @@ fn is_loopback_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_loopback(),
         IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
         }
     }
 }
@@ -65,7 +66,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             v4.is_loopback()                           // 127.0.0.0/8
                 || octets[0] == 10                     // 10.0.0.0/8
                 || (octets[0] == 172 && (octets[1] & 0xf0) == 16) // 172.16.0.0/12
-                || (octets[0] == 192 && octets[1] == 168)         // 192.168.0.0/16
+                || (octets[0] == 192 && octets[1] == 168) // 192.168.0.0/16
         }
         None => false,
     }
@@ -127,9 +128,8 @@ impl IpRateLimiter {
     /// Clean up expired entries to prevent memory growth.
     fn cleanup(&self) {
         let now = Instant::now();
-        self.buckets.retain(|_, (_, start)| {
-            now.duration_since(*start).as_secs() < self.window_secs * 2
-        });
+        self.buckets
+            .retain(|_, (_, start)| now.duration_since(*start).as_secs() < self.window_secs * 2);
     }
 
     /// Check with a custom limit (for tiered rate limiting).
@@ -281,7 +281,9 @@ async fn rate_limit_middleware(
         // and polling intervals without showing stale data
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
-            "public, max-age=3, stale-while-revalidate=10".parse().unwrap(),
+            "public, max-age=3, stale-while-revalidate=10"
+                .parse()
+                .unwrap(),
         );
     }
     response
@@ -338,13 +340,24 @@ pub struct RpcState {
 pub trait StateProvider: Send + Sync + 'static {
     fn chain_id(&self) -> u64;
     fn get_block_sync(&self, height: u64) -> Option<pichain_types::Block>;
-    fn get_account_sync(&self, address: &pichain_crypto::ed25519::Address) -> Option<pichain_types::Account>;
-    fn get_transaction_sync(&self, tx_hash: &pichain_crypto::Hash) -> Option<pichain_types::SignedTransaction>;
-    fn get_receipt_sync(&self, tx_hash: &pichain_crypto::Hash) -> Option<pichain_types::TransactionEffect>;
+    fn get_account_sync(
+        &self,
+        address: &pichain_crypto::ed25519::Address,
+    ) -> Option<pichain_types::Account>;
+    fn get_transaction_sync(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+    ) -> Option<pichain_types::SignedTransaction>;
+    fn get_receipt_sync(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+    ) -> Option<pichain_types::TransactionEffect>;
     fn current_height(&self) -> u64;
     fn current_base_fee(&self) -> u64;
     fn total_burned(&self) -> u64;
-    fn total_minted(&self) -> u64 { 0 }
+    fn total_minted(&self) -> u64 {
+        0
+    }
     fn state_root_hex(&self) -> String;
     fn mempool_size(&self) -> usize;
     fn mempool_insert(&self, tx: pichain_types::SignedTransaction) -> Result<(), String>;
@@ -403,24 +416,35 @@ pub trait StateProvider: Send + Sync + 'static {
 
     /// Get or assign a mining slot for the given address.
     /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
-    fn get_mining_slot(&self, _address: &pichain_crypto::ed25519::Address) -> Option<(u64, u32, usize)> {
+    fn get_mining_slot(
+        &self,
+        _address: &pichain_crypto::ed25519::Address,
+    ) -> Option<(u64, u32, usize)> {
         None
     }
 
     /// Get top miners for leaderboard. Returns (Vec<(address, digits)>, total_digits).
-    fn get_mining_leaderboard(&self) -> Option<(Vec<(pichain_crypto::ed25519::Address, u64)>, u64)> {
+    fn get_mining_leaderboard(
+        &self,
+    ) -> Option<(Vec<(pichain_crypto::ed25519::Address, u64)>, u64)> {
         None
     }
 
     /// Get recent proofs for a specific miner. Returns Vec<(start, count, committed_at_height)>.
-    fn get_miner_recent_proofs(&self, _address: &pichain_crypto::ed25519::Address, _limit: usize) -> Vec<(u64, u32, u64)> {
+    fn get_miner_recent_proofs(
+        &self,
+        _address: &pichain_crypto::ed25519::Address,
+        _limit: usize,
+    ) -> Vec<(u64, u32, u64)> {
         vec![]
     }
 
     // --- Wallet activation ---
 
     /// Get total number of activated wallets.
-    fn activation_count(&self) -> u64 { 0 }
+    fn activation_count(&self) -> u64 {
+        0
+    }
 
     /// Activate a wallet: grant 3.14 PI locked (non-transferable, fee-only).
     /// Returns the locked amount granted, or error if already activated.
@@ -431,33 +455,70 @@ pub trait StateProvider: Send + Sync + 'static {
     // --- Launchpad / token listing queries ---
 
     /// List all token launches.
-    fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> { vec![] }
+    fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> {
+        vec![]
+    }
     /// List all token mints.
-    fn scan_all_mints(&self) -> Vec<pichain_types::TokenMint> { vec![] }
+    fn scan_all_mints(&self) -> Vec<pichain_types::TokenMint> {
+        vec![]
+    }
     /// List all liquidity pools.
-    fn scan_all_pools(&self) -> Vec<pichain_types::LiquidityPool> { vec![] }
+    fn scan_all_pools(&self) -> Vec<pichain_types::LiquidityPool> {
+        vec![]
+    }
     /// Get a token launch by mint ID.
-    fn get_launch_by_mint(&self, _mint: &pichain_types::MintId) -> Option<pichain_types::TokenLaunch> { None }
+    fn get_launch_by_mint(
+        &self,
+        _mint: &pichain_types::MintId,
+    ) -> Option<pichain_types::TokenLaunch> {
+        None
+    }
     /// Get the mint creation nonce for an address (for deterministic MintId derivation).
-    fn get_mint_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    fn get_mint_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+        0
+    }
     /// Get all token balances for an owner address.
     fn get_token_balances_for_owner(
         &self,
         _owner: &pichain_crypto::ed25519::Address,
-    ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> { vec![] }
+    ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> {
+        vec![]
+    }
 
     // --- DEX analytics queries ---
 
     /// Get recent trades for a specific pool.
-    fn get_pool_trades(&self, _pool_id: &pichain_types::PoolId, _limit: usize, _before_ms: Option<u64>) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    fn get_pool_trades(
+        &self,
+        _pool_id: &pichain_types::PoolId,
+        _limit: usize,
+        _before_ms: Option<u64>,
+    ) -> Vec<pichain_storage::TradeRecord> {
+        vec![]
+    }
     /// Get globally recent trades across all pools.
-    fn get_recent_trades(&self, _limit: usize) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    fn get_recent_trades(&self, _limit: usize) -> Vec<pichain_storage::TradeRecord> {
+        vec![]
+    }
     /// Get trades in a time range for OHLCV candle computation.
-    fn get_pool_trades_in_range(&self, _pool_id: &pichain_types::PoolId, _from_ms: u64, _to_ms: u64) -> Vec<pichain_storage::TradeRecord> { vec![] }
+    fn get_pool_trades_in_range(
+        &self,
+        _pool_id: &pichain_types::PoolId,
+        _from_ms: u64,
+        _to_ms: u64,
+    ) -> Vec<pichain_storage::TradeRecord> {
+        vec![]
+    }
     /// Scan all token accounts (for holder analysis).
-    fn scan_all_token_accounts(&self) -> Vec<pichain_types::TokenAccount> { vec![] }
+    fn scan_all_token_accounts(&self) -> Vec<pichain_types::TokenAccount> {
+        vec![]
+    }
     /// Scan all LP balances.
-    fn scan_all_lp_balances(&self) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> { vec![] }
+    fn scan_all_lp_balances(
+        &self,
+    ) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
+        vec![]
+    }
 
     // --- Comment queries ---
 
@@ -466,18 +527,41 @@ pub trait StateProvider: Send + Sync + 'static {
         Err("comments not available".to_string())
     }
     /// Get comments for a token launch.
-    fn get_comments(&self, _mint_id: &pichain_types::MintId, _limit: usize) -> Vec<pichain_storage::Comment> { vec![] }
+    fn get_comments(
+        &self,
+        _mint_id: &pichain_types::MintId,
+        _limit: usize,
+    ) -> Vec<pichain_storage::Comment> {
+        vec![]
+    }
     /// Get comment count for a token launch.
-    fn get_comment_count(&self, _mint_id: &pichain_types::MintId) -> u64 { 0 }
+    fn get_comment_count(&self, _mint_id: &pichain_types::MintId) -> u64 {
+        0
+    }
 
     // --- Dividend queries ---
 
     /// Get claimable dividends for a holder on a specific token.
-    fn get_claimable_dividends(&self, _mint_id: &pichain_types::MintId, _holder: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    fn get_claimable_dividends(
+        &self,
+        _mint_id: &pichain_types::MintId,
+        _holder: &pichain_crypto::ed25519::Address,
+    ) -> u64 {
+        0
+    }
     /// Get dividend pool info for a token.
-    fn get_dividend_pool(&self, _mint_id: &pichain_types::MintId) -> Option<pichain_storage::DividendPool> { None }
+    fn get_dividend_pool(
+        &self,
+        _mint_id: &pichain_types::MintId,
+    ) -> Option<pichain_storage::DividendPool> {
+        None
+    }
     /// Claim dividends for a holder on a specific token. Returns PI amount claimed.
-    fn claim_dividends(&self, _mint_id: &pichain_types::MintId, _holder: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
+    fn claim_dividends(
+        &self,
+        _mint_id: &pichain_types::MintId,
+        _holder: &pichain_crypto::ed25519::Address,
+    ) -> Result<u64, String> {
         Err("dividends not available".to_string())
     }
 
@@ -541,7 +625,8 @@ pub trait StateProvider: Send + Sync + 'static {
         _symbol: &str,
         _recipient: &str,
         _amount: u64,
-    ) {}
+    ) {
+    }
 
     // --- Transaction History ---
 
@@ -551,75 +636,135 @@ pub trait StateProvider: Send + Sync + 'static {
         _address: &pichain_crypto::ed25519::Address,
         _before_height: Option<u64>,
         _limit: usize,
-    ) -> Vec<TxHistoryEntry> { vec![] }
+    ) -> Vec<TxHistoryEntry> {
+        vec![]
+    }
 
     // --- Event Querying ---
 
     /// Query events by topic hash.
-    fn query_events_by_topic(&self, _topic: &[u8; 32], _limit: usize) -> Vec<TxHistoryEntry> { vec![] }
+    fn query_events_by_topic(&self, _topic: &[u8; 32], _limit: usize) -> Vec<TxHistoryEntry> {
+        vec![]
+    }
 
     /// Query events by address.
-    fn query_events_by_address(&self, _address: &pichain_crypto::ed25519::Address, _limit: usize) -> Vec<TxHistoryEntry> { vec![] }
+    fn query_events_by_address(
+        &self,
+        _address: &pichain_crypto::ed25519::Address,
+        _limit: usize,
+    ) -> Vec<TxHistoryEntry> {
+        vec![]
+    }
 
     // --- Staking Queries ---
 
     /// Get list of all validators with stake info.
-    fn get_validators(&self) -> Vec<ValidatorInfo> { vec![] }
+    fn get_validators(&self) -> Vec<ValidatorInfo> {
+        vec![]
+    }
 
     /// Get delegations for an address.
-    fn get_delegations(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<DelegationInfo> { vec![] }
+    fn get_delegations(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<DelegationInfo> {
+        vec![]
+    }
 
     /// Get staking rewards for an address.
-    fn get_staking_rewards(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    fn get_staking_rewards(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+        0
+    }
 
     // --- NFT Queries ---
 
     /// List all NFT collections.
-    fn scan_all_collections(&self) -> Vec<pichain_types::NftCollection> { vec![] }
+    fn scan_all_collections(&self) -> Vec<pichain_types::NftCollection> {
+        vec![]
+    }
 
     /// Get NFTs in a collection.
-    fn get_collection_items(&self, _collection_id: &pichain_types::CollectionId) -> Vec<pichain_types::Nft> { vec![] }
+    fn get_collection_items(
+        &self,
+        _collection_id: &pichain_types::CollectionId,
+    ) -> Vec<pichain_types::Nft> {
+        vec![]
+    }
 
     /// Get NFTs owned by an address.
-    fn get_nfts_by_owner(&self, _owner: &pichain_crypto::ed25519::Address) -> Vec<pichain_types::Nft> { vec![] }
+    fn get_nfts_by_owner(
+        &self,
+        _owner: &pichain_crypto::ed25519::Address,
+    ) -> Vec<pichain_types::Nft> {
+        vec![]
+    }
 
     // --- Light Client ---
 
     /// Get JMT proof for an account.
-    fn get_account_proof(&self, _address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> { None }
+    fn get_account_proof(&self, _address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> {
+        None
+    }
 
     // --- Richlist ---
 
     /// Get top accounts by balance.
-    fn get_richlist(&self, _limit: usize) -> Vec<(pichain_crypto::ed25519::Address, u64)> { vec![] }
+    fn get_richlist(&self, _limit: usize) -> Vec<(pichain_crypto::ed25519::Address, u64)> {
+        vec![]
+    }
 
     // --- Consensus Metrics ---
 
     /// Get consensus round number.
-    fn consensus_round(&self) -> u64 { 0 }
+    fn consensus_round(&self) -> u64 {
+        0
+    }
     /// Get total Bullshark commits.
-    fn consensus_commits(&self) -> u64 { 0 }
+    fn consensus_commits(&self) -> u64 {
+        0
+    }
     /// Get total certificates produced.
-    fn consensus_certificates(&self) -> u64 { 0 }
+    fn consensus_certificates(&self) -> u64 {
+        0
+    }
     /// Get validator count.
-    fn validator_count(&self) -> usize { 0 }
+    fn validator_count(&self) -> usize {
+        0
+    }
     /// Get total stake.
-    fn total_stake(&self) -> u64 { 0 }
+    fn total_stake(&self) -> u64 {
+        0
+    }
 
     // --- Betting queries ---
 
     /// Get a betting match by ID.
-    fn get_betting_match(&self, _match_id: &pichain_types::betting::MatchId) -> Option<pichain_types::betting::BettingMatch> { None }
+    fn get_betting_match(
+        &self,
+        _match_id: &pichain_types::betting::MatchId,
+    ) -> Option<pichain_types::betting::BettingMatch> {
+        None
+    }
     /// Get all active betting matches.
-    fn get_active_matches(&self) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    fn get_active_matches(&self) -> Vec<pichain_types::betting::BettingMatch> {
+        vec![]
+    }
     /// Get matches by category (pvp=0, poker=1, arcade=2).
-    fn get_matches_by_category(&self, _category: u8) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    fn get_matches_by_category(&self, _category: u8) -> Vec<pichain_types::betting::BettingMatch> {
+        vec![]
+    }
     /// Get matches involving an address.
-    fn get_matches_by_player(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<pichain_types::betting::BettingMatch> { vec![] }
+    fn get_matches_by_player(
+        &self,
+        _address: &pichain_crypto::ed25519::Address,
+    ) -> Vec<pichain_types::betting::BettingMatch> {
+        vec![]
+    }
     /// Get betting stats (total wagered, active count, etc.).
-    fn get_betting_stats(&self) -> BettingStatsData { BettingStatsData::default() }
+    fn get_betting_stats(&self) -> BettingStatsData {
+        BettingStatsData::default()
+    }
     /// Get match nonce for an address.
-    fn get_match_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    fn get_match_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+        0
+    }
 }
 
 /// Bridge registered addresses.
@@ -795,7 +940,8 @@ fn quake_stdin_handles() -> &'static Mutex<HashMap<String, std::process::ChildSt
 }
 
 /// Track which client slots have been kicked per session (to avoid duplicate kicks).
-static QUAKE_KICKED: OnceLock<Mutex<HashMap<String, std::collections::HashSet<String>>>> = OnceLock::new();
+static QUAKE_KICKED: OnceLock<Mutex<HashMap<String, std::collections::HashSet<String>>>> =
+    OnceLock::new();
 
 fn quake_kicked() -> &'static Mutex<HashMap<String, std::collections::HashSet<String>>> {
     QUAKE_KICKED.get_or_init(|| Mutex::new(HashMap::new()))
@@ -919,7 +1065,10 @@ impl RpcServer {
             .route("/api/v1/mining/status", get(get_mining_status))
             .route("/api/v1/mining/slot/:address", get(get_mining_slot))
             .route("/api/v1/mining/leaderboard", get(get_mining_leaderboard))
-            .route("/api/v1/mining/miner/:address", get(get_mining_miner_detail))
+            .route(
+                "/api/v1/mining/miner/:address",
+                get(get_mining_miner_detail),
+            )
             .route("/api/v1/receipt/:hash", get(get_receipt))
             .route("/api/v1/blocks", get(get_block_range))
             .route("/api/v1/wallet/challenge", post(get_activation_challenge))
@@ -942,13 +1091,20 @@ impl RpcServer {
             .route("/api/v1/launch/:mint_id/comments", get(get_launch_comments))
             .route("/api/v1/launch/:mint_id/comment", post(post_launch_comment))
             .route("/api/v1/launches/activity", get(get_launch_activity))
-            .route("/api/v1/launch/:mint_id/dividends", get(get_launch_dividends))
-            .route("/api/v1/launch/:mint_id/claim-dividends", post(claim_launch_dividends))
+            .route(
+                "/api/v1/launch/:mint_id/dividends",
+                get(get_launch_dividends),
+            )
+            .route(
+                "/api/v1/launch/:mint_id/claim-dividends",
+                post(claim_launch_dividends),
+            )
             .route("/api/v1/tokens", get(get_all_tokens))
             .route("/api/v1/pools", get(get_all_pools))
             .route("/api/v1/mint-nonce/:address", get(get_mint_nonce))
             .route("/api/v1/portfolio/:address", get(get_portfolio))
             .route("/launch", get(serve_launch_page))
+            .route("/pichain-wallet.js", get(serve_wallet_js))
             .route("/trade", get(serve_trade_page))
             .route("/terminal", get(serve_terminal_page))
             .route("/pibot-logo", get(serve_pibot_logo))
@@ -963,15 +1119,24 @@ impl RpcServer {
             .route("/terms", get(serve_terms_page))
             .route("/privacy", get(serve_privacy_page))
             // Bridge endpoints
-            .route("/api/v1/bridge/deposit-address", post(get_bridge_deposit_address))
+            .route(
+                "/api/v1/bridge/deposit-address",
+                post(get_bridge_deposit_address),
+            )
             .route("/api/v1/bridge/mint", post(bridge_mint_tokens))
-            .route("/api/v1/bridge/register-addresses", post(bridge_register_addresses))
+            .route(
+                "/api/v1/bridge/register-addresses",
+                post(bridge_register_addresses),
+            )
             .route("/api/v1/bridge/status", get(bridge_status))
             .route("/api/v1/bridge/transfers", get(bridge_transfers))
             .route("/api/v1/bridge/deposit-intent", post(bridge_deposit_intent))
             .route("/api/v1/bridge/withdraw", post(bridge_withdraw))
             // Transaction history & events
-            .route("/api/v1/address/:address/transactions", get(get_address_transactions))
+            .route(
+                "/api/v1/address/:address/transactions",
+                get(get_address_transactions),
+            )
             .route("/api/v1/events/query", post(query_events))
             // Staking endpoints
             .route("/api/v1/staking/validators", get(get_staking_validators))
@@ -979,7 +1144,10 @@ impl RpcServer {
             .route("/api/v1/staking/rewards/:address", get(get_staking_rewards))
             // NFT endpoints
             .route("/api/v1/nft/collections", get(get_nft_collections))
-            .route("/api/v1/nft/collection/:collection_id/items", get(get_collection_items))
+            .route(
+                "/api/v1/nft/collection/:collection_id/items",
+                get(get_collection_items),
+            )
             .route("/api/v1/nft/owner/:address", get(get_nfts_by_owner))
             // Light client
             .route("/api/v1/proof/account/:address", get(get_account_proof))
@@ -999,14 +1167,29 @@ impl RpcServer {
             .route("/api/v1/betting/match/:match_id", get(get_betting_match))
             .route("/api/v1/betting/history/:address", get(get_betting_history))
             .route("/api/v1/betting/stats", get(get_betting_stats))
-            .route("/api/v1/betting/verify/:match_id", get(verify_betting_match))
+            .route(
+                "/api/v1/betting/verify/:match_id",
+                get(verify_betting_match),
+            )
             .route("/api/v1/betting/match-nonce/:address", get(get_match_nonce))
             // QuakeJS FPS session API (beta)
             .route("/api/v1/fps/quake/session/start", post(start_quake_session))
-            .route("/api/v1/fps/quake/session/:match_id", get(get_quake_session))
-            .route("/api/v1/fps/quake/session/:match_id/stop", post(stop_quake_session))
-            .route("/api/v1/fps/quake/session/:match_id/command", post(quake_send_command))
-            .route("/api/v1/fps/quake/session/:match_id/bots", post(quake_add_bots).delete(quake_remove_bots))
+            .route(
+                "/api/v1/fps/quake/session/:match_id",
+                get(get_quake_session),
+            )
+            .route(
+                "/api/v1/fps/quake/session/:match_id/stop",
+                post(stop_quake_session),
+            )
+            .route(
+                "/api/v1/fps/quake/session/:match_id/command",
+                post(quake_send_command),
+            )
+            .route(
+                "/api/v1/fps/quake/session/:match_id/bots",
+                post(quake_add_bots).delete(quake_remove_bots),
+            )
             .route("/api/v1/fps/quake/ws", get(quake_ws_upgrade))
             // DEX page
             .route("/dex", get(serve_dex_page))
@@ -1048,12 +1231,15 @@ impl RpcServer {
                         axum::http::Method::POST,
                         axum::http::Method::OPTIONS,
                     ])
-                    .allow_headers([axum::http::header::CONTENT_TYPE])
+                    .allow_headers([axum::http::header::CONTENT_TYPE]),
             )
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body (tokens can carry large metadata)
             .layer(CompressionLayer::new()) // gzip + brotli + deflate — typically 70-85% size reduction
             .layer(tower_http::trace::TraceLayer::new_for_http())
-            .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                rate_limit_middleware,
+            ))
             .with_state(state);
 
         // Serve game assets (3D models, textures, audio) from disk if configured
@@ -1065,52 +1251,54 @@ impl RpcServer {
                 let game_service = tower_http::services::ServeDir::new(games_dir);
                 let game_router = Router::new()
                     .nest_service("/", game_service)
-                    .layer(axum::middleware::from_fn(|req: Request<axum::body::Body>, next: Next| async move {
-                        let uri = req.uri().path().to_string();
-                        let mut resp = next.run(req).await;
-                        // No-cache for JS/HTML so code updates take effect immediately;
-                        // cache images/audio/other assets for 1 hour
-                        let cache_val = if uri.ends_with(".js") || uri.ends_with(".html") {
-                            "no-store, no-cache, must-revalidate"
-                        } else if uri.ends_with(".wasm") || uri.ends_with(".data") {
-                            "public, max-age=86400" // WASM/data files: 24hr cache
-                        } else {
-                            "public, max-age=3600"
-                        };
-                        resp.headers_mut().insert(
-                            header::CACHE_CONTROL,
-                            header::HeaderValue::from_static(cache_val),
-                        );
-                        // Set correct MIME type for WASM files
-                        if uri.ends_with(".wasm") {
+                    .layer(axum::middleware::from_fn(
+                        |req: Request<axum::body::Body>, next: Next| async move {
+                            let uri = req.uri().path().to_string();
+                            let mut resp = next.run(req).await;
+                            // No-cache for JS/HTML so code updates take effect immediately;
+                            // cache images/audio/other assets for 1 hour
+                            let cache_val = if uri.ends_with(".js") || uri.ends_with(".html") {
+                                "no-store, no-cache, must-revalidate"
+                            } else if uri.ends_with(".wasm") || uri.ends_with(".data") {
+                                "public, max-age=86400" // WASM/data files: 24hr cache
+                            } else {
+                                "public, max-age=3600"
+                            };
                             resp.headers_mut().insert(
-                                header::CONTENT_TYPE,
-                                header::HeaderValue::from_static("application/wasm"),
+                                header::CACHE_CONTROL,
+                                header::HeaderValue::from_static(cache_val),
                             );
-                        }
-                        // Hypersomnia needs crossOriginIsolated for SharedArrayBuffer/WASM threads.
-                        // COEP + COOP + CORP headers enable cross-origin isolation in the
-                        // same-origin iframe without needing the credentialless attribute.
-                        if uri.contains("/hypersomnia/") {
-                            resp.headers_mut().insert(
-                                header::HeaderName::from_static("cross-origin-resource-policy"),
-                                header::HeaderValue::from_static("cross-origin"),
-                            );
-                            resp.headers_mut().insert(
-                                header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                                header::HeaderValue::from_static("*"),
-                            );
-                            resp.headers_mut().insert(
-                                header::HeaderName::from_static("cross-origin-embedder-policy"),
-                                header::HeaderValue::from_static("credentialless"),
-                            );
-                            resp.headers_mut().insert(
-                                header::HeaderName::from_static("cross-origin-opener-policy"),
-                                header::HeaderValue::from_static("same-origin"),
-                            );
-                        }
-                        resp
-                    }))
+                            // Set correct MIME type for WASM files
+                            if uri.ends_with(".wasm") {
+                                resp.headers_mut().insert(
+                                    header::CONTENT_TYPE,
+                                    header::HeaderValue::from_static("application/wasm"),
+                                );
+                            }
+                            // Hypersomnia needs crossOriginIsolated for SharedArrayBuffer/WASM threads.
+                            // COEP + COOP + CORP headers enable cross-origin isolation in the
+                            // same-origin iframe without needing the credentialless attribute.
+                            if uri.contains("/hypersomnia/") {
+                                resp.headers_mut().insert(
+                                    header::HeaderName::from_static("cross-origin-resource-policy"),
+                                    header::HeaderValue::from_static("cross-origin"),
+                                );
+                                resp.headers_mut().insert(
+                                    header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                                    header::HeaderValue::from_static("*"),
+                                );
+                                resp.headers_mut().insert(
+                                    header::HeaderName::from_static("cross-origin-embedder-policy"),
+                                    header::HeaderValue::from_static("credentialless"),
+                                );
+                                resp.headers_mut().insert(
+                                    header::HeaderName::from_static("cross-origin-opener-policy"),
+                                    header::HeaderValue::from_static("same-origin"),
+                                );
+                            }
+                            resp
+                        },
+                    ))
                     .layer(CompressionLayer::new());
                 router = router.nest_service("/game-assets", game_router);
             }
@@ -1161,15 +1349,24 @@ async fn ws_upgrade(
     ws: WebSocketUpgrade,
 ) -> Response {
     if state.ws_broadcaster.at_capacity() {
-        return (StatusCode::SERVICE_UNAVAILABLE, "WebSocket connection limit reached").into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "WebSocket connection limit reached",
+        )
+            .into_response();
     }
     let client_ip = addr.ip();
     if state.ws_broadcaster.ip_at_capacity(&client_ip) {
-        return (StatusCode::TOO_MANY_REQUESTS, "Too many WebSocket connections from this IP").into_response();
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many WebSocket connections from this IP",
+        )
+            .into_response();
     }
     let broadcaster = state.ws_broadcaster.clone();
     ws.max_message_size(2048)
-        .on_upgrade(move |socket| crate::ws::handle_ws(socket, broadcaster, client_ip)).into_response()
+        .on_upgrade(move |socket| crate::ws::handle_ws(socket, broadcaster, client_ip))
+        .into_response()
 }
 
 /// Serve a static HTML page with cache headers.
@@ -1183,6 +1380,18 @@ fn serve_html(html: &'static str) -> impl IntoResponse {
             ("vary", "Accept-Encoding"),
         ],
         html,
+    )
+}
+
+/// Serve the PQ wallet connector JavaScript.
+async fn serve_wallet_js() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "application/javascript; charset=utf-8"),
+            ("cache-control", "no-cache, must-revalidate"),
+        ],
+        include_str!("../../../explorer/pichain-wallet.js"),
     )
 }
 
@@ -1262,10 +1471,13 @@ async fn prometheus_metrics(
 
     let (height, base_fee, total_burned, mining_frontier, mining_digits, mining_miners) =
         if let Some(provider) = &state.state_provider {
-            let (frontier, digits, miners) = provider.get_mining_stats().map_or(
-                (0, 0, 0),
-                |s| (s.frontier_position, s.total_digits_verified, s.unique_miners),
-            );
+            let (frontier, digits, miners) = provider.get_mining_stats().map_or((0, 0, 0), |s| {
+                (
+                    s.frontier_position,
+                    s.total_digits_verified,
+                    s.unique_miners,
+                )
+            });
             (
                 provider.current_height(),
                 provider.current_base_fee(),
@@ -1330,10 +1542,22 @@ async fn prometheus_metrics(
          # TYPE pichain_total_stake gauge\n\
          pichain_total_stake {total_stake}\n",
         ws_subs = state.ws_broadcaster.subscriber_count(),
-        consensus_round = state.state_provider.as_ref().map_or(0, |p| p.consensus_round()),
-        bullshark_commits = state.state_provider.as_ref().map_or(0, |p| p.consensus_commits()),
-        certificates = state.state_provider.as_ref().map_or(0, |p| p.consensus_certificates()),
-        validator_count = state.state_provider.as_ref().map_or(0, |p| p.validator_count()),
+        consensus_round = state
+            .state_provider
+            .as_ref()
+            .map_or(0, |p| p.consensus_round()),
+        bullshark_commits = state
+            .state_provider
+            .as_ref()
+            .map_or(0, |p| p.consensus_commits()),
+        certificates = state
+            .state_provider
+            .as_ref()
+            .map_or(0, |p| p.consensus_certificates()),
+        validator_count = state
+            .state_provider
+            .as_ref()
+            .map_or(0, |p| p.validator_count()),
         total_stake = state.state_provider.as_ref().map_or(0, |p| p.total_stake()),
     );
 
@@ -1470,13 +1694,16 @@ async fn get_block(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(Some(block)) = tokio::task::spawn_blocking(move || {
-            provider.get_block_sync(height)
-        }).await {
+        if let Ok(Some(block)) =
+            tokio::task::spawn_blocking(move || provider.get_block_sync(height)).await
+        {
             return (StatusCode::OK, Json(BlockResponse::from_block(&block)));
         }
     }
-    (StatusCode::NOT_FOUND, Json(BlockResponse::not_found(height)))
+    (
+        StatusCode::NOT_FOUND,
+        Json(BlockResponse::not_found(height)),
+    )
 }
 
 #[derive(Deserialize)]
@@ -1498,22 +1725,28 @@ async fn submit_transaction(
 ) -> (StatusCode, Json<SubmitTxResponse>) {
     // Reject oversized transactions (max 512KB decoded = 1MB hex)
     if req.signed_tx_hex.len() > 1024 * 1024 {
-        return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
-            tx_hash: String::new(),
-            status: "error".to_string(),
-            error: Some("transaction too large (max 512KB)".to_string()),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SubmitTxResponse {
+                tx_hash: String::new(),
+                status: "error".to_string(),
+                error: Some("transaction too large (max 512KB)".to_string()),
+            }),
+        );
     }
 
     // Decode the hex-encoded signed transaction
     let tx_bytes = match hex::decode(req.signed_tx_hex) {
         Ok(b) => b,
         Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
-                tx_hash: String::new(),
-                status: "error".to_string(),
-                error: Some(format!("invalid hex: {e}")),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(SubmitTxResponse {
+                    tx_hash: String::new(),
+                    status: "error".to_string(),
+                    error: Some(format!("invalid hex: {e}")),
+                }),
+            );
         }
     };
 
@@ -1521,33 +1754,42 @@ async fn submit_transaction(
     let signed_tx: pichain_types::SignedTransaction = match serde_json::from_slice(&tx_bytes) {
         Ok(tx) => tx,
         Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
-                tx_hash: String::new(),
-                status: "error".to_string(),
-                error: Some(format!("invalid transaction: {e}")),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(SubmitTxResponse {
+                    tx_hash: String::new(),
+                    status: "error".to_string(),
+                    error: Some(format!("invalid transaction: {e}")),
+                }),
+            );
         }
     };
 
     // Verify chain_id matches this node
     if signed_tx.data.chain_id != state.chain_id {
-        return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
-            tx_hash: String::new(),
-            status: "error".to_string(),
-            error: Some(format!(
-                "chain_id mismatch: tx has {}, node expects {}",
-                signed_tx.data.chain_id, state.chain_id
-            )),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SubmitTxResponse {
+                tx_hash: String::new(),
+                status: "error".to_string(),
+                error: Some(format!(
+                    "chain_id mismatch: tx has {}, node expects {}",
+                    signed_tx.data.chain_id, state.chain_id
+                )),
+            }),
+        );
     }
 
     // Verify signature
     if let Err(e) = signed_tx.verify() {
-        return (StatusCode::BAD_REQUEST, Json(SubmitTxResponse {
-            tx_hash: String::new(),
-            status: "error".to_string(),
-            error: Some(format!("signature verification failed: {e}")),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SubmitTxResponse {
+                tx_hash: String::new(),
+                status: "error".to_string(),
+                error: Some(format!("signature verification failed: {e}")),
+            }),
+        );
     }
 
     let tx_hash = signed_tx.hash().to_string();
@@ -1555,24 +1797,33 @@ async fn submit_transaction(
     // Insert into mempool via state provider
     if let Some(provider) = &state.state_provider {
         match provider.mempool_insert(signed_tx) {
-            Ok(()) => (StatusCode::OK, Json(SubmitTxResponse {
-                tx_hash,
-                status: "pending".to_string(),
-                error: None,
-            })),
-            Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, Json(SubmitTxResponse {
-                tx_hash,
-                status: "rejected".to_string(),
-                error: Some(e),
-            })),
+            Ok(()) => (
+                StatusCode::OK,
+                Json(SubmitTxResponse {
+                    tx_hash,
+                    status: "pending".to_string(),
+                    error: None,
+                }),
+            ),
+            Err(e) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(SubmitTxResponse {
+                    tx_hash,
+                    status: "rejected".to_string(),
+                    error: Some(e),
+                }),
+            ),
         }
     } else {
         state.requests_errors.fetch_add(1, Ordering::Relaxed);
-        (StatusCode::SERVICE_UNAVAILABLE, Json(SubmitTxResponse {
-            tx_hash: String::new(),
-            status: "error".to_string(),
-            error: Some("node not ready: no state provider".to_string()),
-        }))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(SubmitTxResponse {
+                tx_hash: String::new(),
+                status: "error".to_string(),
+                error: Some("node not ready: no state provider".to_string()),
+            }),
+        )
     }
 }
 
@@ -1602,99 +1853,132 @@ async fn get_transaction(
         // Validate hex length before decode to prevent DoS with huge strings
         let hash_hex = strip_0x(&hash_str);
         if hash_hex.len() == 64 {
-        // Parse hash from hex string
-        if let Ok(hash_bytes) = hex::decode(hash_hex) {
-            if hash_bytes.len() == 32 {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&hash_bytes);
-                let tx_hash = pichain_crypto::Hash::from_bytes(arr);
+            // Parse hash from hex string
+            if let Ok(hash_bytes) = hex::decode(hash_hex) {
+                if hash_bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&hash_bytes);
+                    let tx_hash = pichain_crypto::Hash::from_bytes(arr);
 
-                let _permit = state.blocking_semaphore.acquire().await;
-                let tx_hash2 = tx_hash;
-                let provider2 = provider.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    let tx = provider2.get_transaction_sync(&tx_hash2)?;
-                    let receipt = provider2.get_receipt_sync(&tx_hash2);
-                    let block_height = provider2.get_tx_block_height(&tx_hash2);
-                    Some((tx, receipt, block_height))
-                }).await;
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    let tx_hash2 = tx_hash;
+                    let provider2 = provider.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        let tx = provider2.get_transaction_sync(&tx_hash2)?;
+                        let receipt = provider2.get_receipt_sync(&tx_hash2);
+                        let block_height = provider2.get_tx_block_height(&tx_hash2);
+                        Some((tx, receipt, block_height))
+                    })
+                    .await;
 
-                if let Ok(Some((tx, receipt, block_height))) = result {
-                    let kind_str = match &tx.data.kind {
-                        pichain_types::TransactionKind::Transfer { .. } => "Transfer",
-                        pichain_types::TransactionKind::DeployContract { .. } => "DeployContract",
-                        pichain_types::TransactionKind::ContractCall { .. } => "ContractCall",
-                        pichain_types::TransactionKind::Stake { .. } => "Stake",
-                        pichain_types::TransactionKind::Unstake { .. } => "Unstake",
-                        pichain_types::TransactionKind::MiningProof { .. } => "MiningProof",
-                        pichain_types::TransactionKind::CreateToken { .. } => "CreateToken",
-                        pichain_types::TransactionKind::MintToken { .. } => "MintToken",
-                        pichain_types::TransactionKind::TransferToken { .. } => "TransferToken",
-                        pichain_types::TransactionKind::BurnToken { .. } => "BurnToken",
-                        pichain_types::TransactionKind::ApproveToken { .. } => "ApproveToken",
-                        pichain_types::TransactionKind::RevokeMintAuthority { .. } => "RevokeMintAuthority",
-                        pichain_types::TransactionKind::FreezeTokenAccount { .. } => "FreezeTokenAccount",
-                        pichain_types::TransactionKind::ThawTokenAccount { .. } => "ThawTokenAccount",
-                        pichain_types::TransactionKind::CreatePool { .. } => "CreatePool",
-                        pichain_types::TransactionKind::AddLiquidity { .. } => "AddLiquidity",
-                        pichain_types::TransactionKind::RemoveLiquidity { .. } => "RemoveLiquidity",
-                        pichain_types::TransactionKind::Swap { .. } => "Swap",
-                        pichain_types::TransactionKind::CreateLaunch { .. } => "CreateLaunch",
-                        pichain_types::TransactionKind::ParticipateInLaunch { .. } => "ParticipateInLaunch",
-                        pichain_types::TransactionKind::FinalizeLaunch { .. } => "FinalizeLaunch",
-                        pichain_types::TransactionKind::SellFromLaunch { .. } => "SellFromLaunch",
-                        pichain_types::TransactionKind::CreateNftCollection { .. } => "CreateNftCollection",
-                        pichain_types::TransactionKind::MintNft { .. } => "MintNft",
-                        pichain_types::TransactionKind::TransferNft { .. } => "TransferNft",
-                        pichain_types::TransactionKind::ListNft { .. } => "ListNft",
-                        pichain_types::TransactionKind::BuyNft { .. } => "BuyNft",
-                        pichain_types::TransactionKind::DelistNft { .. } => "DelistNft",
-                        pichain_types::TransactionKind::CreateMultisig { .. } => "CreateMultisig",
-                        pichain_types::TransactionKind::ExecuteMultisig { .. } => "ExecuteMultisig",
-                        pichain_types::TransactionKind::BridgeWithdraw { .. } => "BridgeWithdraw",
-                        pichain_types::TransactionKind::CreateMatch { .. } => "CreateMatch",
-                        pichain_types::TransactionKind::JoinMatch { .. } => "JoinMatch",
-                        pichain_types::TransactionKind::StartMatch { .. } => "StartMatch",
-                        pichain_types::TransactionKind::ResolveMatch { .. } => "ResolveMatch",
-                        pichain_types::TransactionKind::CancelMatch { .. } => "CancelMatch",
-                        pichain_types::TransactionKind::RemoveParticipant { .. } => "RemoveParticipant",
-                    };
+                    if let Ok(Some((tx, receipt, block_height))) = result {
+                        let kind_str = match &tx.data.kind {
+                            pichain_types::TransactionKind::Transfer { .. } => "Transfer",
+                            pichain_types::TransactionKind::DeployContract { .. } => {
+                                "DeployContract"
+                            }
+                            pichain_types::TransactionKind::ContractCall { .. } => "ContractCall",
+                            pichain_types::TransactionKind::Stake { .. } => "Stake",
+                            pichain_types::TransactionKind::Unstake { .. } => "Unstake",
+                            pichain_types::TransactionKind::MiningProof { .. } => "MiningProof",
+                            pichain_types::TransactionKind::CreateToken { .. } => "CreateToken",
+                            pichain_types::TransactionKind::MintToken { .. } => "MintToken",
+                            pichain_types::TransactionKind::TransferToken { .. } => "TransferToken",
+                            pichain_types::TransactionKind::BurnToken { .. } => "BurnToken",
+                            pichain_types::TransactionKind::ApproveToken { .. } => "ApproveToken",
+                            pichain_types::TransactionKind::RevokeMintAuthority { .. } => {
+                                "RevokeMintAuthority"
+                            }
+                            pichain_types::TransactionKind::FreezeTokenAccount { .. } => {
+                                "FreezeTokenAccount"
+                            }
+                            pichain_types::TransactionKind::ThawTokenAccount { .. } => {
+                                "ThawTokenAccount"
+                            }
+                            pichain_types::TransactionKind::CreatePool { .. } => "CreatePool",
+                            pichain_types::TransactionKind::AddLiquidity { .. } => "AddLiquidity",
+                            pichain_types::TransactionKind::RemoveLiquidity { .. } => {
+                                "RemoveLiquidity"
+                            }
+                            pichain_types::TransactionKind::Swap { .. } => "Swap",
+                            pichain_types::TransactionKind::CreateLaunch { .. } => "CreateLaunch",
+                            pichain_types::TransactionKind::ParticipateInLaunch { .. } => {
+                                "ParticipateInLaunch"
+                            }
+                            pichain_types::TransactionKind::FinalizeLaunch { .. } => {
+                                "FinalizeLaunch"
+                            }
+                            pichain_types::TransactionKind::SellFromLaunch { .. } => {
+                                "SellFromLaunch"
+                            }
+                            pichain_types::TransactionKind::CreateNftCollection { .. } => {
+                                "CreateNftCollection"
+                            }
+                            pichain_types::TransactionKind::MintNft { .. } => "MintNft",
+                            pichain_types::TransactionKind::TransferNft { .. } => "TransferNft",
+                            pichain_types::TransactionKind::ListNft { .. } => "ListNft",
+                            pichain_types::TransactionKind::BuyNft { .. } => "BuyNft",
+                            pichain_types::TransactionKind::DelistNft { .. } => "DelistNft",
+                            pichain_types::TransactionKind::CreateMultisig { .. } => {
+                                "CreateMultisig"
+                            }
+                            pichain_types::TransactionKind::ExecuteMultisig { .. } => {
+                                "ExecuteMultisig"
+                            }
+                            pichain_types::TransactionKind::BridgeWithdraw { .. } => {
+                                "BridgeWithdraw"
+                            }
+                            pichain_types::TransactionKind::CreateMatch { .. } => "CreateMatch",
+                            pichain_types::TransactionKind::JoinMatch { .. } => "JoinMatch",
+                            pichain_types::TransactionKind::StartMatch { .. } => "StartMatch",
+                            pichain_types::TransactionKind::ResolveMatch { .. } => "ResolveMatch",
+                            pichain_types::TransactionKind::CancelMatch { .. } => "CancelMatch",
+                            pichain_types::TransactionKind::RemoveParticipant { .. } => {
+                                "RemoveParticipant"
+                            }
+                        };
 
-                    let receipt_status = receipt.as_ref().map(|r| {
-                        match r.status {
+                        let receipt_status = receipt.as_ref().map(|r| match r.status {
                             pichain_types::TransactionStatus::Success => "success".to_string(),
-                            pichain_types::TransactionStatus::Reverted(ref msg) => format!("reverted: {msg}"),
+                            pichain_types::TransactionStatus::Reverted(ref msg) => {
+                                format!("reverted: {msg}")
+                            }
                             pichain_types::TransactionStatus::OutOfGas => "out_of_gas".to_string(),
-                        }
-                    });
-                    let gas_used = receipt.as_ref().map(|r| r.gas_used);
+                        });
+                        let gas_used = receipt.as_ref().map(|r| r.gas_used);
 
-                    return (StatusCode::OK, Json(TransactionResponse {
-                        tx_hash: hash_str,
-                        sender: Some(tx.data.sender.to_string()),
-                        nonce: Some(tx.data.nonce),
-                        kind: Some(kind_str.to_string()),
-                        status: receipt_status,
-                        gas_used,
-                        block_height,
-                        found: true,
-                    }));
+                        return (
+                            StatusCode::OK,
+                            Json(TransactionResponse {
+                                tx_hash: hash_str,
+                                sender: Some(tx.data.sender.to_string()),
+                                nonce: Some(tx.data.nonce),
+                                kind: Some(kind_str.to_string()),
+                                status: receipt_status,
+                                gas_used,
+                                block_height,
+                                found: true,
+                            }),
+                        );
+                    }
                 }
             }
-        }
         } // hex length check
     }
 
-    (StatusCode::NOT_FOUND, Json(TransactionResponse {
-        tx_hash: hash_str,
-        sender: None,
-        nonce: None,
-        kind: None,
-        status: None,
-        gas_used: None,
-        block_height: None,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(TransactionResponse {
+            tx_hash: hash_str,
+            sender: None,
+            nonce: None,
+            kind: None,
+            status: None,
+            gas_used: None,
+            block_height: None,
+            found: false,
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -1725,36 +2009,43 @@ async fn get_account(
                     let address = pichain_crypto::ed25519::Address(arr);
 
                     let _permit = state.blocking_semaphore.acquire().await;
-                    if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
-                        provider.get_account_sync(&address)
-                    }).await {
+                    if let Ok(Some(account)) =
+                        tokio::task::spawn_blocking(move || provider.get_account_sync(&address))
+                            .await
+                    {
                         let whole = account.state.balance / 1_000_000_000;
                         let frac = account.state.balance % 1_000_000_000;
                         let balance_pi = format!("{}.{:09}", whole, frac);
-                        return (StatusCode::OK, Json(AccountResponse {
-                            address: address_str,
-                            balance: account.state.balance,
-                            balance_pi,
-                            nonce: account.state.nonce,
-                            staked: account.state.staked,
-                            locked_balance: account.state.locked_balance,
-                            found: true,
-                        }));
+                        return (
+                            StatusCode::OK,
+                            Json(AccountResponse {
+                                address: address_str,
+                                balance: account.state.balance,
+                                balance_pi,
+                                nonce: account.state.nonce,
+                                staked: account.state.staked,
+                                locked_balance: account.state.locked_balance,
+                                found: true,
+                            }),
+                        );
                     }
                 }
             }
         }
     }
 
-    (StatusCode::NOT_FOUND, Json(AccountResponse {
-        address: address_str,
-        balance: 0,
-        balance_pi: "0.0".to_string(),
-        nonce: 0,
-        staked: 0,
-        locked_balance: 0,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(AccountResponse {
+            address: address_str,
+            balance: 0,
+            balance_pi: "0.0".to_string(),
+            nonce: 0,
+            staked: 0,
+            locked_balance: 0,
+            found: false,
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -1906,24 +2197,40 @@ struct LeaderboardResponse {
     network: NetworkMiningStats,
 }
 
-async fn get_mining_leaderboard(State(state): State<Arc<RpcState>>) -> Result<Json<LeaderboardResponse>, (StatusCode, Json<serde_json::Value>)> {
+async fn get_mining_leaderboard(
+    State(state): State<Arc<RpcState>>,
+) -> Result<Json<LeaderboardResponse>, (StatusCode, Json<serde_json::Value>)> {
     let provider = state.state_provider.as_ref().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "state not available"})))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "state not available"})),
+        )
     })?;
 
     let (top_miners, total_digits) = provider.get_mining_leaderboard().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "mining data not available"})))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "mining data not available"})),
+        )
     })?;
 
-    let miners: Vec<LeaderboardEntry> = top_miners.iter().enumerate().map(|(i, (addr, digits))| {
-        let pct = if total_digits > 0 { (*digits as f64 / total_digits as f64) * 100.0 } else { 0.0 };
-        LeaderboardEntry {
-            address: hex::encode(addr.0),
-            digits_computed: *digits,
-            percentage: (pct * 100.0).round() / 100.0,
-            rank: (i + 1) as u32,
-        }
-    }).collect();
+    let miners: Vec<LeaderboardEntry> = top_miners
+        .iter()
+        .enumerate()
+        .map(|(i, (addr, digits))| {
+            let pct = if total_digits > 0 {
+                (*digits as f64 / total_digits as f64) * 100.0
+            } else {
+                0.0
+            };
+            LeaderboardEntry {
+                address: hex::encode(addr.0),
+                digits_computed: *digits,
+                percentage: (pct * 100.0).round() / 100.0,
+                rank: (i + 1) as u32,
+            }
+        })
+        .collect();
 
     let network = if let Some(stats) = provider.get_mining_stats() {
         NetworkMiningStats {
@@ -1976,30 +2283,59 @@ async fn get_mining_miner_detail(
 ) -> Result<Json<MinerDetailResponse>, (StatusCode, Json<serde_json::Value>)> {
     let clean = strip_0x(&address_hex);
     let addr_bytes = hex::decode(clean).map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid hex address"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid hex address"})),
+        )
     })?;
     if addr_bytes.len() != 20 {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 20 bytes"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 20 bytes"})),
+        ));
     }
     let mut addr = pichain_crypto::ed25519::Address([0u8; 20]);
     addr.0.copy_from_slice(&addr_bytes);
 
     let provider = state.state_provider.as_ref().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "state not available"})))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "state not available"})),
+        )
     })?;
 
     let (top_miners, total_digits) = provider.get_mining_leaderboard().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "mining data not available"})))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "mining data not available"})),
+        )
     })?;
 
-    let miner_digits = top_miners.iter().find(|(a, _)| a == &addr).map(|(_, d)| *d).unwrap_or(0);
-    let rank = top_miners.iter().position(|(a, _)| a == &addr).map(|i| (i + 1) as u32).unwrap_or(0);
-    let pct = if total_digits > 0 { (miner_digits as f64 / total_digits as f64) * 100.0 } else { 0.0 };
+    let miner_digits = top_miners
+        .iter()
+        .find(|(a, _)| a == &addr)
+        .map(|(_, d)| *d)
+        .unwrap_or(0);
+    let rank = top_miners
+        .iter()
+        .position(|(a, _)| a == &addr)
+        .map(|i| (i + 1) as u32)
+        .unwrap_or(0);
+    let pct = if total_digits > 0 {
+        (miner_digits as f64 / total_digits as f64) * 100.0
+    } else {
+        0.0
+    };
 
     let proofs = provider.get_miner_recent_proofs(&addr, 20);
-    let recent_proofs: Vec<RecentProof> = proofs.into_iter().map(|(start, count, height)| {
-        RecentProof { start, count, committed_at_height: height }
-    }).collect();
+    let recent_proofs: Vec<RecentProof> = proofs
+        .into_iter()
+        .map(|(start, count, height)| RecentProof {
+            start,
+            count,
+            committed_at_height: height,
+        })
+        .collect();
 
     Ok(Json(MinerDetailResponse {
         address: hex::encode(addr.0),
@@ -2038,18 +2374,24 @@ async fn get_activation_challenge(
     Json(req): Json<ChallengeRequest>,
 ) -> (StatusCode, Json<ChallengeResponse>) {
     let fail = |status: StatusCode, err: String| {
-        (status, Json(ChallengeResponse {
-            success: false,
-            challenge: String::new(),
-            difficulty_bits: ACTIVATION_POW_BITS,
-            error: Some(err),
-            activations_remaining: 0,
-        }))
+        (
+            status,
+            Json(ChallengeResponse {
+                success: false,
+                challenge: String::new(),
+                difficulty_bits: ACTIVATION_POW_BITS,
+                error: Some(err),
+                activations_remaining: 0,
+            }),
+        )
     };
 
     let hex_str = strip_0x(&req.address);
     if hex_str.len() != 40 {
-        return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string());
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "address must be 40 hex characters".to_string(),
+        );
     }
     let addr_bytes = match hex::decode(hex_str) {
         Ok(b) if b.len() == 20 => b,
@@ -2063,10 +2405,16 @@ async fn get_activation_challenge(
     let remaining = if let Some(provider) = &state.state_provider {
         3_140_000u64.saturating_sub(provider.activation_count())
     } else {
-        return fail(StatusCode::SERVICE_UNAVAILABLE, "node unavailable".to_string());
+        return fail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "node unavailable".to_string(),
+        );
     };
     if remaining == 0 {
-        return fail(StatusCode::FORBIDDEN, "wallet activation cap reached (3,140,000)".to_string());
+        return fail(
+            StatusCode::FORBIDDEN,
+            "wallet activation cap reached (3,140,000)".to_string(),
+        );
     }
 
     // SECURITY: Cap total pending challenges to prevent memory exhaustion.
@@ -2082,7 +2430,10 @@ async fn get_activation_challenge(
 
     // SECURITY: Only allow one pending challenge per address.
     // Prevents an attacker from generating thousands of challenges for the same address.
-    let addr_has_pending = state.activation_challenges.iter().any(|e| e.value().address == address);
+    let addr_has_pending = state
+        .activation_challenges
+        .iter()
+        .any(|e| e.value().address == address);
     if addr_has_pending {
         return fail(
             StatusCode::TOO_MANY_REQUESTS,
@@ -2106,7 +2457,8 @@ async fn get_activation_challenge(
         &cnt.to_le_bytes(),
         &addr_bytes,
         &random_salt,
-    ]).as_bytes();
+    ])
+    .as_bytes();
 
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2116,21 +2468,29 @@ async fn get_activation_challenge(
     let challenge_hex = hex::encode(challenge);
 
     // Evict expired challenges (lazy cleanup)
-    state.activation_challenges.retain(|_, v| v.expires_at > now_secs);
+    state
+        .activation_challenges
+        .retain(|_, v| v.expires_at > now_secs);
 
-    state.activation_challenges.insert(challenge_hex.clone(), ActivationChallenge {
-        challenge,
-        address,
-        expires_at: now_secs + CHALLENGE_TTL_SECS,
-    });
+    state.activation_challenges.insert(
+        challenge_hex.clone(),
+        ActivationChallenge {
+            challenge,
+            address,
+            expires_at: now_secs + CHALLENGE_TTL_SECS,
+        },
+    );
 
-    (StatusCode::OK, Json(ChallengeResponse {
-        success: true,
-        challenge: challenge_hex,
-        difficulty_bits: ACTIVATION_POW_BITS,
-        error: None,
-        activations_remaining: remaining,
-    }))
+    (
+        StatusCode::OK,
+        Json(ChallengeResponse {
+            success: true,
+            challenge: challenge_hex,
+            difficulty_bits: ACTIVATION_POW_BITS,
+            error: None,
+            activations_remaining: remaining,
+        }),
+    )
 }
 
 #[derive(Deserialize)]
@@ -2156,23 +2516,36 @@ async fn activate_wallet(
     Json(req): Json<ActivateRequest>,
 ) -> (StatusCode, Json<ActivateResponse>) {
     let fail = |status: StatusCode, err: String, addr: String| {
-        (status, Json(ActivateResponse {
-            success: false,
-            locked_amount: 0,
-            locked_amount_pi: "0".to_string(),
-            error: Some(err),
-            address: addr,
-        }))
+        (
+            status,
+            Json(ActivateResponse {
+                success: false,
+                locked_amount: 0,
+                locked_amount_pi: "0".to_string(),
+                error: Some(err),
+                address: addr,
+            }),
+        )
     };
 
     // Validate address
     let hex_str = strip_0x(&req.address);
     if hex_str.len() != 40 {
-        return fail(StatusCode::BAD_REQUEST, "address must be 40 hex characters".to_string(), req.address);
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "address must be 40 hex characters".to_string(),
+            req.address,
+        );
     }
     let addr_bytes = match hex::decode(hex_str) {
         Ok(b) if b.len() == 20 => b,
-        _ => return fail(StatusCode::BAD_REQUEST, "invalid address hex".to_string(), req.address),
+        _ => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                "invalid address hex".to_string(),
+                req.address,
+            )
+        }
     };
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
@@ -2182,7 +2555,13 @@ async fn activate_wallet(
     let challenge_entry = state.activation_challenges.remove(&req.challenge);
     let (_, entry) = match challenge_entry {
         Some(e) => e,
-        None => return fail(StatusCode::BAD_REQUEST, "invalid or expired challenge".to_string(), req.address),
+        None => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                "invalid or expired challenge".to_string(),
+                req.address,
+            )
+        }
     };
 
     // Check expiry
@@ -2191,17 +2570,25 @@ async fn activate_wallet(
         .unwrap_or_default()
         .as_secs();
     if now_secs > entry.expires_at {
-        return fail(StatusCode::BAD_REQUEST, "challenge expired".to_string(), req.address);
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "challenge expired".to_string(),
+            req.address,
+        );
     }
 
     // Check challenge is bound to this address
     if entry.address != address {
-        return fail(StatusCode::BAD_REQUEST, "challenge not issued for this address".to_string(), req.address);
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "challenge not issued for this address".to_string(),
+            req.address,
+        );
     }
 
     // Verify PoW: SHA-256(challenge || nonce_le_bytes) must have ACTIVATION_POW_BITS leading zero bits
     // Uses SHA-256 so browsers can solve via native crypto.subtle (no CDN/WASM deps)
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(entry.challenge);
     hasher.update(req.nonce.to_le_bytes());
@@ -2210,7 +2597,11 @@ async fn activate_wallet(
     let hash_bytes: &[u8; 32] = hash_slice.try_into().expect("sha256 is 32 bytes");
 
     if !has_leading_zeros(hash_bytes, ACTIVATION_POW_BITS) {
-        return fail(StatusCode::BAD_REQUEST, "invalid PoW solution".to_string(), req.address);
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "invalid PoW solution".to_string(),
+            req.address,
+        );
     }
 
     // PoW verified — proceed with activation
@@ -2221,17 +2612,20 @@ async fn activate_wallet(
                     address = %req.address,
                     "wallet activated via PoW challenge"
                 );
-                return (StatusCode::OK, Json(ActivateResponse {
-                    success: true,
-                    locked_amount: amount,
-                    locked_amount_pi: format!(
-                        "{}.{:09}",
-                        amount / 1_000_000_000,
-                        amount % 1_000_000_000
-                    ),
-                    error: None,
-                    address: req.address,
-                }));
+                return (
+                    StatusCode::OK,
+                    Json(ActivateResponse {
+                        success: true,
+                        locked_amount: amount,
+                        locked_amount_pi: format!(
+                            "{}.{:09}",
+                            amount / 1_000_000_000,
+                            amount % 1_000_000_000
+                        ),
+                        error: None,
+                        address: req.address,
+                    }),
+                );
             }
             Err(e) => {
                 return fail(StatusCode::UNPROCESSABLE_ENTITY, e, req.address);
@@ -2239,7 +2633,11 @@ async fn activate_wallet(
         }
     }
 
-    fail(StatusCode::SERVICE_UNAVAILABLE, "activation unavailable".to_string(), req.address)
+    fail(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "activation unavailable".to_string(),
+        req.address,
+    )
 }
 
 /// Check if a hash has at least `bits` leading zero bits.
@@ -2293,44 +2691,56 @@ async fn get_receipt(
                     let tx_hash = pichain_crypto::Hash::from_bytes(arr);
 
                     let _permit = state.blocking_semaphore.acquire().await;
-                    let result = tokio::task::spawn_blocking(move || {
-                        provider.get_receipt_sync(&tx_hash)
-                    }).await;
+                    let result =
+                        tokio::task::spawn_blocking(move || provider.get_receipt_sync(&tx_hash))
+                            .await;
 
                     if let Ok(Some(receipt)) = result {
                         let status = match &receipt.status {
                             pichain_types::TransactionStatus::Success => "success".to_string(),
-                            pichain_types::TransactionStatus::Reverted(msg) => format!("reverted: {msg}"),
+                            pichain_types::TransactionStatus::Reverted(msg) => {
+                                format!("reverted: {msg}")
+                            }
                             pichain_types::TransactionStatus::OutOfGas => "out_of_gas".to_string(),
                         };
-                        let events: Vec<EventData> = receipt.events.iter().map(|e| EventData {
-                            emitter: e.emitter.to_string(),
-                            event_type: e.event_type.clone(),
-                            data_hex: hex::encode(&e.data),
-                        }).collect();
+                        let events: Vec<EventData> = receipt
+                            .events
+                            .iter()
+                            .map(|e| EventData {
+                                emitter: e.emitter.to_string(),
+                                event_type: e.event_type.clone(),
+                                data_hex: hex::encode(&e.data),
+                            })
+                            .collect();
 
-                        return (StatusCode::OK, Json(ReceiptResponse {
-                            tx_hash: hash_str,
-                            status,
-                            gas_used: receipt.gas_used,
-                            base_fee: receipt.base_fee,
-                            events,
-                            found: true,
-                        }));
+                        return (
+                            StatusCode::OK,
+                            Json(ReceiptResponse {
+                                tx_hash: hash_str,
+                                status,
+                                gas_used: receipt.gas_used,
+                                base_fee: receipt.base_fee,
+                                events,
+                                found: true,
+                            }),
+                        );
                     }
                 }
             }
         }
     }
 
-    (StatusCode::NOT_FOUND, Json(ReceiptResponse {
-        tx_hash: hash_str,
-        status: String::new(),
-        gas_used: 0,
-        base_fee: 0,
-        events: vec![],
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(ReceiptResponse {
+            tx_hash: hash_str,
+            status: String::new(),
+            gas_used: 0,
+            base_fee: 0,
+            events: vec![],
+            found: false,
+        }),
+    )
 }
 
 // --- Block range handler ---
@@ -2345,7 +2755,9 @@ struct BlockRangeQuery {
     limit: u64,
 }
 
-fn default_limit() -> u64 { 20 }
+fn default_limit() -> u64 {
+    20
+}
 
 /// Maximum blocks returned in a range query.
 /// Max blocks per range query. Capped at 25 to limit DoS via expensive scans.
@@ -2381,7 +2793,12 @@ async fn get_block_range(
         // Acquire semaphore permit to limit concurrent blocking tasks
         let _permit = match state.blocking_semaphore.acquire().await {
             Ok(permit) => permit,
-            Err(_) => return Json(BlockListResponse { blocks: vec![], total_height: 0 }),
+            Err(_) => {
+                return Json(BlockListResponse {
+                    blocks: vec![],
+                    total_height: 0,
+                })
+            }
         };
 
         // Run potentially blocking multi-block iteration off the async runtime
@@ -2403,15 +2820,22 @@ async fn get_block_range(
                     });
                 }
             }
-            BlockListResponse { blocks, total_height: current }
-        }).await;
+            BlockListResponse {
+                blocks,
+                total_height: current,
+            }
+        })
+        .await;
 
         if let Ok(response) = result {
             return Json(response);
         }
     }
 
-    Json(BlockListResponse { blocks: vec![], total_height: 0 })
+    Json(BlockListResponse {
+        blocks: vec![],
+        total_height: 0,
+    })
 }
 
 // --- Token route handlers ---
@@ -2438,46 +2862,52 @@ async fn get_token_info(
         // Validate hex length before decoding (32 bytes = 64 hex chars)
         let mint_id_stripped = strip_0x(&mint_id_hex);
         if mint_id_stripped.len() == 64 {
-        if let Ok(bytes) = hex::decode(mint_id_stripped) {
-            if bytes.len() == 32 {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                let mint_id = pichain_types::MintId(arr);
+            if let Ok(bytes) = hex::decode(mint_id_stripped) {
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    let mint_id = pichain_types::MintId(arr);
 
-                let _permit = state.blocking_semaphore.acquire().await;
-                if let Ok(Some(mint)) = tokio::task::spawn_blocking(move || {
-                    provider.get_token_mint(&mint_id)
-                }).await {
-                    return (StatusCode::OK, Json(TokenInfoResponse {
-                        mint_id: mint_id_hex,
-                        name: mint.name,
-                        symbol: mint.symbol,
-                        decimals: mint.decimals,
-                        total_supply: mint.total_supply,
-                        max_supply: mint.max_supply,
-                        creator: mint.creator.to_string(),
-                        has_mint_authority: mint.mint_authority.is_some(),
-                        active: mint.active,
-                        found: true,
-                    }));
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(Some(mint)) =
+                        tokio::task::spawn_blocking(move || provider.get_token_mint(&mint_id)).await
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(TokenInfoResponse {
+                                mint_id: mint_id_hex,
+                                name: mint.name,
+                                symbol: mint.symbol,
+                                decimals: mint.decimals,
+                                total_supply: mint.total_supply,
+                                max_supply: mint.max_supply,
+                                creator: mint.creator.to_string(),
+                                has_mint_authority: mint.mint_authority.is_some(),
+                                active: mint.active,
+                                found: true,
+                            }),
+                        );
+                    }
                 }
             }
         }
-        }
     }
 
-    (StatusCode::NOT_FOUND, Json(TokenInfoResponse {
-        mint_id: mint_id_hex,
-        name: String::new(),
-        symbol: String::new(),
-        decimals: 0,
-        total_supply: 0,
-        max_supply: 0,
-        creator: String::new(),
-        has_mint_authority: false,
-        active: false,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(TokenInfoResponse {
+            mint_id: mint_id_hex,
+            name: String::new(),
+            symbol: String::new(),
+            decimals: 0,
+            total_supply: 0,
+            max_supply: 0,
+            creator: String::new(),
+            has_mint_authority: false,
+            active: false,
+            found: false,
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -2498,42 +2928,50 @@ async fn get_token_account_balance(
         let mint_id_stripped = strip_0x(&mint_id_hex);
         let addr_stripped = strip_0x(&address_hex);
         if mint_id_stripped.len() == 64 && addr_stripped.len() == 40 {
-        if let (Ok(mint_bytes), Ok(addr_bytes)) =
-            (hex::decode(mint_id_stripped), hex::decode(addr_stripped))
-        {
-            if mint_bytes.len() == 32 && addr_bytes.len() == 20 {
-                let mut mint_arr = [0u8; 32];
-                mint_arr.copy_from_slice(&mint_bytes);
-                let mint_id = pichain_types::MintId(mint_arr);
+            if let (Ok(mint_bytes), Ok(addr_bytes)) =
+                (hex::decode(mint_id_stripped), hex::decode(addr_stripped))
+            {
+                if mint_bytes.len() == 32 && addr_bytes.len() == 20 {
+                    let mut mint_arr = [0u8; 32];
+                    mint_arr.copy_from_slice(&mint_bytes);
+                    let mint_id = pichain_types::MintId(mint_arr);
 
-                let mut addr_arr = [0u8; 20];
-                addr_arr.copy_from_slice(&addr_bytes);
-                let address = pichain_crypto::ed25519::Address(addr_arr);
+                    let mut addr_arr = [0u8; 20];
+                    addr_arr.copy_from_slice(&addr_bytes);
+                    let address = pichain_crypto::ed25519::Address(addr_arr);
 
-                let _permit = state.blocking_semaphore.acquire().await;
-                if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
-                    provider.get_token_account(&address, &mint_id)
-                }).await {
-                    return (StatusCode::OK, Json(TokenAccountResponse {
-                        owner: address_hex,
-                        mint_id: mint_id_hex,
-                        balance: account.balance,
-                        frozen: account.frozen,
-                        found: true,
-                    }));
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
+                        provider.get_token_account(&address, &mint_id)
+                    })
+                    .await
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(TokenAccountResponse {
+                                owner: address_hex,
+                                mint_id: mint_id_hex,
+                                balance: account.balance,
+                                frozen: account.frozen,
+                                found: true,
+                            }),
+                        );
+                    }
                 }
             }
-        }
         } // hex length check
     }
 
-    (StatusCode::NOT_FOUND, Json(TokenAccountResponse {
-        owner: address_hex,
-        mint_id: mint_id_hex,
-        balance: 0,
-        frozen: false,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(TokenAccountResponse {
+            owner: address_hex,
+            mint_id: mint_id_hex,
+            balance: 0,
+            frozen: false,
+            found: false,
+        }),
+    )
 }
 
 // --- DEX route handlers ---
@@ -2560,48 +2998,58 @@ async fn get_pool_info(
         let mint_a_stripped = strip_0x(&mint_a_hex);
         let mint_b_stripped = strip_0x(&mint_b_hex);
         if mint_a_stripped.len() == 64 && mint_b_stripped.len() == 64 {
-        if let (Ok(a_bytes), Ok(b_bytes)) = (hex::decode(mint_a_stripped), hex::decode(mint_b_stripped)) {
-            if a_bytes.len() == 32 && b_bytes.len() == 32 {
-                let mut a_arr = [0u8; 32];
-                a_arr.copy_from_slice(&a_bytes);
-                let mint_a = pichain_types::MintId(a_arr);
+            if let (Ok(a_bytes), Ok(b_bytes)) =
+                (hex::decode(mint_a_stripped), hex::decode(mint_b_stripped))
+            {
+                if a_bytes.len() == 32 && b_bytes.len() == 32 {
+                    let mut a_arr = [0u8; 32];
+                    a_arr.copy_from_slice(&a_bytes);
+                    let mint_a = pichain_types::MintId(a_arr);
 
-                let mut b_arr = [0u8; 32];
-                b_arr.copy_from_slice(&b_bytes);
-                let mint_b = pichain_types::MintId(b_arr);
+                    let mut b_arr = [0u8; 32];
+                    b_arr.copy_from_slice(&b_bytes);
+                    let mint_b = pichain_types::MintId(b_arr);
 
-                let _permit = state.blocking_semaphore.acquire().await;
-                if let Ok(Some(pool)) = tokio::task::spawn_blocking(move || {
-                    provider.get_pool_by_mints(&mint_a, &mint_b)
-                }).await {
-                    return (StatusCode::OK, Json(PoolInfoResponse {
-                        pool_id: pool.id.to_string(),
-                        mint_a: pool.mint_a.to_string(),
-                        mint_b: pool.mint_b.to_string(),
-                        reserve_a: pool.reserve_a,
-                        reserve_b: pool.reserve_b,
-                        lp_supply: pool.lp_supply,
-                        fee_bps: pool.fee_bps,
-                        active: pool.active,
-                        found: true,
-                    }));
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(Some(pool)) = tokio::task::spawn_blocking(move || {
+                        provider.get_pool_by_mints(&mint_a, &mint_b)
+                    })
+                    .await
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(PoolInfoResponse {
+                                pool_id: pool.id.to_string(),
+                                mint_a: pool.mint_a.to_string(),
+                                mint_b: pool.mint_b.to_string(),
+                                reserve_a: pool.reserve_a,
+                                reserve_b: pool.reserve_b,
+                                lp_supply: pool.lp_supply,
+                                fee_bps: pool.fee_bps,
+                                active: pool.active,
+                                found: true,
+                            }),
+                        );
+                    }
                 }
             }
-        }
         } // hex length check
     }
 
-    (StatusCode::NOT_FOUND, Json(PoolInfoResponse {
-        pool_id: String::new(),
-        mint_a: mint_a_hex,
-        mint_b: mint_b_hex,
-        reserve_a: 0,
-        reserve_b: 0,
-        lp_supply: 0,
-        fee_bps: 0,
-        active: false,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(PoolInfoResponse {
+            pool_id: String::new(),
+            mint_a: mint_a_hex,
+            mint_b: mint_b_hex,
+            reserve_a: 0,
+            reserve_b: 0,
+            lp_supply: 0,
+            fee_bps: 0,
+            active: false,
+            found: false,
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -2628,46 +3076,55 @@ async fn get_swap_quote(
         let mint_in_stripped = strip_0x(&mint_in_hex);
         let mint_out_stripped = strip_0x(&mint_out_hex);
         if mint_in_stripped.len() == 64 && mint_out_stripped.len() == 64 {
-        if let (Ok(in_bytes), Ok(out_bytes)) =
-            (hex::decode(mint_in_stripped), hex::decode(mint_out_stripped))
-        {
-            if in_bytes.len() == 32 && out_bytes.len() == 32 {
-                let mut in_arr = [0u8; 32];
-                in_arr.copy_from_slice(&in_bytes);
-                let mint_in = pichain_types::MintId(in_arr);
+            if let (Ok(in_bytes), Ok(out_bytes)) = (
+                hex::decode(mint_in_stripped),
+                hex::decode(mint_out_stripped),
+            ) {
+                if in_bytes.len() == 32 && out_bytes.len() == 32 {
+                    let mut in_arr = [0u8; 32];
+                    in_arr.copy_from_slice(&in_bytes);
+                    let mint_in = pichain_types::MintId(in_arr);
 
-                let mut out_arr = [0u8; 32];
-                out_arr.copy_from_slice(&out_bytes);
-                let mint_out = pichain_types::MintId(out_arr);
+                    let mut out_arr = [0u8; 32];
+                    out_arr.copy_from_slice(&out_bytes);
+                    let mint_out = pichain_types::MintId(out_arr);
 
-                let _permit = state.blocking_semaphore.acquire().await;
-                if let Ok(Some(quote)) = tokio::task::spawn_blocking(move || {
-                    provider.get_swap_quote(&mint_in, &mint_out, amount_in)
-                }).await {
-                    return (StatusCode::OK, Json(SwapQuoteResponse {
-                        mint_in: mint_in_hex,
-                        mint_out: mint_out_hex,
-                        amount_in,
-                        amount_out: quote.amount_out,
-                        fee: quote.fee,
-                        price_impact_bps: quote.price_impact_bps,
-                        found: true,
-                    }));
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(Some(quote)) = tokio::task::spawn_blocking(move || {
+                        provider.get_swap_quote(&mint_in, &mint_out, amount_in)
+                    })
+                    .await
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(SwapQuoteResponse {
+                                mint_in: mint_in_hex,
+                                mint_out: mint_out_hex,
+                                amount_in,
+                                amount_out: quote.amount_out,
+                                fee: quote.fee,
+                                price_impact_bps: quote.price_impact_bps,
+                                found: true,
+                            }),
+                        );
+                    }
                 }
             }
-        }
         } // hex length check
     }
 
-    (StatusCode::NOT_FOUND, Json(SwapQuoteResponse {
-        mint_in: mint_in_hex,
-        mint_out: mint_out_hex,
-        amount_in,
-        amount_out: 0,
-        fee: 0,
-        price_impact_bps: 0,
-        found: false,
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(SwapQuoteResponse {
+            mint_in: mint_in_hex,
+            mint_out: mint_out_hex,
+            amount_in,
+            amount_out: 0,
+            fee: 0,
+            price_impact_bps: 0,
+            found: false,
+        }),
+    )
 }
 
 // ─── Launch page serving ────────────────────────────────────────────────────
@@ -2761,36 +3218,46 @@ async fn get_bridge_deposit_address(
     }
 
     // Try to get registered addresses from bridge relayer
-    let registered = state.state_provider.as_ref().and_then(|p| p.bridge_get_addresses());
+    let registered = state
+        .state_provider
+        .as_ref()
+        .and_then(|p| p.bridge_get_addresses());
 
     let (address, note) = match chain.as_str() {
         "eth" => {
-            let addr = registered.as_ref()
+            let addr = registered
+                .as_ref()
                 .filter(|a| !a.eth.is_empty())
                 .map(|a| a.eth.clone())
                 .unwrap_or_else(|| "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".to_string());
             (addr, "Send ETH to this address with your PIChain address as calldata. wETH will be minted after 12 confirmations.")
         }
         "sol" => {
-            let addr = registered.as_ref()
+            let addr = registered
+                .as_ref()
                 .filter(|a| !a.sol.is_empty())
                 .map(|a| a.sol.clone())
                 .unwrap_or_else(|| "BRjpCHtyQLeSJjRKsMdbbQWfQ2EH3ZTfHxKBxJfRzakr".to_string());
             (addr, "Send SOL to this address with your PIChain address in memo. wSOL will be minted after 32 confirmations.")
         }
         "btc" => {
-            let addr = registered.as_ref()
+            let addr = registered
+                .as_ref()
                 .filter(|a| !a.btc.is_empty())
                 .map(|a| a.btc.clone())
                 .unwrap_or_else(|| "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh".to_string());
             (addr, "Send BTC to this address with your PIChain address in OP_RETURN. wBTC will be minted after 6 confirmations.")
         }
         "usdt" => {
-            let addr = registered.as_ref()
+            let addr = registered
+                .as_ref()
                 .filter(|a| !a.usdt.is_empty())
                 .map(|a| a.usdt.clone())
                 .unwrap_or_else(|| "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".to_string());
-            (addr, "Send USDT (ERC-20) to this address. wUSDT will be minted after 12 confirmations.")
+            (
+                addr,
+                "Send USDT (ERC-20) to this address. wUSDT will be minted after 12 confirmations.",
+            )
         }
         _ => {
             return (
@@ -2814,13 +3281,13 @@ async fn get_bridge_deposit_address(
 /// Bridge mint request — only from localhost, used by bridge operator.
 #[derive(Deserialize)]
 struct BridgeMintRequest {
-    symbol: String,      // "wETH", "wSOL", "wBTC", "wUSDT"
-    recipient: String,   // hex PIChain address
-    amount: u64,         // amount in base units
+    symbol: String,    // "wETH", "wSOL", "wBTC", "wUSDT"
+    recipient: String, // hex PIChain address
+    amount: u64,       // amount in base units
     #[serde(default)]
-    chain: String,       // source chain for tracking (optional)
+    chain: String, // source chain for tracking (optional)
     #[serde(default)]
-    tx_hash: String,     // external chain tx hash for tracking (optional)
+    tx_hash: String, // external chain tx hash for tracking (optional)
 }
 
 /// Mint wrapped tokens to a recipient — localhost-only bridge operator endpoint.
@@ -2847,10 +3314,12 @@ async fn bridge_mint_tokens(
     }
     let addr_bytes = match hex::decode(hex_str) {
         Ok(b) if b.len() == 20 => b,
-        _ => return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "invalid recipient hex" })),
-        ),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "invalid recipient hex" })),
+            )
+        }
     };
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
@@ -2898,12 +3367,15 @@ async fn bridge_mint_tokens(
                     amount = req.amount,
                     "bridge mint completed"
                 );
-                (StatusCode::OK, Json(serde_json::json!({
-                    "success": true,
-                    "symbol": req.symbol,
-                    "recipient": req.recipient,
-                    "amount": req.amount,
-                })))
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "symbol": req.symbol,
+                        "recipient": req.recipient,
+                        "amount": req.amount,
+                    })),
+                )
             }
             Err(e) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -2936,11 +3408,17 @@ async fn bridge_register_addresses(
     if !is_loopback_ip(addr.ip()) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "register-addresses only available from localhost" })),
+            Json(
+                serde_json::json!({ "error": "register-addresses only available from localhost" }),
+            ),
         );
     }
 
-    let usdt = if req.usdt.is_empty() { req.eth.clone() } else { req.usdt };
+    let usdt = if req.usdt.is_empty() {
+        req.eth.clone()
+    } else {
+        req.usdt
+    };
 
     if let Some(provider) = &state.state_provider {
         match provider.bridge_register_addresses(&req.eth, &req.sol, &req.btc, &usdt) {
@@ -2948,10 +3426,16 @@ async fn bridge_register_addresses(
                 info!(eth = %req.eth, sol = %req.sol, btc = %req.btc, "registered bridge custodial addresses");
                 (StatusCode::OK, Json(serde_json::json!({ "success": true })))
             }
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e })),
+            ),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "node unavailable" })),
+        )
     }
 }
 
@@ -2962,13 +3446,19 @@ async fn bridge_status(
     if let Some(provider) = &state.state_provider {
         let status = provider.bridge_status();
         let addresses = provider.bridge_get_addresses();
-        (StatusCode::OK, Json(serde_json::json!({
-            "tokens": status.tokens,
-            "total_transfers": status.total_transfers,
-            "addresses": addresses,
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "tokens": status.tokens,
+                "total_transfers": status.total_transfers,
+                "addresses": addresses,
+            })),
+        )
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "node unavailable" })),
+        )
     }
 }
 
@@ -2981,7 +3471,9 @@ struct BridgeTransfersQuery {
     limit: usize,
 }
 
-fn default_transfers_limit() -> usize { 50 }
+fn default_transfers_limit() -> usize {
+    50
+}
 
 async fn bridge_transfers(
     State(state): State<Arc<RpcState>>,
@@ -2990,9 +3482,15 @@ async fn bridge_transfers(
     if let Some(provider) = &state.state_provider {
         let limit = query.limit.min(200);
         let transfers = provider.bridge_get_transfers(query.chain.as_deref(), limit);
-        (StatusCode::OK, Json(serde_json::json!({ "transfers": transfers })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "transfers": transfers })),
+        )
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "node unavailable" })),
+        )
     }
 }
 
@@ -3033,16 +3531,25 @@ async fn bridge_deposit_intent(
 
     if let Some(provider) = &state.state_provider {
         match provider.bridge_register_intent(&chain, &req.external_address, addr_hex) {
-            Ok(()) => (StatusCode::OK, Json(serde_json::json!({
-                "success": true,
-                "chain": chain,
-                "external_address": req.external_address,
-                "pichain_address": req.pichain_address,
-            }))),
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))),
+            Ok(()) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "chain": chain,
+                    "external_address": req.external_address,
+                    "pichain_address": req.pichain_address,
+                })),
+            ),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e })),
+            ),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "node unavailable" })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "node unavailable" })),
+        )
     }
 }
 
@@ -3094,15 +3601,18 @@ async fn bridge_withdraw(
     // For now, withdrawals are recorded but processing happens via the bridge relayer.
     // The actual burn and release on external chain is handled by the relayer polling for
     // withdrawal records.
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "status": "pending",
-        "message": "Withdrawal queued. The bridge relayer will process it shortly.",
-        "symbol": req.symbol,
-        "amount": req.amount,
-        "destination_chain": chain,
-        "destination_address": req.destination_address,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "status": "pending",
+            "message": "Withdrawal queued. The bridge relayer will process it shortly.",
+            "symbol": req.symbol,
+            "amount": req.amount,
+            "destination_chain": chain,
+            "destination_address": req.destination_address,
+        })),
+    )
 }
 
 // ─── Launchpad / listing API handlers ───────────────────────────────────────
@@ -3143,53 +3653,75 @@ async fn get_all_launches(
         let _permit = state.blocking_semaphore.acquire().await;
         if let Ok(data) = tokio::task::spawn_blocking(move || {
             let launches = provider.scan_all_launches();
-            let mut items: Vec<LaunchListItem> = launches.iter().map(|l| {
-                let mint = provider.get_token_mint(&l.mint);
-                let (lt_name, bp, sl, ps) = match &l.launch_type {
-                    pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
-                        ("FairLaunch".to_string(), *price_per_token, 0u64, 1u64),
-                    pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } =>
-                        ("BondingCurve".to_string(), *base_price, *slope, *price_scale),
-                };
-                let current_price = l.current_price();
-                let pct = if l.target_pi > 0 {
-                    (l.pi_raised as f64 / l.target_pi as f64) * 100.0
-                } else { 0.0 };
-                let state_str = match &l.state {
-                    pichain_types::launchpad::LaunchState::Active => "Active",
-                    pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
-                    pichain_types::launchpad::LaunchState::Finalized => "Finalized",
-                    pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
-                };
-                LaunchListItem {
-                    mint_id: hex::encode(l.mint.0),
-                    launch_id: hex::encode(l.id.0),
-                    creator: hex::encode(l.creator.0),
-                    state: state_str.to_string(),
-                    tokens_for_sale: l.tokens_for_sale,
-                    tokens_sold: l.tokens_sold,
-                    pi_raised: l.pi_raised,
-                    target_pi: l.target_pi,
-                    current_price,
-                    percent_complete: pct,
-                    max_per_address: l.max_per_address,
-                    contributors: l.contributions.len(),
-                    created_at_ms: l.created_at_ms,
-                    name: mint.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
-                    symbol: mint.as_ref().map(|m| m.symbol.clone()).unwrap_or_default(),
-                    metadata_uri: mint.as_ref().map(|m| m.metadata_uri.clone()).unwrap_or_default(),
-                    decimals: mint.as_ref().map(|m| m.decimals).unwrap_or(9),
-                    launch_type: lt_name,
-                    base_price: bp,
-                    slope: sl,
-                    price_scale: ps,
-                    comment_count: provider.get_comment_count(&l.mint),
-                }
-            }).collect();
+            let mut items: Vec<LaunchListItem> = launches
+                .iter()
+                .map(|l| {
+                    let mint = provider.get_token_mint(&l.mint);
+                    let (lt_name, bp, sl, ps) = match &l.launch_type {
+                        pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } => {
+                            ("FairLaunch".to_string(), *price_per_token, 0u64, 1u64)
+                        }
+                        pichain_types::launchpad::LaunchType::BondingCurve {
+                            base_price,
+                            slope,
+                            price_scale,
+                        } => (
+                            "BondingCurve".to_string(),
+                            *base_price,
+                            *slope,
+                            *price_scale,
+                        ),
+                    };
+                    let current_price = l.current_price();
+                    let pct = if l.target_pi > 0 {
+                        (l.pi_raised as f64 / l.target_pi as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let state_str = match &l.state {
+                        pichain_types::launchpad::LaunchState::Active => "Active",
+                        pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
+                        pichain_types::launchpad::LaunchState::Finalized => "Finalized",
+                        pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
+                    };
+                    LaunchListItem {
+                        mint_id: hex::encode(l.mint.0),
+                        launch_id: hex::encode(l.id.0),
+                        creator: hex::encode(l.creator.0),
+                        state: state_str.to_string(),
+                        tokens_for_sale: l.tokens_for_sale,
+                        tokens_sold: l.tokens_sold,
+                        pi_raised: l.pi_raised,
+                        target_pi: l.target_pi,
+                        current_price,
+                        percent_complete: pct,
+                        max_per_address: l.max_per_address,
+                        contributors: l.contributions.len(),
+                        created_at_ms: l.created_at_ms,
+                        name: mint.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
+                        symbol: mint.as_ref().map(|m| m.symbol.clone()).unwrap_or_default(),
+                        metadata_uri: mint
+                            .as_ref()
+                            .map(|m| m.metadata_uri.clone())
+                            .unwrap_or_default(),
+                        decimals: mint.as_ref().map(|m| m.decimals).unwrap_or(9),
+                        launch_type: lt_name,
+                        base_price: bp,
+                        slope: sl,
+                        price_scale: ps,
+                        comment_count: provider.get_comment_count(&l.mint),
+                    }
+                })
+                .collect();
             items.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
             items
-        }).await {
-            return (StatusCode::OK, Json(serde_json::json!({ "launches": data })));
+        })
+        .await
+        {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "launches": data })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "launches": [] })))
@@ -3209,31 +3741,45 @@ async fn get_launch_detail(
                     let mint = pichain_types::MintId(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
                     let native_mint = pichain_types::MintId([0u8; 32]);
-                    if let Ok(Some((launch, token, pool_id, comment_count, dividend_pool))) = tokio::task::spawn_blocking(move || {
-                        let launch = provider.get_launch_by_mint(&mint)?;
-                        let token = provider.get_token_mint(&mint);
-                        let pool_id = if launch.state == pichain_types::launchpad::LaunchState::Finalized {
-                            provider.get_pool_by_mints(&native_mint, &mint)
-                                .or_else(|| provider.get_pool_by_mints(&mint, &native_mint))
-                                .map(|p| hex::encode(p.id.0))
-                        } else { None };
-                        let comment_count = provider.get_comment_count(&mint);
-                        let dividend_pool = provider.get_dividend_pool(&mint);
-                        Some((launch, token, pool_id, comment_count, dividend_pool))
-                    }).await {
-                            let (lt_name, bp, sl, ps) = match &launch.launch_type {
-                                pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
-                                    ("FairLaunch", *price_per_token, 0u64, 1u64),
-                                pichain_types::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } =>
-                                    ("BondingCurve", *base_price, *slope, *price_scale),
+                    if let Ok(Some((launch, token, pool_id, comment_count, dividend_pool))) =
+                        tokio::task::spawn_blocking(move || {
+                            let launch = provider.get_launch_by_mint(&mint)?;
+                            let token = provider.get_token_mint(&mint);
+                            let pool_id = if launch.state
+                                == pichain_types::launchpad::LaunchState::Finalized
+                            {
+                                provider
+                                    .get_pool_by_mints(&native_mint, &mint)
+                                    .or_else(|| provider.get_pool_by_mints(&mint, &native_mint))
+                                    .map(|p| hex::encode(p.id.0))
+                            } else {
+                                None
                             };
-                            let state_str = match &launch.state {
-                                pichain_types::launchpad::LaunchState::Active => "Active",
-                                pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
-                                pichain_types::launchpad::LaunchState::Finalized => "Finalized",
-                                pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
-                            };
-                            return (StatusCode::OK, Json(serde_json::json!({
+                            let comment_count = provider.get_comment_count(&mint);
+                            let dividend_pool = provider.get_dividend_pool(&mint);
+                            Some((launch, token, pool_id, comment_count, dividend_pool))
+                        })
+                        .await
+                    {
+                        let (lt_name, bp, sl, ps) = match &launch.launch_type {
+                            pichain_types::launchpad::LaunchType::FairLaunch {
+                                price_per_token,
+                            } => ("FairLaunch", *price_per_token, 0u64, 1u64),
+                            pichain_types::launchpad::LaunchType::BondingCurve {
+                                base_price,
+                                slope,
+                                price_scale,
+                            } => ("BondingCurve", *base_price, *slope, *price_scale),
+                        };
+                        let state_str = match &launch.state {
+                            pichain_types::launchpad::LaunchState::Active => "Active",
+                            pichain_types::launchpad::LaunchState::TargetReached => "TargetReached",
+                            pichain_types::launchpad::LaunchState::Finalized => "Finalized",
+                            pichain_types::launchpad::LaunchState::Cancelled => "Cancelled",
+                        };
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
                                 "found": true,
                                 "mint_id": mint_id_hex,
                                 "launch_id": hex::encode(launch.id.0),
@@ -3262,13 +3808,17 @@ async fn get_launch_detail(
                                 "comment_count": comment_count,
                                 "dividend_total_accumulated": dividend_pool.as_ref().map(|p| p.total_accumulated).unwrap_or(0),
                                 "dividend_total_claimed": dividend_pool.as_ref().map(|p| p.total_claimed).unwrap_or(0),
-                            })));
+                            })),
+                        );
                     }
                 }
             }
         }
     }
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({ "found": false })))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "found": false })),
+    )
 }
 
 /// Get comments for a token launch.
@@ -3285,17 +3835,23 @@ async fn get_launch_comments(
                     arr.copy_from_slice(&bytes);
                     let mint = pichain_types::MintId(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
-                    if let Ok(comments) = tokio::task::spawn_blocking(move || {
-                        provider.get_comments(&mint, 100)
-                    }).await {
-                        let items: Vec<serde_json::Value> = comments.iter().map(|c| {
-                            serde_json::json!({
-                                "author": hex::encode(c.author.0),
-                                "text": c.text,
-                                "timestamp_ms": c.timestamp_ms,
+                    if let Ok(comments) =
+                        tokio::task::spawn_blocking(move || provider.get_comments(&mint, 100)).await
+                    {
+                        let items: Vec<serde_json::Value> = comments
+                            .iter()
+                            .map(|c| {
+                                serde_json::json!({
+                                    "author": hex::encode(c.author.0),
+                                    "text": c.text,
+                                    "timestamp_ms": c.timestamp_ms,
+                                })
                             })
-                        }).collect();
-                        return (StatusCode::OK, Json(serde_json::json!({ "comments": items })));
+                            .collect();
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({ "comments": items })),
+                        );
                     }
                 }
             }
@@ -3312,31 +3868,59 @@ async fn post_launch_comment(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let provider = match state.state_provider.clone() {
         Some(p) => p,
-        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "not available"}))),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "not available"})),
+            )
+        }
     };
 
     let text = match body.get("text").and_then(|v| v.as_str()) {
         Some(t) if !t.trim().is_empty() && t.len() <= 500 => t.trim().to_string(),
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "text required (max 500 chars)"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "text required (max 500 chars)"})),
+            )
+        }
     };
 
     let author_hex = match body.get("author").and_then(|v| v.as_str()) {
         Some(a) if a.len() == 40 => a.to_string(),
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "author address required (40 hex chars)"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "author address required (40 hex chars)"})),
+            )
+        }
     };
 
     let stripped = strip_0x(&mint_id_hex);
     if stripped.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid mint_id"})),
+        );
     }
 
     let mint_bytes = match hex::decode(stripped) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid mint_id hex"})),
+            )
+        }
     };
     let author_bytes = match hex::decode(&author_hex) {
         Ok(b) if b.len() == 20 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid author hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid author hex"})),
+            )
+        }
     };
 
     let mut mint_arr = [0u8; 32];
@@ -3357,8 +3941,14 @@ async fn post_launch_comment(
     let _permit = state.blocking_semaphore.acquire().await;
     match tokio::task::spawn_blocking(move || provider.post_comment(comment)).await {
         Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 
@@ -3368,28 +3958,33 @@ async fn get_launch_activity(
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(trades) = tokio::task::spawn_blocking(move || {
-            provider.get_recent_trades(20)
-        }).await {
-            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
-                serde_json::json!({
-                    "pool_id": hex::encode(t.pool_id.0),
-                    "sender": hex::encode(t.sender.0),
-                    "mint_in": hex::encode(t.mint_in.0),
-                    "mint_out": hex::encode(t.mint_out.0),
-                    "amount_in": t.amount_in,
-                    "amount_out": t.amount_out,
-                    "fee": t.fee,
-                    "timestamp_ms": t.timestamp_ms,
-                    "block_height": t.block_height,
+        if let Ok(trades) =
+            tokio::task::spawn_blocking(move || provider.get_recent_trades(20)).await
+        {
+            let items: Vec<serde_json::Value> = trades
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "pool_id": hex::encode(t.pool_id.0),
+                        "sender": hex::encode(t.sender.0),
+                        "mint_in": hex::encode(t.mint_in.0),
+                        "mint_out": hex::encode(t.mint_out.0),
+                        "amount_in": t.amount_in,
+                        "amount_out": t.amount_out,
+                        "fee": t.fee,
+                        "timestamp_ms": t.timestamp_ms,
+                        "block_height": t.block_height,
+                    })
                 })
-            }).collect();
-            return (StatusCode::OK, Json(serde_json::json!({ "activity": items })));
+                .collect();
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "activity": items })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "activity": [] })))
 }
-
 
 async fn get_launch_dividends(
     State(state): State<Arc<RpcState>>,
@@ -3397,11 +3992,19 @@ async fn get_launch_dividends(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if mint_id_hex.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid mint_id"})),
+        );
     }
     let mint_bytes = match hex::decode(&mint_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid mint_id hex"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&mint_bytes);
@@ -3416,21 +4019,34 @@ async fn get_launch_dividends(
                 if let Ok(hb) = hex::decode(&holder_hex) {
                     let mut ha = [0u8; 20];
                     ha.copy_from_slice(&hb);
-                    provider.get_claimable_dividends(&mint_id, &pichain_crypto::ed25519::Address(ha))
-                } else { 0 }
-            } else { 0 };
+                    provider
+                        .get_claimable_dividends(&mint_id, &pichain_crypto::ed25519::Address(ha))
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
             (pool, claimable)
-        }).await {
+        })
+        .await
+        {
             let (pool, claimable) = result;
-            return (StatusCode::OK, Json(serde_json::json!({
-                "total_accumulated": pool.as_ref().map(|p| p.total_accumulated).unwrap_or(0),
-                "total_claimed": pool.as_ref().map(|p| p.total_claimed).unwrap_or(0),
-                "reward_per_share": pool.as_ref().map(|p| p.reward_per_share_x1e12.to_string()).unwrap_or("0".to_string()),
-                "claimable": claimable,
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "total_accumulated": pool.as_ref().map(|p| p.total_accumulated).unwrap_or(0),
+                    "total_claimed": pool.as_ref().map(|p| p.total_claimed).unwrap_or(0),
+                    "reward_per_share": pool.as_ref().map(|p| p.reward_per_share_x1e12.to_string()).unwrap_or("0".to_string()),
+                    "claimable": claimable,
+                })),
+            );
         }
     }
-    (StatusCode::OK, Json(serde_json::json!({"total_accumulated": 0, "total_claimed": 0, "claimable": 0})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"total_accumulated": 0, "total_claimed": 0, "claimable": 0})),
+    )
 }
 
 async fn claim_launch_dividends(
@@ -3439,23 +4055,43 @@ async fn claim_launch_dividends(
     Json(body): Json<serde_json::Value>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if mint_id_hex.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid mint_id"})),
+        );
     }
     let mint_bytes = match hex::decode(&mint_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid mint_id hex"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&mint_bytes);
     let mint_id = pichain_types::MintId(arr);
 
-    let holder_hex = body.get("holder").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let holder_hex = body
+        .get("holder")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if holder_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid holder address"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid holder address"})),
+        );
     }
     let holder_bytes = match hex::decode(&holder_hex) {
         Ok(b) if b.len() == 20 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid holder hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid holder hex"})),
+            )
+        }
     };
     let mut ha = [0u8; 20];
     ha.copy_from_slice(&holder_bytes);
@@ -3463,16 +4099,26 @@ async fn claim_launch_dividends(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(result) = tokio::task::spawn_blocking(move || {
-            provider.claim_dividends(&mint_id, &holder)
-        }).await {
+        if let Ok(result) =
+            tokio::task::spawn_blocking(move || provider.claim_dividends(&mint_id, &holder)).await
+        {
             match result {
-                Ok(amount) => return (StatusCode::OK, Json(serde_json::json!({"claimed": amount}))),
-                Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+                Ok(amount) => {
+                    return (StatusCode::OK, Json(serde_json::json!({"claimed": amount})))
+                }
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error": e})),
+                    )
+                }
             }
         }
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "not available"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "not available"})),
+    )
 }
 
 async fn get_all_tokens(
@@ -3485,23 +4131,28 @@ async fn get_all_tokens(
             let pools = provider.scan_all_pools();
             let launches = provider.scan_all_launches();
             (mints, pools, launches)
-        }).await {
+        })
+        .await
+        {
             let (mints, pools, launches) = mints;
 
             // Build set of mint IDs that have DEX liquidity pools
-            let pool_mints: std::collections::HashSet<[u8; 32]> = pools.iter()
+            let pool_mints: std::collections::HashSet<[u8; 32]> = pools
+                .iter()
                 .flat_map(|p| [p.mint_a.0, p.mint_b.0])
                 .collect();
 
             // Build set of mint IDs that have an active (non-finalized) launch
-            let ungraduated_mints: std::collections::HashSet<[u8; 32]> = launches.iter()
+            let ungraduated_mints: std::collections::HashSet<[u8; 32]> = launches
+                .iter()
                 .filter(|l| l.state != pichain_types::launchpad::LaunchState::Finalized)
                 .map(|l| l.mint.0)
                 .collect();
 
             // Only show tokens that: have a pool, OR have no active launch
             // (filters out tokens still on bonding curve that haven't graduated)
-            let items: Vec<serde_json::Value> = mints.iter()
+            let items: Vec<serde_json::Value> = mints
+                .iter()
                 .filter(|m| pool_mints.contains(&m.id.0) || !ungraduated_mints.contains(&m.id.0))
                 .map(|m| {
                     serde_json::json!({
@@ -3516,7 +4167,8 @@ async fn get_all_tokens(
                         "has_mint_authority": m.mint_authority.is_some(),
                         "active": m.active,
                     })
-                }).collect();
+                })
+                .collect();
             return (StatusCode::OK, Json(serde_json::json!({ "tokens": items })));
         }
     }
@@ -3528,21 +4180,22 @@ async fn get_all_pools(
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(pools) = tokio::task::spawn_blocking(move || {
-            provider.scan_all_pools()
-        }).await {
-            let items: Vec<serde_json::Value> = pools.iter().map(|p| {
-                serde_json::json!({
-                    "pool_id": hex::encode(p.id.0),
-                    "mint_a": hex::encode(p.mint_a.0),
-                    "mint_b": hex::encode(p.mint_b.0),
-                    "reserve_a": p.reserve_a,
-                    "reserve_b": p.reserve_b,
-                    "lp_supply": p.lp_supply,
-                    "fee_bps": p.fee_bps,
-                    "active": p.active,
+        if let Ok(pools) = tokio::task::spawn_blocking(move || provider.scan_all_pools()).await {
+            let items: Vec<serde_json::Value> = pools
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "pool_id": hex::encode(p.id.0),
+                        "mint_a": hex::encode(p.mint_a.0),
+                        "mint_b": hex::encode(p.mint_b.0),
+                        "reserve_a": p.reserve_a,
+                        "reserve_b": p.reserve_b,
+                        "lp_supply": p.lp_supply,
+                        "fee_bps": p.fee_bps,
+                        "active": p.active,
+                    })
                 })
-            }).collect();
+                .collect();
             return (StatusCode::OK, Json(serde_json::json!({ "pools": items })));
         }
     }
@@ -3562,21 +4215,27 @@ async fn get_mint_nonce(
                     arr.copy_from_slice(&bytes);
                     let addr = pichain_crypto::ed25519::Address(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
-                    if let Ok(nonce) = tokio::task::spawn_blocking(move || {
-                        provider.get_mint_nonce(&addr)
-                    }).await {
-                        return (StatusCode::OK, Json(serde_json::json!({
-                            "address": address_hex,
-                            "mint_nonce": nonce,
-                        })));
+                    if let Ok(nonce) =
+                        tokio::task::spawn_blocking(move || provider.get_mint_nonce(&addr)).await
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "address": address_hex,
+                                "mint_nonce": nonce,
+                            })),
+                        );
                     }
                 }
             }
         }
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-        "error": "invalid address"
-    })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({
+            "error": "invalid address"
+        })),
+    )
 }
 
 async fn get_portfolio(
@@ -3596,28 +4255,39 @@ async fn get_portfolio(
                         let pi_account = provider.get_account_sync(&addr);
                         let token_balances = provider.get_token_balances_for_owner(&addr);
                         (pi_account, token_balances)
-                    }).await {
+                    })
+                    .await
+                    {
                         let (pi_account, token_balances) = result;
                         let pi_balance = pi_account.map(|a| a.state.balance).unwrap_or(0);
-                        let tokens: Vec<serde_json::Value> = token_balances.iter().map(|(mint_id, acct)| {
-                            serde_json::json!({
-                                "mint_id": hex::encode(mint_id.0),
-                                "balance": acct.balance,
+                        let tokens: Vec<serde_json::Value> = token_balances
+                            .iter()
+                            .map(|(mint_id, acct)| {
+                                serde_json::json!({
+                                    "mint_id": hex::encode(mint_id.0),
+                                    "balance": acct.balance,
+                                })
                             })
-                        }).collect();
-                        return (StatusCode::OK, Json(serde_json::json!({
-                            "address": address_hex,
-                            "pi_balance": pi_balance,
-                            "tokens": tokens,
-                        })));
+                            .collect();
+                        return (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "address": address_hex,
+                                "pi_balance": pi_balance,
+                                "tokens": tokens,
+                            })),
+                        );
                     }
                 }
             }
         }
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-        "error": "invalid address"
-    })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({
+            "error": "invalid address"
+        })),
+    )
 }
 
 // --- Transaction History ---
@@ -3629,26 +4299,42 @@ async fn get_address_transactions(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let address_hex = strip_0x(&address_hex);
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+        );
     }
     let Ok(addr_bytes) = hex::decode(address_hex) else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid hex"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid hex"})),
+        );
     };
     let before_height = params.get("before").and_then(|s| s.parse::<u64>().ok());
-    let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok()).unwrap_or(50).min(200);
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
 
     if let Some(provider) = &state.state_provider {
         let mut address = [0u8; 20];
         address.copy_from_slice(&addr_bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         let entries = provider.get_address_transactions(&addr, before_height, limit);
-        return (StatusCode::OK, Json(serde_json::json!({
-            "address": address_hex,
-            "transactions": entries,
-            "count": entries.len(),
-        })));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "address": address_hex,
+                "transactions": entries,
+                "count": entries.len(),
+            })),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 // --- Event Querying ---
@@ -3657,45 +4343,67 @@ async fn query_events(
     State(state): State<Arc<RpcState>>,
     Json(body): Json<serde_json::Value>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).min(200) as usize;
+    let limit = body
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50)
+        .min(200) as usize;
 
     if let Some(provider) = &state.state_provider {
         // Query by topic
         if let Some(topic_hex) = body.get("topic").and_then(|v| v.as_str()) {
             let topic_hex = strip_0x(topic_hex);
             if topic_hex.len() != 64 {
-                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "topic must be 64 hex chars"})));
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "topic must be 64 hex chars"})),
+                );
             }
             if let Ok(bytes) = hex::decode(topic_hex) {
                 let mut topic = [0u8; 32];
                 topic.copy_from_slice(&bytes);
                 let entries = provider.query_events_by_topic(&topic, limit);
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "events": entries,
-                    "count": entries.len(),
-                })));
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "events": entries,
+                        "count": entries.len(),
+                    })),
+                );
             }
         }
         // Query by address
         if let Some(addr_hex) = body.get("address").and_then(|v| v.as_str()) {
             let addr_hex = strip_0x(addr_hex);
             if addr_hex.len() != 40 {
-                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+                );
             }
             if let Ok(bytes) = hex::decode(addr_hex) {
                 let mut address = [0u8; 20];
                 address.copy_from_slice(&bytes);
                 let addr = pichain_crypto::ed25519::Address(address);
                 let entries = provider.query_events_by_address(&addr, limit);
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "events": entries,
-                    "count": entries.len(),
-                })));
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "events": entries,
+                        "count": entries.len(),
+                    })),
+                );
             }
         }
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "provide 'topic' or 'address'"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "provide 'topic' or 'address'"})),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 // --- Staking Endpoints ---
@@ -3705,12 +4413,18 @@ async fn get_staking_validators(
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = &state.state_provider {
         let validators = provider.get_validators();
-        return (StatusCode::OK, Json(serde_json::json!({
-            "validators": validators,
-            "count": validators.len(),
-        })));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "validators": validators,
+                "count": validators.len(),
+            })),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 async fn get_delegations(
@@ -3719,19 +4433,28 @@ async fn get_delegations(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let address_hex = strip_0x(&address_hex);
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+        );
     }
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         let delegations = provider.get_delegations(&addr);
-        return (StatusCode::OK, Json(serde_json::json!({
-            "address": address_hex,
-            "delegations": delegations,
-        })));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "address": address_hex,
+                "delegations": delegations,
+            })),
+        );
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid address"})),
+    )
 }
 
 async fn get_staking_rewards(
@@ -3740,19 +4463,28 @@ async fn get_staking_rewards(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let address_hex = strip_0x(&address_hex);
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+        );
     }
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         let rewards = provider.get_staking_rewards(&addr);
-        return (StatusCode::OK, Json(serde_json::json!({
-            "address": address_hex,
-            "pending_rewards": rewards,
-        })));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "address": address_hex,
+                "pending_rewards": rewards,
+            })),
+        );
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid address"})),
+    )
 }
 
 // --- NFT Endpoints ---
@@ -3762,18 +4494,29 @@ async fn get_nft_collections(
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = &state.state_provider {
         let collections = provider.scan_all_collections();
-        let data: Vec<_> = collections.iter().map(|c| serde_json::json!({
-            "id": hex::encode(c.id.0),
-            "name": c.name,
-            "symbol": c.symbol,
-            "creator": hex::encode(c.creator.0),
-            "max_supply": c.max_supply,
-            "total_minted": c.minted,
-            "royalty_bps": c.royalty_bps,
-        })).collect();
-        return (StatusCode::OK, Json(serde_json::json!({"collections": data, "count": data.len()})));
+        let data: Vec<_> = collections
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": hex::encode(c.id.0),
+                    "name": c.name,
+                    "symbol": c.symbol,
+                    "creator": hex::encode(c.creator.0),
+                    "max_supply": c.max_supply,
+                    "total_minted": c.minted,
+                    "royalty_bps": c.royalty_bps,
+                })
+            })
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"collections": data, "count": data.len()})),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 async fn get_collection_items(
@@ -3782,23 +4525,37 @@ async fn get_collection_items(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let cid_hex = strip_0x(&collection_id_hex);
     if cid_hex.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "collection_id must be 64 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "collection_id must be 64 hex chars"})),
+        );
     }
     if let (Ok(bytes), Some(provider)) = (hex::decode(cid_hex), &state.state_provider) {
         let mut id = [0u8; 32];
         id.copy_from_slice(&bytes);
         let collection_id = pichain_types::CollectionId(id);
         let items = provider.get_collection_items(&collection_id);
-        let data: Vec<_> = items.iter().map(|nft| serde_json::json!({
-            "nft_id": hex::encode(nft.id.0),
-            "collection_id": hex::encode(nft.collection.0),
-            "name": nft.name,
-            "owner": hex::encode(nft.owner.0),
-            "metadata_uri": nft.metadata_uri,
-        })).collect();
-        return (StatusCode::OK, Json(serde_json::json!({"items": data, "count": data.len()})));
+        let data: Vec<_> = items
+            .iter()
+            .map(|nft| {
+                serde_json::json!({
+                    "nft_id": hex::encode(nft.id.0),
+                    "collection_id": hex::encode(nft.collection.0),
+                    "name": nft.name,
+                    "owner": hex::encode(nft.owner.0),
+                    "metadata_uri": nft.metadata_uri,
+                })
+            })
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"items": data, "count": data.len()})),
+        );
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid collection_id"})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid collection_id"})),
+    )
 }
 
 async fn get_nfts_by_owner(
@@ -3807,23 +4564,37 @@ async fn get_nfts_by_owner(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let address_hex = strip_0x(&address_hex);
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+        );
     }
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         let nfts = provider.get_nfts_by_owner(&addr);
-        let data: Vec<_> = nfts.iter().map(|nft| serde_json::json!({
-            "nft_id": hex::encode(nft.id.0),
-            "collection_id": hex::encode(nft.collection.0),
-            "name": nft.name,
-            "owner": hex::encode(nft.owner.0),
-            "metadata_uri": nft.metadata_uri,
-        })).collect();
-        return (StatusCode::OK, Json(serde_json::json!({"nfts": data, "count": data.len()})));
+        let data: Vec<_> = nfts
+            .iter()
+            .map(|nft| {
+                serde_json::json!({
+                    "nft_id": hex::encode(nft.id.0),
+                    "collection_id": hex::encode(nft.collection.0),
+                    "name": nft.name,
+                    "owner": hex::encode(nft.owner.0),
+                    "metadata_uri": nft.metadata_uri,
+                })
+            })
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"nfts": data, "count": data.len()})),
+        );
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid address"})),
+    )
 }
 
 // --- Light Client ---
@@ -3834,22 +4605,34 @@ async fn get_account_proof(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let address_hex = strip_0x(&address_hex);
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 40 hex chars"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "address must be 40 hex chars"})),
+        );
     }
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
         let addr = pichain_crypto::ed25519::Address(address);
         if let Some(proof_bytes) = provider.get_account_proof(&addr) {
-            return (StatusCode::OK, Json(serde_json::json!({
-                "address": address_hex,
-                "proof": hex::encode(proof_bytes),
-                "state_root": provider.state_root_hex(),
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "address": address_hex,
+                    "proof": hex::encode(proof_bytes),
+                    "state_root": provider.state_root_hex(),
+                })),
+            );
         }
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no proof available"})));
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no proof available"})),
+        );
     }
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid address"})),
+    )
 }
 
 async fn get_block_header(
@@ -3857,28 +4640,40 @@ async fn get_block_header(
     State(state): State<Arc<RpcState>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let Ok(height) = height_str.parse::<u64>() else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid height"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid height"})),
+        );
     };
     if let Some(provider) = &state.state_provider {
         if let Some(block) = provider.get_block_sync(height) {
             let h = &block.header;
-            return (StatusCode::OK, Json(serde_json::json!({
-                "height": h.height,
-                "epoch": h.epoch,
-                "parent_hash": hex::encode(h.parent_hash.as_bytes()),
-                "state_root": hex::encode(h.state_root.as_bytes()),
-                "tx_root": hex::encode(h.tx_root.as_bytes()),
-                "tx_count": h.tx_count,
-                "gas_used": h.gas_used,
-                "base_fee": h.base_fee,
-                "pi_burned": h.pi_burned,
-                "proposer": hex::encode(h.proposer.0),
-                "timestamp_ms": h.timestamp_ms,
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "height": h.height,
+                    "epoch": h.epoch,
+                    "parent_hash": hex::encode(h.parent_hash.as_bytes()),
+                    "state_root": hex::encode(h.state_root.as_bytes()),
+                    "tx_root": hex::encode(h.tx_root.as_bytes()),
+                    "tx_count": h.tx_count,
+                    "gas_used": h.gas_used,
+                    "base_fee": h.base_fee,
+                    "pi_burned": h.pi_burned,
+                    "proposer": hex::encode(h.proposer.0),
+                    "timestamp_ms": h.timestamp_ms,
+                })),
+            );
         }
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "block not found"})));
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "block not found"})),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 // --- Richlist ---
@@ -3887,16 +4682,31 @@ async fn get_richlist(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     State(state): State<Arc<RpcState>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok()).unwrap_or(100).min(500);
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(100)
+        .min(500);
     if let Some(provider) = &state.state_provider {
         let entries = provider.get_richlist(limit);
-        let data: Vec<_> = entries.iter().map(|(addr, balance)| serde_json::json!({
-            "address": hex::encode(addr.0),
-            "balance": balance,
-        })).collect();
-        return (StatusCode::OK, Json(serde_json::json!({"richlist": data, "count": data.len()})));
+        let data: Vec<_> = entries
+            .iter()
+            .map(|(addr, balance)| {
+                serde_json::json!({
+                    "address": hex::encode(addr.0),
+                    "balance": balance,
+                })
+            })
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"richlist": data, "count": data.len()})),
+        );
     }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "node not ready"})))
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "node not ready"})),
+    )
 }
 
 // ======================== DEX Analytics Endpoints ========================
@@ -3922,8 +4732,14 @@ async fn serve_music_apk() -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
         [
-            (axum::http::header::CONTENT_TYPE, "application/vnd.android.package-archive"),
-            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"AI-Music-Studio.apk\""),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/vnd.android.package-archive",
+            ),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"AI-Music-Studio.apk\"",
+            ),
         ],
         apk_bytes,
     )
@@ -3948,7 +4764,10 @@ async fn serve_player_sw() -> impl IntoResponse {
 async fn serve_player_manifest() -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/manifest+json")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/manifest+json",
+        )],
         include_str!("../../../explorer/player-manifest.json"),
     )
 }
@@ -3958,8 +4777,14 @@ async fn serve_player_apk() -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
         [
-            (axum::http::header::CONTENT_TYPE, "application/vnd.android.package-archive"),
-            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"pichain-player.apk\""),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/vnd.android.package-archive",
+            ),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"pichain-player.apk\"",
+            ),
         ],
         apk_bytes.as_slice(),
     )
@@ -4121,32 +4946,46 @@ async fn get_pair_trades(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let pool_bytes = match hex::decode(&pool_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid pool_id"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&pool_bytes);
     let pool_id = pichain_types::dex::PoolId(arr);
-    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
     let before_ms = params.get("before").and_then(|v| v.parse::<u64>().ok());
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
         if let Ok(trades) = tokio::task::spawn_blocking(move || {
             provider.get_pool_trades(&pool_id, limit, before_ms)
-        }).await {
-            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
-                serde_json::json!({
-                    "sender": hex::encode(t.sender.0),
-                    "mint_in": hex::encode(t.mint_in.0),
-                    "mint_out": hex::encode(t.mint_out.0),
-                    "amount_in": t.amount_in,
-                    "amount_out": t.amount_out,
-                    "fee": t.fee,
-                    "timestamp_ms": t.timestamp_ms,
-                    "block_height": t.block_height,
-                    "tx_hash": hex::encode(t.tx_hash),
+        })
+        .await
+        {
+            let items: Vec<serde_json::Value> = trades
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "sender": hex::encode(t.sender.0),
+                        "mint_in": hex::encode(t.mint_in.0),
+                        "mint_out": hex::encode(t.mint_out.0),
+                        "amount_in": t.amount_in,
+                        "amount_out": t.amount_out,
+                        "fee": t.fee,
+                        "timestamp_ms": t.timestamp_ms,
+                        "block_height": t.block_height,
+                        "tx_hash": hex::encode(t.tx_hash),
+                    })
                 })
-            }).collect();
+                .collect();
             return (StatusCode::OK, Json(serde_json::json!({ "trades": items })));
         }
     }
@@ -4156,7 +4995,7 @@ async fn get_pair_trades(
 /// OHLCV candle data — computed from trade records.
 #[derive(serde::Serialize)]
 struct Candle {
-    time: u64,      // candle start timestamp (seconds)
+    time: u64, // candle start timestamp (seconds)
     open: f64,
     high: f64,
     low: f64,
@@ -4172,7 +5011,12 @@ async fn get_pair_ohlcv(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let pool_bytes = match hex::decode(&pool_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid pool_id"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&pool_bytes);
@@ -4199,9 +5043,18 @@ async fn get_pair_ohlcv(
         .as_millis() as u64;
 
     // Default: last 500 candles
-    let candle_count = params.get("count").and_then(|v| v.parse::<u64>().ok()).unwrap_or(500).min(1000);
-    let to_ms = params.get("to").and_then(|v| v.parse::<u64>().ok()).unwrap_or(now_ms);
-    let from_ms = params.get("from").and_then(|v| v.parse::<u64>().ok())
+    let candle_count = params
+        .get("count")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(500)
+        .min(1000);
+    let to_ms = params
+        .get("to")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(now_ms);
+    let from_ms = params
+        .get("from")
+        .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or_else(|| to_ms.saturating_sub(candle_count * interval_secs * 1000));
 
     if let Some(provider) = state.state_provider.clone() {
@@ -4212,7 +5065,9 @@ async fn get_pair_ohlcv(
             let pools = provider.scan_all_pools();
             let pool = pools.into_iter().find(|p| p.id == pool_id);
             (trades, pool)
-        }).await {
+        })
+        .await
+        {
             // Compute candles from trades
             let mut candles: Vec<Candle> = Vec::new();
 
@@ -4223,7 +5078,10 @@ async fn get_pair_ohlcv(
                         let price = p.reserve_b as f64 / p.reserve_a as f64;
                         candles.push(Candle {
                             time: now_ms / 1000,
-                            open: price, high: price, low: price, close: price,
+                            open: price,
+                            high: price,
+                            low: price,
+                            close: price,
                             volume: 0.0,
                         });
                     }
@@ -4231,7 +5089,10 @@ async fn get_pair_ohlcv(
             } else {
                 // Bucket trades into candles
                 let interval_ms = interval_secs * 1000;
-                let mut buckets: std::collections::BTreeMap<u64, Vec<&pichain_storage::TradeRecord>> = std::collections::BTreeMap::new();
+                let mut buckets: std::collections::BTreeMap<
+                    u64,
+                    Vec<&pichain_storage::TradeRecord>,
+                > = std::collections::BTreeMap::new();
                 for t in &trades {
                     let bucket = (t.timestamp_ms / interval_ms) * interval_ms;
                     buckets.entry(bucket).or_default().push(t);
@@ -4248,26 +5109,47 @@ async fn get_pair_ohlcv(
                     for (i, t) in bucket_trades.iter().enumerate() {
                         let price = if t.amount_in > 0 {
                             t.amount_out as f64 / t.amount_in as f64
-                        } else { last_close };
-                        if i == 0 { open = price; }
-                        if price > high { high = price; }
-                        if price < low { low = price; }
+                        } else {
+                            last_close
+                        };
+                        if i == 0 {
+                            open = price;
+                        }
+                        if price > high {
+                            high = price;
+                        }
+                        if price < low {
+                            low = price;
+                        }
                         close = price;
                         volume += t.amount_in as f64;
                     }
-                    if open == 0.0 { open = last_close; }
-                    if high == f64::MIN { high = open; }
-                    if low == f64::MAX { low = open; }
+                    if open == 0.0 {
+                        open = last_close;
+                    }
+                    if high == f64::MIN {
+                        high = open;
+                    }
+                    if low == f64::MAX {
+                        low = open;
+                    }
                     last_close = close;
 
                     candles.push(Candle {
                         time: bucket_start / 1000,
-                        open, high, low, close, volume,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume,
                     });
                 }
             }
 
-            return (StatusCode::OK, Json(serde_json::json!({ "candles": candles })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "candles": candles })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "candles": [] })))
@@ -4280,7 +5162,12 @@ async fn get_pair_info(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let pool_bytes = match hex::decode(&pool_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid pool_id"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid pool_id"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&pool_bytes);
@@ -4294,79 +5181,118 @@ async fn get_pair_info(
             let mints = provider.scan_all_mints();
             let lp_balances = provider.scan_all_lp_balances();
             let launches = provider.scan_all_launches();
-            let (volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct) = if let Some(ref p) = pool {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
-                let trades = provider.get_pool_trades_in_range(&p.id, from_24h_ms, now_ms);
-                let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
-                    mints.iter().map(|m| (m.id.0, m)).collect();
-                let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
-                let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
-                let mut vol = 0.0f64;
-                let mut vol_buy = 0.0f64;
-                let mut vol_sell = 0.0f64;
-                let mut pct: Option<f64> = None;
-                if !trades.is_empty() {
-                    let dec_a = decimals_a as i32;
-                    let dec_b = decimals_b as i32;
-                    for t in &trades {
-                        if t.mint_in.0 == p.mint_a.0 {
-                            let v = t.amount_in as f64 / 10f64.powi(dec_a);
-                            vol += v;
-                            vol_buy += v;
-                        } else {
-                            let v = t.amount_out as f64 / 10f64.powi(dec_a);
-                            vol += v;
-                            vol_sell += v;
+            let (volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct) =
+                if let Some(ref p) = pool {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
+                    let trades = provider.get_pool_trades_in_range(&p.id, from_24h_ms, now_ms);
+                    let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
+                        mints.iter().map(|m| (m.id.0, m)).collect();
+                    let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
+                    let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
+                    let mut vol = 0.0f64;
+                    let mut vol_buy = 0.0f64;
+                    let mut vol_sell = 0.0f64;
+                    let mut pct: Option<f64> = None;
+                    if !trades.is_empty() {
+                        let dec_a = decimals_a as i32;
+                        let dec_b = decimals_b as i32;
+                        for t in &trades {
+                            if t.mint_in.0 == p.mint_a.0 {
+                                let v = t.amount_in as f64 / 10f64.powi(dec_a);
+                                vol += v;
+                                vol_buy += v;
+                            } else {
+                                let v = t.amount_out as f64 / 10f64.powi(dec_a);
+                                vol += v;
+                                vol_sell += v;
+                            }
+                        }
+                        let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
+                            if t.mint_in.0 == p.mint_a.0 {
+                                let denom = t.amount_in as f64 / 10f64.powi(dec_a);
+                                if denom <= 0.0 {
+                                    return None;
+                                }
+                                Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
+                            } else {
+                                let denom = t.amount_out as f64 / 10f64.powi(dec_a);
+                                if denom <= 0.0 {
+                                    return None;
+                                }
+                                Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
+                            }
+                        };
+                        if let (Some(pf), Some(pl)) = (
+                            trades.first().and_then(price_from_trade),
+                            trades.last().and_then(price_from_trade),
+                        ) {
+                            if pf > 0.0 {
+                                pct = Some((pl - pf) / pf * 100.0);
+                            }
                         }
                     }
-                    let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
-                        if t.mint_in.0 == p.mint_a.0 {
-                            let denom = t.amount_in as f64 / 10f64.powi(dec_a);
-                            if denom <= 0.0 { return None; }
-                            Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
-                        } else {
-                            let denom = t.amount_out as f64 / 10f64.powi(dec_a);
-                            if denom <= 0.0 { return None; }
-                            Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
-                        }
-                    };
-                    if let (Some(pf), Some(pl)) = (
-                        trades.first().and_then(price_from_trade),
-                        trades.last().and_then(price_from_trade),
-                    ) {
-                        if pf > 0.0 {
-                            pct = Some((pl - pf) / pf * 100.0);
-                        }
-                    }
-                }
-                (vol, vol_buy, vol_sell, trades.len() as u64, pct)
-            } else {
-                (0.0f64, 0.0f64, 0.0f64, 0u64, None)
-            };
-            (pool, mints, lp_balances, launches, volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct)
-        }).await {
-            let (pool, mints, lp_balances, launches, volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct) = data;
+                    (vol, vol_buy, vol_sell, trades.len() as u64, pct)
+                } else {
+                    (0.0f64, 0.0f64, 0.0f64, 0u64, None)
+                };
+            (
+                pool,
+                mints,
+                lp_balances,
+                launches,
+                volume_24h,
+                volume_buy_24h,
+                volume_sell_24h,
+                tx_count_24h,
+                price_change_24h_pct,
+            )
+        })
+        .await
+        {
+            let (
+                pool,
+                mints,
+                lp_balances,
+                launches,
+                volume_24h,
+                volume_buy_24h,
+                volume_sell_24h,
+                tx_count_24h,
+                price_change_24h_pct,
+            ) = data;
             if let Some(p) = pool {
                 let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
                     mints.iter().map(|m| (m.id.0, m)).collect();
-                let symbol_a = mint_map.get(&p.mint_a.0)
-                    .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
-                let symbol_b = mint_map.get(&p.mint_b.0)
-                    .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+                let symbol_a = mint_map
+                    .get(&p.mint_a.0)
+                    .map(|m| m.symbol.as_str())
+                    .unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
+                let symbol_b = mint_map
+                    .get(&p.mint_b.0)
+                    .map(|m| m.symbol.as_str())
+                    .unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
                 let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
                 let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
                 let price = if p.reserve_a > 0 {
-                    (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
-                    (p.reserve_a as f64 / 10f64.powi(decimals_a as i32))
-                } else { 0.0 };
+                    (p.reserve_b as f64 / 10f64.powi(decimals_b as i32))
+                        / (p.reserve_a as f64 / 10f64.powi(decimals_a as i32))
+                } else {
+                    0.0
+                };
 
-                let token_mint = if p.mint_a.0 == [0u8; 32] { p.mint_b.0 } else { p.mint_a.0 };
-                let graduated_from_launch = launches.iter()
-                    .any(|l| l.mint.0 == token_mint && l.state == pichain_types::launchpad::LaunchState::Finalized);
+                let token_mint = if p.mint_a.0 == [0u8; 32] {
+                    p.mint_b.0
+                } else {
+                    p.mint_a.0
+                };
+                let graduated_from_launch = launches.iter().any(|l| {
+                    l.mint.0 == token_mint
+                        && l.state == pichain_types::launchpad::LaunchState::Finalized
+                });
                 let token_info = mint_map.get(&token_mint);
                 let name = token_info.map(|m| m.name.as_str()).unwrap_or("");
                 let metadata_uri = token_info.map(|m| m.metadata_uri.as_str()).unwrap_or("");
@@ -4374,7 +5300,9 @@ async fn get_pair_info(
                 let market_cap = if price > 0.0 && total_supply > 0 {
                     let supply_f = total_supply as f64 / 10f64.powi(decimals_b as i32);
                     price * supply_f
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
 
                 // LP holders for this pool
                 let lp_holders: Vec<serde_json::Value> = lp_balances.iter()
@@ -4386,39 +5314,45 @@ async fn get_pair_info(
                     }))
                     .collect();
 
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "found": true,
-                    "pool_id": hex::encode(p.id.0),
-                    "mint_a": hex::encode(p.mint_a.0),
-                    "mint_b": hex::encode(p.mint_b.0),
-                    "symbol_a": symbol_a,
-                    "symbol_b": symbol_b,
-                    "name": name,
-                    "metadata_uri": metadata_uri,
-                    "reserve_a": p.reserve_a,
-                    "reserve_b": p.reserve_b,
-                    "price": price,
-                    "market_cap": market_cap,
-                    "volume_24h": volume_24h,
-                    "volume_buy_24h": volume_buy_24h,
-                    "volume_sell_24h": volume_sell_24h,
-                    "tx_count_24h": tx_count_24h,
-                    "price_change_24h_pct": price_change_24h_pct,
-                    "fee_bps": p.fee_bps,
-                    "lp_supply": p.lp_supply,
-                    "active": p.active,
-                    "created_at_ms": p.created_at_ms,
-                    "cumulative_volume_a": p.cumulative_volume_a.to_string(),
-                    "cumulative_volume_b": p.cumulative_volume_b.to_string(),
-                    "creator": hex::encode(p.creator.0),
-                    "lp_holders": lp_holders,
-                    "graduated_from_launch": graduated_from_launch,
-                    "launch_mint": if graduated_from_launch { hex::encode(token_mint) } else { String::new() },
-                })));
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "found": true,
+                        "pool_id": hex::encode(p.id.0),
+                        "mint_a": hex::encode(p.mint_a.0),
+                        "mint_b": hex::encode(p.mint_b.0),
+                        "symbol_a": symbol_a,
+                        "symbol_b": symbol_b,
+                        "name": name,
+                        "metadata_uri": metadata_uri,
+                        "reserve_a": p.reserve_a,
+                        "reserve_b": p.reserve_b,
+                        "price": price,
+                        "market_cap": market_cap,
+                        "volume_24h": volume_24h,
+                        "volume_buy_24h": volume_buy_24h,
+                        "volume_sell_24h": volume_sell_24h,
+                        "tx_count_24h": tx_count_24h,
+                        "price_change_24h_pct": price_change_24h_pct,
+                        "fee_bps": p.fee_bps,
+                        "lp_supply": p.lp_supply,
+                        "active": p.active,
+                        "created_at_ms": p.created_at_ms,
+                        "cumulative_volume_a": p.cumulative_volume_a.to_string(),
+                        "cumulative_volume_b": p.cumulative_volume_b.to_string(),
+                        "creator": hex::encode(p.creator.0),
+                        "lp_holders": lp_holders,
+                        "graduated_from_launch": graduated_from_launch,
+                        "launch_mint": if graduated_from_launch { hex::encode(token_mint) } else { String::new() },
+                    })),
+                );
             }
         }
     }
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"found": false})))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"found": false})),
+    )
 }
 
 /// GET /api/v1/dex/recent-trades — Globally recent trades across all pools.
@@ -4426,27 +5360,34 @@ async fn get_dex_recent_trades(
     State(state): State<Arc<RpcState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(trades) = tokio::task::spawn_blocking(move || {
-            provider.get_recent_trades(limit)
-        }).await {
-            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
-                serde_json::json!({
-                    "pool_id": hex::encode(t.pool_id.0),
-                    "sender": hex::encode(t.sender.0),
-                    "mint_in": hex::encode(t.mint_in.0),
-                    "mint_out": hex::encode(t.mint_out.0),
-                    "amount_in": t.amount_in,
-                    "amount_out": t.amount_out,
-                    "fee": t.fee,
-                    "timestamp_ms": t.timestamp_ms,
-                    "block_height": t.block_height,
-                    "tx_hash": hex::encode(t.tx_hash),
+        if let Ok(trades) =
+            tokio::task::spawn_blocking(move || provider.get_recent_trades(limit)).await
+        {
+            let items: Vec<serde_json::Value> = trades
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "pool_id": hex::encode(t.pool_id.0),
+                        "sender": hex::encode(t.sender.0),
+                        "mint_in": hex::encode(t.mint_in.0),
+                        "mint_out": hex::encode(t.mint_out.0),
+                        "amount_in": t.amount_in,
+                        "amount_out": t.amount_out,
+                        "fee": t.fee,
+                        "timestamp_ms": t.timestamp_ms,
+                        "block_height": t.block_height,
+                        "tx_hash": hex::encode(t.tx_hash),
+                    })
                 })
-            }).collect();
+                .collect();
             return (StatusCode::OK, Json(serde_json::json!({ "trades": items })));
         }
     }
@@ -4463,7 +5404,8 @@ async fn get_top_movers(
             let pools = provider.scan_all_pools();
             let mints = provider.scan_all_mints();
             let launches = provider.scan_all_launches();
-            let ungraduated: std::collections::HashSet<[u8; 32]> = launches.iter()
+            let ungraduated: std::collections::HashSet<[u8; 32]> = launches
+                .iter()
                 .filter(|l| l.state != pichain_types::launchpad::LaunchState::Finalized)
                 .map(|l| l.mint.0)
                 .collect();
@@ -4476,20 +5418,27 @@ async fn get_top_movers(
                 .as_millis() as u64;
             let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
 
-            let mut movers: Vec<serde_json::Value> = pools.iter()
+            let mut movers: Vec<serde_json::Value> = pools
+                .iter()
                 .filter(|p| p.reserve_a > 0 && p.reserve_b > 0 && p.active)
-                .filter(|p| !ungraduated.contains(&p.mint_a.0) && !ungraduated.contains(&p.mint_b.0))
+                .filter(|p| {
+                    !ungraduated.contains(&p.mint_a.0) && !ungraduated.contains(&p.mint_b.0)
+                })
                 .map(|p| {
-                    let symbol_a = mint_map.get(&p.mint_a.0)
-                        .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
-                    let symbol_b = mint_map.get(&p.mint_b.0)
-                        .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+                    let symbol_a = mint_map
+                        .get(&p.mint_a.0)
+                        .map(|m| m.symbol.as_str())
+                        .unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
+                    let symbol_b = mint_map
+                        .get(&p.mint_b.0)
+                        .map(|m| m.symbol.as_str())
+                        .unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
                     let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
                     let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
-                    let price = (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
-                        (p.reserve_a as f64 / 10f64.powi(decimals_a as i32));
-                    let tvl = (p.reserve_a as f64 / 10f64.powi(decimals_a as i32)) +
-                        (p.reserve_b as f64 / 10f64.powi(decimals_b as i32));
+                    let price = (p.reserve_b as f64 / 10f64.powi(decimals_b as i32))
+                        / (p.reserve_a as f64 / 10f64.powi(decimals_a as i32));
+                    let tvl = (p.reserve_a as f64 / 10f64.powi(decimals_a as i32))
+                        + (p.reserve_b as f64 / 10f64.powi(decimals_b as i32));
 
                     let trades = provider.get_pool_trades_in_range(&p.id, from_24h_ms, now_ms);
                     let mut volume_24h = 0.0f64;
@@ -4507,11 +5456,15 @@ async fn get_top_movers(
                         let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
                             if t.mint_in.0 == p.mint_a.0 {
                                 let denom = t.amount_in as f64 / 10f64.powi(dec_a);
-                                if denom <= 0.0 { return None; }
+                                if denom <= 0.0 {
+                                    return None;
+                                }
                                 Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
                             } else {
                                 let denom = t.amount_out as f64 / 10f64.powi(dec_a);
-                                if denom <= 0.0 { return None; }
+                                if denom <= 0.0 {
+                                    return None;
+                                }
                                 Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
                             }
                         };
@@ -4537,7 +5490,8 @@ async fn get_top_movers(
                         "tvl": tvl,
                         "graduated_from_launch": true,
                     })
-                }).collect();
+                })
+                .collect();
             movers.sort_by(|a, b| {
                 let va = a["volume_24h"].as_f64().unwrap_or(0.0);
                 let vb = b["volume_24h"].as_f64().unwrap_or(0.0);
@@ -4545,8 +5499,13 @@ async fn get_top_movers(
             });
             movers.truncate(20);
             movers
-        }).await {
-            return (StatusCode::OK, Json(serde_json::json!({ "movers": movers })));
+        })
+        .await
+        {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "movers": movers })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "movers": [] })))
@@ -4560,11 +5519,20 @@ async fn get_token_holders(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let mint_bytes = match hex::decode(&mint_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid mint_id"})),
+            )
+        }
     };
     let mut mint_arr = [0u8; 32];
     mint_arr.copy_from_slice(&mint_bytes);
-    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).min(200);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
@@ -4572,12 +5540,15 @@ async fn get_token_holders(
             let accounts = provider.scan_all_token_accounts();
             let mints = provider.scan_all_mints();
             (accounts, mints)
-        }).await {
+        })
+        .await
+        {
             let (accounts, mints) = data;
             let mint_info = mints.iter().find(|m| m.id.0 == mint_arr);
             let total_supply = mint_info.map(|m| m.total_supply).unwrap_or(0);
 
-            let mut holders: Vec<(String, u64)> = accounts.iter()
+            let mut holders: Vec<(String, u64)> = accounts
+                .iter()
                 .filter(|a| a.mint.0 == mint_arr && a.balance > 0)
                 .map(|a| (hex::encode(a.owner.0), a.balance))
                 .collect();
@@ -4592,14 +5563,20 @@ async fn get_token_holders(
                 })
             }).collect();
 
-            return (StatusCode::OK, Json(serde_json::json!({
-                "holders": items,
-                "total_holders": accounts.iter().filter(|a| a.mint.0 == mint_arr && a.balance > 0).count(),
-                "total_supply": total_supply,
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "holders": items,
+                    "total_holders": accounts.iter().filter(|a| a.mint.0 == mint_arr && a.balance > 0).count(),
+                    "total_supply": total_supply,
+                })),
+            );
         }
     }
-    (StatusCode::OK, Json(serde_json::json!({ "holders": [], "total_holders": 0 })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "holders": [], "total_holders": 0 })),
+    )
 }
 
 // ── Betting API handlers ────────────────────────────────────────────────
@@ -4627,19 +5604,28 @@ async fn get_betting_matches(
             };
 
             if let Some(status) = status_filter.as_deref() {
-                all.into_iter().filter(|m| {
-                    match status {
+                all.into_iter()
+                    .filter(|m| match status {
                         "open" => matches!(m.state, pichain_types::betting::MatchState::Open),
-                        "active" | "in_progress" => matches!(m.state, pichain_types::betting::MatchState::InProgress),
-                        "completed" => matches!(m.state, pichain_types::betting::MatchState::Completed { .. }),
-                        "cancelled" => matches!(m.state, pichain_types::betting::MatchState::Cancelled),
+                        "active" | "in_progress" => {
+                            matches!(m.state, pichain_types::betting::MatchState::InProgress)
+                        }
+                        "completed" => matches!(
+                            m.state,
+                            pichain_types::betting::MatchState::Completed { .. }
+                        ),
+                        "cancelled" => {
+                            matches!(m.state, pichain_types::betting::MatchState::Cancelled)
+                        }
                         _ => true,
-                    }
-                }).collect()
+                    })
+                    .collect()
             } else {
                 all
             }
-        }).await {
+        })
+        .await
+        {
             let items: Vec<serde_json::Value> = matches.iter().map(|m| {
                 serde_json::json!({
                     "id": m.id.to_string(),
@@ -4655,7 +5641,10 @@ async fn get_betting_matches(
                 })
             }).collect();
 
-            return (StatusCode::OK, Json(serde_json::json!({ "matches": items })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "matches": items })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "matches": [] })))
@@ -4666,11 +5655,19 @@ async fn get_betting_match(
     axum::extract::Path(match_id_hex): axum::extract::Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if match_id_hex.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id length"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid match_id length"})),
+        );
     }
     let id_bytes = match hex::decode(&match_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid match_id hex"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&id_bytes);
@@ -4678,28 +5675,36 @@ async fn get_betting_match(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(Some(m)) = tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await {
-            return (StatusCode::OK, Json(serde_json::json!({
-                "id": m.id.to_string(),
-                "category": m.category.to_tag(),
-                "game_id": m.game_id,
-                "state": format!("{:?}", m.state),
-                "creator": hex::encode(m.creator.0),
-                "wager": m.wager,
-                "max_players": m.max_players,
-                "participants": m.participants.iter().map(|p| hex::encode(p.0)).collect::<Vec<_>>(),
-                "escrow_total": m.escrow_total,
-                "house_fee_bps": m.house_fee_bps,
-                "created_at_height": m.created_at_height,
-                "resolve_deadline_height": m.resolve_deadline_height,
-                "created_at_ms": m.created_at_ms,
-                "server_seed_hash": hex::encode(m.server_seed_hash),
-                "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
-                "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
-            })));
+        if let Ok(Some(m)) =
+            tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await
+        {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "id": m.id.to_string(),
+                    "category": m.category.to_tag(),
+                    "game_id": m.game_id,
+                    "state": format!("{:?}", m.state),
+                    "creator": hex::encode(m.creator.0),
+                    "wager": m.wager,
+                    "max_players": m.max_players,
+                    "participants": m.participants.iter().map(|p| hex::encode(p.0)).collect::<Vec<_>>(),
+                    "escrow_total": m.escrow_total,
+                    "house_fee_bps": m.house_fee_bps,
+                    "created_at_height": m.created_at_height,
+                    "resolve_deadline_height": m.resolve_deadline_height,
+                    "created_at_ms": m.created_at_ms,
+                    "server_seed_hash": hex::encode(m.server_seed_hash),
+                    "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
+                    "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
+                })),
+            );
         }
     }
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "match not found"})))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "match not found"})),
+    )
 }
 
 async fn get_betting_history(
@@ -4707,11 +5712,19 @@ async fn get_betting_history(
     axum::extract::Path(address_hex): axum::extract::Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid address"})),
+        );
     }
     let addr_bytes = match hex::decode(&address_hex) {
         Ok(b) if b.len() == 20 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid address hex"})),
+            )
+        }
     };
     let mut addr_arr = [0u8; 20];
     addr_arr.copy_from_slice(&addr_bytes);
@@ -4719,19 +5732,27 @@ async fn get_betting_history(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(matches) = tokio::task::spawn_blocking(move || provider.get_matches_by_player(&address)).await {
-            let items: Vec<serde_json::Value> = matches.iter().map(|m| {
-                serde_json::json!({
-                    "id": m.id.to_string(),
-                    "category": m.category.to_tag(),
-                    "game_id": m.game_id,
-                    "state": format!("{:?}", m.state),
-                    "wager": m.wager,
-                    "escrow_total": m.escrow_total,
-                    "created_at_ms": m.created_at_ms,
+        if let Ok(matches) =
+            tokio::task::spawn_blocking(move || provider.get_matches_by_player(&address)).await
+        {
+            let items: Vec<serde_json::Value> = matches
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.id.to_string(),
+                        "category": m.category.to_tag(),
+                        "game_id": m.game_id,
+                        "state": format!("{:?}", m.state),
+                        "wager": m.wager,
+                        "escrow_total": m.escrow_total,
+                        "created_at_ms": m.created_at_ms,
+                    })
                 })
-            }).collect();
-            return (StatusCode::OK, Json(serde_json::json!({ "matches": items })));
+                .collect();
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "matches": items })),
+            );
         }
     }
     (StatusCode::OK, Json(serde_json::json!({ "matches": [] })))
@@ -4743,22 +5764,28 @@ async fn get_betting_stats(
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
         if let Ok(stats) = tokio::task::spawn_blocking(move || provider.get_betting_stats()).await {
-            return (StatusCode::OK, Json(serde_json::json!({
-                "total_wagered": stats.total_wagered,
-                "active_matches": stats.active_matches,
-                "total_matches": stats.total_matches,
-                "total_players": stats.total_players,
-                "house_burns": stats.house_burns,
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "total_wagered": stats.total_wagered,
+                    "active_matches": stats.active_matches,
+                    "total_matches": stats.total_matches,
+                    "total_players": stats.total_players,
+                    "house_burns": stats.house_burns,
+                })),
+            );
         }
     }
-    (StatusCode::OK, Json(serde_json::json!({
-        "total_wagered": 0,
-        "active_matches": 0,
-        "total_matches": 0,
-        "total_players": 0,
-        "house_burns": 0,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "total_wagered": 0,
+            "active_matches": 0,
+            "total_matches": 0,
+            "total_players": 0,
+            "house_burns": 0,
+        })),
+    )
 }
 
 async fn verify_betting_match(
@@ -4766,11 +5793,19 @@ async fn verify_betting_match(
     axum::extract::Path(match_id_hex): axum::extract::Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if match_id_hex.len() != 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id length"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid match_id length"})),
+        );
     }
     let id_bytes = match hex::decode(&match_id_hex) {
         Ok(b) if b.len() == 32 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid match_id hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid match_id hex"})),
+            )
+        }
     };
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&id_bytes);
@@ -4778,7 +5813,9 @@ async fn verify_betting_match(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(Some(m)) = tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await {
+        if let Ok(Some(m)) =
+            tokio::task::spawn_blocking(move || provider.get_betting_match(&match_id)).await
+        {
             let verified = if let Some(ref seed) = m.server_seed_revealed {
                 let hash = pichain_crypto::hash(seed);
                 hash.as_bytes() == &m.server_seed_hash
@@ -4786,23 +5823,29 @@ async fn verify_betting_match(
                 false
             };
 
-            return (StatusCode::OK, Json(serde_json::json!({
-                "match_id": m.id.to_string(),
-                "verified": verified,
-                "server_seed_hash": hex::encode(m.server_seed_hash),
-                "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
-                "client_seeds": m.client_seeds.iter().map(|(addr, seed)| {
-                    serde_json::json!({
-                        "address": hex::encode(addr.0),
-                        "seed": hex::encode(seed),
-                    })
-                }).collect::<Vec<_>>(),
-                "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
-                "state": format!("{:?}", m.state),
-            })));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "match_id": m.id.to_string(),
+                    "verified": verified,
+                    "server_seed_hash": hex::encode(m.server_seed_hash),
+                    "server_seed_revealed": m.server_seed_revealed.as_ref().map(hex::encode),
+                    "client_seeds": m.client_seeds.iter().map(|(addr, seed)| {
+                        serde_json::json!({
+                            "address": hex::encode(addr.0),
+                            "seed": hex::encode(seed),
+                        })
+                    }).collect::<Vec<_>>(),
+                    "entropy_block_hash": m.entropy_block_hash.map(hex::encode),
+                    "state": format!("{:?}", m.state),
+                })),
+            );
         }
     }
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "match not found"})))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "match not found"})),
+    )
 }
 
 async fn get_match_nonce(
@@ -4810,11 +5853,19 @@ async fn get_match_nonce(
     axum::extract::Path(address_hex): axum::extract::Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if address_hex.len() != 40 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid address"})),
+        );
     }
     let addr_bytes = match hex::decode(&address_hex) {
         Ok(b) if b.len() == 20 => b,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid address hex"}))),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid address hex"})),
+            )
+        }
     };
     let mut addr_arr = [0u8; 20];
     addr_arr.copy_from_slice(&addr_bytes);
@@ -4822,7 +5873,9 @@ async fn get_match_nonce(
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(nonce) = tokio::task::spawn_blocking(move || provider.get_match_nonce(&address)).await {
+        if let Ok(nonce) =
+            tokio::task::spawn_blocking(move || provider.get_match_nonce(&address)).await
+        {
             return (StatusCode::OK, Json(serde_json::json!({ "nonce": nonce })));
         }
     }
@@ -4878,17 +5931,26 @@ async fn start_quake_session(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let match_id = sanitize_quake_match_id(&req.match_id);
     if match_id.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid match_id"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":"invalid match_id"})),
+        );
     }
     let max_players = req.max_players.unwrap_or(10).clamp(2, 32);
 
     let mut sessions = match quake_sessions().lock() {
         Ok(g) => g,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"session lock poisoned"})),
+            )
+        }
     };
 
     // Sweep dead sessions and kill their zombie processes
-    let dead_keys: Vec<String> = sessions.iter()
+    let dead_keys: Vec<String> = sessions
+        .iter()
         .filter(|(_, s)| !s.pid.map(quake_pid_is_alive).unwrap_or(false))
         .map(|(k, _)| k.clone())
         .collect();
@@ -4898,7 +5960,8 @@ async fn start_quake_session(
 
     // Check for existing alive session — register player and return it
     {
-        let is_alive = sessions.get(&match_id)
+        let is_alive = sessions
+            .get(&match_id)
             .map(|s| s.pid.map(quake_pid_is_alive).unwrap_or(false))
             .unwrap_or(false);
         if is_alive {
@@ -4909,7 +5972,8 @@ async fn start_quake_session(
                         // Also register wallet-derived Q3 name (Q3 may use cached name instead of custom name)
                         // shortAddr format: Pi314 + first6hex + last4hex
                         if addr.len() >= 10 {
-                            let wallet_q3 = format!("Pi314{}{}", &addr[..6], &addr[addr.len()-4..]);
+                            let wallet_q3 =
+                                format!("Pi314{}{}", &addr[..6], &addr[addr.len() - 4..]);
                             existing.players.insert(wallet_q3, addr.clone());
                         }
                         // Track registration order (unique addrs only)
@@ -4919,7 +5983,10 @@ async fn start_quake_session(
                     }
                 }
                 let session_clone = existing.clone();
-                return (StatusCode::OK, Json(serde_json::json!({ "session": session_clone })));
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "session": session_clone })),
+                );
             }
         }
     }
@@ -4933,7 +6000,10 @@ async fn start_quake_session(
     let quake_root = std::path::PathBuf::from("/home/dave/Crypto/pichain/explorer/games/quakejs");
     let ded_bin = quake_root.join("build/ioq3ded.js");
     if !ded_bin.exists() {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error":"QuakeJS dedicated binary missing"})));
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error":"QuakeJS dedicated binary missing"})),
+        );
     }
 
     let port = choose_quake_port(&match_id, &sessions);
@@ -4943,7 +6013,10 @@ async fn start_quake_session(
 
     let work_dir = std::path::PathBuf::from("/tmp/pichain-quakejs").join(&match_id);
     if let Err(e) = std::fs::create_dir_all(&work_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("create work dir failed: {}", e)})));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":format!("create work dir failed: {}", e)})),
+        );
     }
 
     let server_cfg_path = quake_root
@@ -4963,31 +6036,68 @@ async fn start_quake_session(
          seta bot_minplayers 0\n\
          seta bot_nochat 1\n\
          map q3dm7\n",
-        match_id, max_players, if max_players > 10 { 10 } else { 5 }
+        match_id,
+        max_players,
+        if max_players > 10 { 10 } else { 5 }
     );
     if let Err(e) = std::fs::write(&server_cfg_path, server_cfg) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("write server.cfg failed: {}", e)})));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":format!("write server.cfg failed: {}", e)})),
+        );
     }
 
     let log_path = work_dir.join("dedicated.log");
     // Truncate old log so stale game-end markers don't trigger false positives
-    let log_file = match std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path) {
+    let log_file = match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&log_path)
+    {
         Ok(f) => f,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("open log failed: {}", e)}))),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":format!("open log failed: {}", e)})),
+            )
+        }
     };
     let log_file_err = match log_file.try_clone() {
         Ok(f) => f,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("clone log failed: {}", e)}))),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":format!("clone log failed: {}", e)})),
+            )
+        }
     };
 
     let mut cmd = Command::new("node");
     cmd.arg(ded_bin)
-        .arg("+set").arg("fs_cdn").arg("127.0.0.1:8314/game-assets/quakejs")
-        .arg("+set").arg("fs_game").arg("baseq3")
-        .arg("+set").arg("dedicated").arg("1")
-        .arg("+set").arg("net_port").arg(port.to_string())
-        .arg("+set").arg("sv_maxclients").arg(max_players.to_string())
-        .arg("+exec").arg(server_cfg_path.file_name().unwrap_or_default().to_string_lossy().to_string())
+        .arg("+set")
+        .arg("fs_cdn")
+        .arg("127.0.0.1:8314/game-assets/quakejs")
+        .arg("+set")
+        .arg("fs_game")
+        .arg("baseq3")
+        .arg("+set")
+        .arg("dedicated")
+        .arg("1")
+        .arg("+set")
+        .arg("net_port")
+        .arg(port.to_string())
+        .arg("+set")
+        .arg("sv_maxclients")
+        .arg(max_players.to_string())
+        .arg("+exec")
+        .arg(
+            server_cfg_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        )
         .current_dir(quake_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log_file))
@@ -5014,7 +6124,7 @@ async fn start_quake_session(
             players_map.insert(name.clone(), addr.clone());
             // Also register wallet-derived Q3 name (Q3 may use cached name instead of custom name)
             if addr.len() >= 10 {
-                let wallet_q3 = format!("Pi314{}{}", &addr[..6], &addr[addr.len()-4..]);
+                let wallet_q3 = format!("Pi314{}{}", &addr[..6], &addr[addr.len() - 4..]);
                 players_map.insert(wallet_q3, addr.clone());
             }
             reg_order.push(addr.clone());
@@ -5043,13 +6153,19 @@ async fn start_quake_session(
             // Wait for Q3 to fully start
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             let mut last_size = 0usize;
-            let mut forced_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut disconnected_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut forced_slots: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut disconnected_slots: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             // Poll log every 2 seconds for up to 15 minutes
             for _ in 0..450 {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                let Ok(content) = std::fs::read_to_string(&log_path) else { continue };
-                if content.len() <= last_size { continue }
+                let Ok(content) = std::fs::read_to_string(&log_path) else {
+                    continue;
+                };
+                if content.len() <= last_size {
+                    continue;
+                }
                 let new_content = &content[last_size..];
                 last_size = content.len();
 
@@ -5064,8 +6180,13 @@ async fn start_quake_session(
                             let info = rest[sp..].to_lowercase();
                             // Force slots with name "spectator" (client-side forces this name)
                             if info.contains("n\\spectator\\") {
-                                let already_spec = info.contains("t\\3\\") || info.contains("t\\3\n") || info.ends_with("t\\3");
-                                if !already_spec && !disconnected_slots.contains(&slot) && !forced_slots.contains(&slot) {
+                                let already_spec = info.contains("t\\3\\")
+                                    || info.contains("t\\3\n")
+                                    || info.ends_with("t\\3");
+                                if !already_spec
+                                    && !disconnected_slots.contains(&slot)
+                                    && !forced_slots.contains(&slot)
+                                {
                                     slots_to_force.push(slot.clone());
                                     forced_slots.insert(slot);
                                 }
@@ -5096,7 +6217,10 @@ async fn start_quake_session(
         });
     }
 
-    (StatusCode::OK, Json(serde_json::json!({ "session": session })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "session": session })),
+    )
 }
 
 async fn get_quake_session(
@@ -5105,12 +6229,21 @@ async fn get_quake_session(
     let key = sanitize_quake_match_id(&match_id);
     let sessions = match quake_sessions().lock() {
         Ok(g) => g,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"session lock poisoned"})),
+            )
+        }
     };
     match sessions.get(&key).cloned() {
         Some(mut s) => {
             let alive = s.pid.map(quake_pid_is_alive).unwrap_or(false);
-            s.status = if alive { "running".to_string() } else { "failed".to_string() };
+            s.status = if alive {
+                "running".to_string()
+            } else {
+                "failed".to_string()
+            };
             if !alive && s.error.is_none() {
                 s.error = Some("dedicated server process exited".to_string());
             }
@@ -5123,19 +6256,25 @@ async fn get_quake_session(
             let mut winner_name = String::new();
             // SLOT-BASED TRACKING: Use Q3 client slot IDs (not names) as unique identifiers.
             // Names can be duplicated (IndexedDB caches stale names), but slots are always unique.
-            let mut all_players: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut eliminated: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut disconnected: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut all_players: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut eliminated: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut disconnected: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             // Slot-based sets for correct player counting (names may be duplicated)
             let mut all_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut eliminated_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut disconnected_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut eliminated_slots: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut disconnected_slots: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             let mut client_begin_order: Vec<String> = Vec::new();
             let mut slot_begin_order: Vec<String> = Vec::new(); // order of slots entering game
-            let mut slot_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-            let mut kills_per_slot: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+            let mut slot_names: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            let mut kills_per_slot: std::collections::HashMap<String, u32> =
+                std::collections::HashMap::new();
             if let Ok(log_content) = std::fs::read_to_string(&log_path) {
-
                 for line in log_content.lines() {
                     let trimmed = line.trim();
 
@@ -5168,10 +6307,15 @@ async fn get_quake_session(
                     if trimmed.starts_with("ClientBegin:") {
                         let slot = trimmed["ClientBegin:".len()..].trim().to_string();
                         // Skip spectators — they don't count as players
-                        let is_spectator = slot_names.get(&slot).map(|n| {
-                            let lower = n.to_lowercase();
-                            lower == "spectator" || lower.starts_with("spectator") || lower.contains("spectator")
-                        }).unwrap_or(false);
+                        let is_spectator = slot_names
+                            .get(&slot)
+                            .map(|n| {
+                                let lower = n.to_lowercase();
+                                lower == "spectator"
+                                    || lower.starts_with("spectator")
+                                    || lower.contains("spectator")
+                            })
+                            .unwrap_or(false);
                         if is_spectator {
                             // Don't add to all_slots — spectators are invisible to elimination logic
                             // Note: the background watcher task handles forceteam commands
@@ -5208,9 +6352,19 @@ async fn get_quake_session(
                         let parts: Vec<&str> = nums_and_rest.splitn(2, ':').collect();
                         let slot_nums: Vec<&str> = if parts.len() >= 1 {
                             parts[0].trim().split_whitespace().collect()
-                        } else { vec![] };
-                        let killer_slot = if slot_nums.len() >= 1 { slot_nums[0].to_string() } else { String::new() };
-                        let victim_slot = if slot_nums.len() >= 2 { slot_nums[1].to_string() } else { String::new() };
+                        } else {
+                            vec![]
+                        };
+                        let killer_slot = if slot_nums.len() >= 1 {
+                            slot_nums[0].to_string()
+                        } else {
+                            String::new()
+                        };
+                        let victim_slot = if slot_nums.len() >= 2 {
+                            slot_nums[1].to_string()
+                        } else {
+                            String::new()
+                        };
 
                         // Also parse names for the name-based sets (used for addr mapping)
                         if let Some(colon2) = trimmed[5..].find(':') {
@@ -5224,14 +6378,19 @@ async fn get_quake_session(
                                     rest_kill.trim().to_string()
                                 };
                                 // Skip spectator kills entirely
-                                let victim_is_spectator = victim.to_lowercase().contains("spectator");
-                                let killer_is_spectator = killer.to_lowercase().contains("spectator");
-                                if victim_is_spectator { continue; }
+                                let victim_is_spectator =
+                                    victim.to_lowercase().contains("spectator");
+                                let killer_is_spectator =
+                                    killer.to_lowercase().contains("spectator");
+                                if victim_is_spectator {
+                                    continue;
+                                }
 
                                 if killer != "<world>" && !killer_is_spectator {
                                     all_players.insert(killer.clone());
                                     if !killer_slot.is_empty() {
-                                        *kills_per_slot.entry(killer_slot.clone()).or_insert(0) += 1;
+                                        *kills_per_slot.entry(killer_slot.clone()).or_insert(0) +=
+                                            1;
                                     }
                                 }
                                 all_players.insert(victim.clone());
@@ -5277,8 +6436,11 @@ async fn get_quake_session(
 
                 // Check elimination using SLOT-BASED counting (handles duplicate names correctly)
                 if all_slots.len() >= 2 {
-                    let survivor_slots: Vec<&String> = all_slots.iter()
-                        .filter(|s| !eliminated_slots.contains(*s) && !disconnected_slots.contains(*s))
+                    let survivor_slots: Vec<&String> = all_slots
+                        .iter()
+                        .filter(|s| {
+                            !eliminated_slots.contains(*s) && !disconnected_slots.contains(*s)
+                        })
                         .collect();
                     if survivor_slots.len() == 1 {
                         game_ended = true;
@@ -5289,7 +6451,8 @@ async fn get_quake_session(
                             game_end_reason = "opponent_disconnected".to_string();
                         }
                         // Get the winner's name from their slot
-                        winner_name = slot_names.get(survivor_slots[0])
+                        winner_name = slot_names
+                            .get(survivor_slots[0])
                             .cloned()
                             .unwrap_or_default();
                     } else if survivor_slots.is_empty() {
@@ -5297,12 +6460,10 @@ async fn get_quake_session(
                         // Winner = player with most kills (tiebreaker)
                         game_ended = true;
                         game_end_reason = "elimination".to_string();
-                        if let Some((best_slot, _)) = kills_per_slot.iter()
-                            .max_by_key(|(_, kills)| **kills)
+                        if let Some((best_slot, _)) =
+                            kills_per_slot.iter().max_by_key(|(_, kills)| **kills)
                         {
-                            winner_name = slot_names.get(best_slot)
-                                .cloned()
-                                .unwrap_or_default();
+                            winner_name = slot_names.get(best_slot).cloned().unwrap_or_default();
                         }
                     }
                 }
@@ -5318,12 +6479,10 @@ async fn get_quake_session(
                         game_ended = true;
                         game_end_reason = "timelimit".to_string();
                         // Winner = player with most kills (slot-based to handle duplicate names)
-                        if let Some((best_slot, _)) = kills_per_slot.iter()
-                            .max_by_key(|(_, kills)| **kills)
+                        if let Some((best_slot, _)) =
+                            kills_per_slot.iter().max_by_key(|(_, kills)| **kills)
                         {
-                            winner_name = slot_names.get(best_slot)
-                                .cloned()
-                                .unwrap_or_default();
+                            winner_name = slot_names.get(best_slot).cloned().unwrap_or_default();
                         }
                     }
                 }
@@ -5336,12 +6495,17 @@ async fn get_quake_session(
                 let mut out = String::new();
                 let mut chars = name.chars();
                 while let Some(c) = chars.next() {
-                    if c == '^' { chars.next(); } else { out.push(c); }
+                    if c == '^' {
+                        chars.next();
+                    } else {
+                        out.push(c);
+                    }
                 }
                 out.trim().to_lowercase()
             }
 
-            let mut q3_to_addr: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut q3_to_addr: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
 
             // Method 1: Direct lookup in registered players map (name match)
             for q3_name in &all_players {
@@ -5356,8 +6520,11 @@ async fn get_quake_session(
             // Disabled for 3+ player matches — order correlation is unreliable when
             // Q3 caches stale names from IndexedDB/IDBFS.
             if s.registration_order.len() == 2 && q3_to_addr.len() == 1 {
-                let mapped_addrs: std::collections::HashSet<String> = q3_to_addr.values().cloned().collect();
-                if let Some(remaining_addr) = s.registration_order.iter()
+                let mapped_addrs: std::collections::HashSet<String> =
+                    q3_to_addr.values().cloned().collect();
+                if let Some(remaining_addr) = s
+                    .registration_order
+                    .iter()
                     .find(|a| !mapped_addrs.contains(*a))
                     .cloned()
                 {
@@ -5372,10 +6539,12 @@ async fn get_quake_session(
             }
 
             // Slot-to-addr mapping: start with name-matched slots, then use process of elimination.
-            let mut slot_to_addr: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut slot_to_addr: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
 
             // Step 1: Map slots with unique names via direct name match (most reliable)
-            let mut used_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut used_addrs: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for (slot, name) in &slot_names {
                 if let Some(addr) = q3_to_addr.get(name) {
                     // Only use if this name is unique among slots (no duplicate Q3 names)
@@ -5388,11 +6557,14 @@ async fn get_quake_session(
             }
 
             // Step 2: For unmapped slots, assign remaining addresses via begin-order correlation
-            let remaining_addrs: Vec<String> = s.registration_order.iter()
+            let remaining_addrs: Vec<String> = s
+                .registration_order
+                .iter()
                 .filter(|a| !used_addrs.contains(*a))
                 .cloned()
                 .collect();
-            let unmapped_slots: Vec<String> = slot_begin_order.iter()
+            let unmapped_slots: Vec<String> = slot_begin_order
+                .iter()
                 .filter(|s| !slot_to_addr.contains_key(*s))
                 .cloned()
                 .collect();
@@ -5414,7 +6586,8 @@ async fn get_quake_session(
             let mut winner_addr = String::new();
             if !winner_name.is_empty() {
                 // Collect all known eliminated+disconnected addresses
-                let mut loser_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut loser_addrs: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 for elim_slot in &eliminated_slots {
                     if let Some(addr) = slot_to_addr.get(elim_slot) {
                         loser_addrs.insert(addr.clone());
@@ -5426,18 +6599,21 @@ async fn get_quake_session(
                     }
                 }
                 // Winner = registered address not in loser set
-                if let Some(wa) = s.registration_order.iter()
+                if let Some(wa) = s
+                    .registration_order
+                    .iter()
                     .find(|a| !loser_addrs.contains(*a))
                 {
                     winner_addr = wa.clone();
                 }
                 // Fallback: slot-based or name-based lookup
                 if winner_addr.is_empty() {
-                    let winner_slot = slot_names.iter()
+                    let winner_slot = slot_names
+                        .iter()
                         .find(|(slot, name)| {
                             *name == &winner_name
-                            && !eliminated_slots.contains(*slot)
-                            && !disconnected_slots.contains(*slot)
+                                && !eliminated_slots.contains(*slot)
+                                && !disconnected_slots.contains(*slot)
                         })
                         .map(|(slot, _)| slot.clone());
                     if let Some(ref ws) = winner_slot {
@@ -5493,12 +6669,16 @@ async fn get_quake_session(
             let all_players_list: Vec<String> = all_players.iter().cloned().collect();
 
             // Build disconnected wallet addresses
-            let mut disconnected_addrs: Vec<String> = disconnected.iter()
+            let mut disconnected_addrs: Vec<String> = disconnected
+                .iter()
                 .filter_map(|q3_name| q3_to_addr.get(q3_name).cloned())
                 .collect();
 
             // For 2-player disconnect matches: process of elimination for disconnected_addrs
-            if s.registration_order.len() == 2 && game_ended && game_end_reason == "opponent_disconnected" {
+            if s.registration_order.len() == 2
+                && game_ended
+                && game_end_reason == "opponent_disconnected"
+            {
                 if !winner_addr.is_empty() && disconnected_addrs.is_empty() {
                     let reg = &s.registration_order;
                     if let Some(da) = reg.iter().find(|a| a.as_str() != winner_addr).cloned() {
@@ -5511,24 +6691,30 @@ async fn get_quake_session(
                 eprintln!("[Quake Status] match={} alive={} game_ended={} reason={} all_slots={:?} elim_slots={:?} disc_slots={:?} slot_names={:?} reg_order={:?} begin_order={:?} q3_to_addr={:?} all_q3={:?} eliminated={:?} eliminated_addrs={:?} disconnected={:?} disconnected_addrs={:?} winner_name={:?} winner_addr={:?}",
                     key, alive, game_ended, game_end_reason, all_slots, eliminated_slots, disconnected_slots, slot_names, s.registration_order, client_begin_order, q3_to_addr, all_players_list, eliminated_list, eliminated_addrs, disconnected_list, disconnected_addrs, winner_name, winner_addr);
             }
-            (StatusCode::OK, Json(serde_json::json!({
-                "session": s,
-                "game_ended": game_ended,
-                "game_end_reason": game_end_reason,
-                "winner_name": winner_name,
-                "winner_addr": winner_addr,
-                "eliminated": eliminated_list,
-                "eliminated_addrs": eliminated_addrs,
-                "disconnected": disconnected_list,
-                "disconnected_addrs": disconnected_addrs,
-                "all_players": all_players_list,
-                "all_slots": all_slots.len(),
-                "eliminated_slots": eliminated_slots.len(),
-                "alive_slots": all_slots.len().saturating_sub(eliminated_slots.len()).saturating_sub(disconnected_slots.len()),
-                "registration_order": s.registration_order
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "session": s,
+                    "game_ended": game_ended,
+                    "game_end_reason": game_end_reason,
+                    "winner_name": winner_name,
+                    "winner_addr": winner_addr,
+                    "eliminated": eliminated_list,
+                    "eliminated_addrs": eliminated_addrs,
+                    "disconnected": disconnected_list,
+                    "disconnected_addrs": disconnected_addrs,
+                    "all_players": all_players_list,
+                    "all_slots": all_slots.len(),
+                    "eliminated_slots": eliminated_slots.len(),
+                    "alive_slots": all_slots.len().saturating_sub(eliminated_slots.len()).saturating_sub(disconnected_slots.len()),
+                    "registration_order": s.registration_order
+                })),
+            )
         }
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error":"session not found"})),
+        ),
     }
 }
 
@@ -5541,11 +6727,21 @@ async fn stop_quake_session(
     let pid = {
         let sessions = match quake_sessions().lock() {
             Ok(g) => g,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":"session lock poisoned"})),
+                )
+            }
         };
         match sessions.get(&key) {
             Some(s) => s.pid,
-            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error":"session not found"})),
+                )
+            }
         }
     };
 
@@ -5560,7 +6756,10 @@ async fn stop_quake_session(
         // Use SIGKILL — ioq3ded (Node.js) doesn't reliably handle SIGTERM
         let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
     }
-    (StatusCode::OK, Json(serde_json::json!({ "stopped": true, "match_id": key })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "stopped": true, "match_id": key })),
+    )
 }
 
 /// Send an arbitrary console command to a running Q3 dedicated server via its stdin pipe.
@@ -5573,24 +6772,51 @@ async fn quake_send_command(
     let key = sanitize_quake_match_id(&match_id);
     let cmd_str = match body.get("command").and_then(|v| v.as_str()) {
         Some(c) => c.to_string(),
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"missing 'command' field"}))),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":"missing 'command' field"})),
+            )
+        }
     };
     // Sanitize: no newlines in command (we append our own), max 256 chars
-    let cmd_clean: String = cmd_str.chars().filter(|c| *c != '\n' && *c != '\r').take(256).collect();
+    let cmd_clean: String = cmd_str
+        .chars()
+        .filter(|c| *c != '\n' && *c != '\r')
+        .take(256)
+        .collect();
     if cmd_clean.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"empty command"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":"empty command"})),
+        );
     }
 
     // Verify session exists and is alive
     {
         let sessions = match quake_sessions().lock() {
             Ok(g) => g,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":"session lock poisoned"})),
+                )
+            }
         };
         match sessions.get(&key) {
-            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
-            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
-            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {}
+            Some(_) => {
+                return (
+                    StatusCode::GONE,
+                    Json(serde_json::json!({"error":"session not running"})),
+                )
+            }
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error":"session not found"})),
+                )
+            }
         }
     }
 
@@ -5600,23 +6826,31 @@ async fn quake_send_command(
             use std::io::Write;
             let full_cmd = format!("{}\n", cmd_clean);
             if let Err(e) = stdin.write_all(full_cmd.as_bytes()) {
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("stdin write failed: {}", e)})));
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":format!("stdin write failed: {}", e)})),
+                );
             }
             let _ = stdin.flush();
             info!("[Quake Cmd] match={} cmd={}", key, cmd_clean);
-            return (StatusCode::OK, Json(serde_json::json!({"sent": true, "command": cmd_clean})));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({"sent": true, "command": cmd_clean})),
+            );
         }
     }
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error":"stdin handle not found"})),
+    )
 }
 
 /// Q3 bot names that are available in the standard baseq3 pak files.
 // Only 6 bot profiles exist in pak0. Q3 allows duplicate addbot calls —
 // each gets a unique player slot, just with the same name/model.
 const Q3_BOT_NAMES: &[&str] = &[
-    "Sarge", "Visor", "Grunt", "Stripe", "Major", "Daemia",
-    "Sarge", "Visor", "Grunt", "Stripe", "Major", "Daemia",
-    "Sarge", "Visor", "Grunt", "Stripe",
+    "Sarge", "Visor", "Grunt", "Stripe", "Major", "Daemia", "Sarge", "Visor", "Grunt", "Stripe",
+    "Major", "Daemia", "Sarge", "Visor", "Grunt", "Stripe",
 ];
 
 /// Add AI bots to a running Q3 match.
@@ -5630,33 +6864,67 @@ async fn quake_add_bots(
     Json(body): Json<serde_json::Value>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let key = sanitize_quake_match_id(&match_id);
-    let count = body.get("count").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 16) as usize;
-    let skill = body.get("skill").and_then(|v| v.as_u64()).unwrap_or(3).clamp(1, 5);
-    let requested_names: Vec<String> = body.get("names")
+    let count = body
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1)
+        .clamp(1, 16) as usize;
+    let skill = body
+        .get("skill")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(3)
+        .clamp(1, 5);
+    let requested_names: Vec<String> = body
+        .get("names")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     // Verify session exists and is alive
     {
         let sessions = match quake_sessions().lock() {
             Ok(g) => g,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":"session lock poisoned"})),
+                )
+            }
         };
         match sessions.get(&key) {
-            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
-            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
-            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {}
+            Some(_) => {
+                return (
+                    StatusCode::GONE,
+                    Json(serde_json::json!({"error":"session not running"})),
+                )
+            }
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error":"session not found"})),
+                )
+            }
         }
     }
 
     // Build bot name list: use requested names first, then fill with random picks
     let mut bot_names = Vec::new();
     for name in &requested_names {
-        if bot_names.len() >= count { break; }
+        if bot_names.len() >= count {
+            break;
+        }
         // Validate against known names (case-insensitive match)
         let matched = Q3_BOT_NAMES.iter().find(|n| n.eq_ignore_ascii_case(name));
-        bot_names.push(matched.map(|s| s.to_string()).unwrap_or_else(|| name.clone()));
+        bot_names.push(
+            matched
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| name.clone()),
+        );
     }
     // Fill remaining slots with random bot names (avoid duplicates)
     let mut rng_idx = std::time::SystemTime::now()
@@ -5689,18 +6957,27 @@ async fn quake_add_bots(
             }
             let _ = stdin.flush();
         } else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"stdin handle not found"})),
+            );
         }
     } else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin lock poisoned"})));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"stdin lock poisoned"})),
+        );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "added": added,
-        "skill": skill,
-        "match_id": key,
-        "note": "Bot support requires ioq3ded.js compiled with botlib. If bots don't appear, the server binary may lack bot AI support."
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "added": added,
+            "skill": skill,
+            "match_id": key,
+            "note": "Bot support requires ioq3ded.js compiled with botlib. If bots don't appear, the server binary may lack bot AI support."
+        })),
+    )
 }
 
 /// Remove bots from a running Q3 match.
@@ -5712,20 +6989,40 @@ async fn quake_remove_bots(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let key = sanitize_quake_match_id(&match_id);
     let remove_all = body.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
-    let count = if remove_all { 8 } else {
-        body.get("count").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 8) as usize
+    let count = if remove_all {
+        8
+    } else {
+        body.get("count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .clamp(1, 8) as usize
     };
 
     // Verify session exists and is alive
     {
         let sessions = match quake_sessions().lock() {
             Ok(g) => g,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":"session lock poisoned"})),
+                )
+            }
         };
         match sessions.get(&key) {
-            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
-            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
-            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {}
+            Some(_) => {
+                return (
+                    StatusCode::GONE,
+                    Json(serde_json::json!({"error":"session not running"})),
+                )
+            }
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error":"session not found"})),
+                )
+            }
         }
     }
 
@@ -5746,14 +7043,20 @@ async fn quake_remove_bots(
             }
             let _ = stdin.flush();
         } else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"stdin handle not found"})),
+            );
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "removed": if remove_all { "all".to_string() } else { format!("{}", count) },
-        "match_id": key
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "removed": if remove_all { "all".to_string() } else { format!("{}", count) },
+            "match_id": key
+        })),
+    )
 }
 
 async fn quake_ws_upgrade(
@@ -5768,10 +7071,11 @@ async fn quake_ws_upgrade(
         return (StatusCode::BAD_REQUEST, "invalid quake ws target").into_response();
     }
 
-    ws.protocols(["binary"]).on_upgrade(move |socket| async move {
-        let _ = relay_quake_ws(socket, host, port).await;
-    })
-    .into_response()
+    ws.protocols(["binary"])
+        .on_upgrade(move |socket| async move {
+            let _ = relay_quake_ws(socket, host, port).await;
+        })
+        .into_response()
 }
 
 async fn relay_quake_ws(
@@ -5796,7 +7100,11 @@ async fn relay_quake_ws(
         loop {
             interval.tick().await;
             let mut tx = client_tx_ping.lock().await;
-            if tx.send(AxumWsMessage::Ping(vec![b'q', b'3'].into())).await.is_err() {
+            if tx
+                .send(AxumWsMessage::Ping(vec![b'q', b'3'].into()))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -5914,7 +7222,11 @@ mod tests {
         // Cleanup should remove stale entries regardless of rate-limit state.
         // (This previously required a successful check() to trigger.)
         limiter.cleanup();
-        assert_eq!(limiter.buckets.len(), 0, "cleanup should remove expired entries");
+        assert_eq!(
+            limiter.buckets.len(),
+            0,
+            "cleanup should remove expired entries"
+        );
     }
 
     #[test]
