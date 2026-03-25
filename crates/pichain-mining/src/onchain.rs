@@ -19,19 +19,20 @@ use crate::proof::{MiningProof, ProofVerifier};
 use crate::registry::{DigitRange, DigitRegistry};
 use crate::reward::{self, RewardCalculator};
 
-/// Maximum percentage of epoch emission any single miner can earn at maturity (basis points).
-/// 200 bps = 2%, meaning at least 50 distinct miners needed to consume full epoch emission.
+/// Maximum percentage of epoch emission any single miner can earn at maturity.
+/// 314 bps = 3.14% (π × 100). At least ~32 miners needed to consume full emission.
 ///
 /// During bootstrap, this is relaxed via `effective_miner_cap_bps()` to allow
-/// small networks to function (a solo miner needs >2% to earn anything meaningful).
-pub const MAX_MINER_REWARD_PCT_BPS: u32 = 200;
+/// small networks to function (a solo miner needs more to earn anything meaningful).
+pub const MAX_MINER_REWARD_PCT_BPS: u32 = 314;
 
-/// Bootstrap miner cap (used when fewer than 5 unique miners exist).
-/// 2000 bps = 20%, allowing solo/small-team mining during launch.
-pub const BOOTSTRAP_MINER_REWARD_PCT_BPS: u32 = 2000;
+/// Bootstrap miner cap (used when fewer than π² unique miners exist).
+/// 3141 bps = 31.41% (π × 1000), allowing solo/small-team mining during launch.
+pub const BOOTSTRAP_MINER_REWARD_PCT_BPS: u32 = 3141;
 
 /// Minimum unique miners before the cap tightens from bootstrap to mature level.
-pub const MIN_MINERS_FOR_TIGHT_CAP: usize = 5;
+/// π² ≈ 9.87, rounded to 9.
+pub const MIN_MINERS_FOR_TIGHT_CAP: usize = 9;
 
 /// Blocks per mining epoch for reward cap tracking (~24 hours at 314ms/block).
 pub const BLOCKS_PER_MINING_EPOCH: u64 = 275_159;
@@ -340,18 +341,18 @@ impl MiningProcessor {
 
     /// Calculate the effective per-miner cap based on network size.
     ///
-    /// Progressive strengthening:
-    /// - Bootstrap (< 5 miners): 20% — solo miner can bootstrap the chain
-    /// - Early (5-19 miners): 10% — small community
-    /// - Mature (20+ miners): 2% — quantum-resistant cap
+    /// Progressive strengthening (all π-derived):
+    /// - Bootstrap (< 9 miners / π²): 31.41% (π × 1000 bps)
+    /// - Early (9-30 miners): 6.28% (2π × 100 bps)
+    /// - Mature (31+ miners / π decades): 3.14% (π × 100 bps)
     fn effective_miner_cap_bps(&self) -> u32 {
         let unique_miners = self.registry.stats().unique_miners as usize;
         if unique_miners < MIN_MINERS_FOR_TIGHT_CAP {
-            BOOTSTRAP_MINER_REWARD_PCT_BPS // 20%
-        } else if unique_miners < 20 {
-            1000 // 10%
+            BOOTSTRAP_MINER_REWARD_PCT_BPS // 31.41%
+        } else if unique_miners < 31 {
+            628 // 6.28% (2π)
         } else {
-            MAX_MINER_REWARD_PCT_BPS // 2%
+            MAX_MINER_REWARD_PCT_BPS // 3.14%
         }
     }
 
@@ -1737,16 +1738,16 @@ mod tests {
     }
 
     #[test]
-    fn miner_cap_is_2_percent_at_maturity() {
-        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 200);
+    fn miner_cap_is_pi_percent_at_maturity() {
+        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 314);
     }
 
     #[test]
     fn miner_cap_progressive() {
-        // Bootstrap (< 5 miners): 20% cap
-        assert_eq!(BOOTSTRAP_MINER_REWARD_PCT_BPS, 2000);
-        // Mature (20+ miners): 2% cap
-        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 200);
+        // Bootstrap (< 9 miners): 31.41% cap
+        assert_eq!(BOOTSTRAP_MINER_REWARD_PCT_BPS, 3141);
+        // Mature (31+ miners): 3.14% cap
+        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 314);
     }
 
     #[test]
