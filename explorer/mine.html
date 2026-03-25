@@ -330,21 +330,13 @@ pre .c { color: var(--dim); }
           </div>
           <div style="margin-top:16px;" class="mining-controls">
             <div class="control-group">
-              <label>Power <span style="font-size:11px;color:var(--muted);" id="thread-auto-label"></span></label>
-              <input type="range" id="thread-count" min="1" max="8" value="4" style="display:none">
-              <select id="power-mode" onchange="applyPowerMode()">
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="auto" selected>Auto</option>
-                <option value="max">Max</option>
-              </select>
-            </div>
-            <div class="control-group">
-              <label>Batch <span id="batch-min-label" style="font-size:11px;color:var(--muted)"></span></label>
-              <select id="batch-size" style="display:none">
-                <option value="auto" selected>Auto</option>
-              </select>
-              <span id="thread-label" style="font-size:14px;color:var(--text);">auto</span>
+              <label style="font-size:12px;color:var(--muted);">Browser mining: lightweight mode</label>
+              <input type="hidden" id="thread-count" value="1">
+              <input type="hidden" id="power-mode" value="low">
+              <input type="hidden" id="batch-size" value="auto">
+              <span id="thread-auto-label" style="display:none"></span>
+              <span id="batch-min-label" style="display:none"></span>
+              <span id="thread-label" style="display:none"></span>
             </div>
           </div>
           <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
@@ -993,21 +985,8 @@ function showToast(msg, type='info') {
 
 // Power mode management
 function applyPowerMode(){
-  const mode=document.getElementById('power-mode').value;
-  const maxT=navigator.hardwareConcurrency||4;
-  let threads;
-  switch(mode){
-    case 'low': threads=Math.min(2,maxT); break;
-    case 'normal': threads=Math.max(2,Math.floor(maxT/2)); break;
-    case 'max': threads=maxT; break;
-    default: // auto
-      threads=Math.min(maxT,8);
-      break;
-  }
-  document.getElementById('thread-count').value=threads;
-  document.getElementById('thread-label').textContent=threads+' threads';
-  document.getElementById('thread-auto-label').textContent='('+maxT+' cores)';
-  localStorage.setItem('pichain_power_mode',mode);
+  // Browser mining always uses 1 thread
+  document.getElementById('thread-count').value=1;
 }
 function saveSettings(){}
 function loadSettings(){
@@ -1413,9 +1392,7 @@ function toggleMining(){if(isMining)stopMining();else showMiningWarning();}
 
 function showMiningWarning(){
   if(!walletAddressHex)return;
-  const mode=document.getElementById('power-mode');
-  const modeText=mode.options[mode.selectedIndex].text;
-  document.getElementById('cpu-warn-threads').textContent=modeText;
+  document.getElementById('cpu-warn-threads').textContent='Lightweight (1 thread)';
   document.getElementById('cpu-warn-ack').checked=false;
   document.getElementById('cpu-warn-proceed').disabled=true;
   document.getElementById('cpu-warning-modal').classList.add('active');
@@ -1492,9 +1469,14 @@ async function miningLoop(){
 
     const batchVal=document.getElementById('batch-size').value;
     const serverMin=currentStatus.min_batch_size??10;
-    let batchSize=batchVal==='auto'?serverMin:Math.max(parseInt(batchVal),serverMin);
-    document.getElementById('batch-min-label').textContent='(min: '+serverMin+')';
-    const threadCount=parseInt(document.getElementById('thread-count').value);
+    // Browser miners use minimum batch size only — keeps computation fast
+    // and prevents overloading the node with large proofs from slow JS.
+    // Desktop/CLI miners handle larger batches natively.
+    // Browser mining: minimum batch, single thread.
+    // Keeps it lightweight and prevents server overload with multiple browsers.
+    let batchSize=serverMin; // use server minimum (currently 60)
+    document.getElementById('batch-min-label').textContent='';
+    const threadCount=1; // single thread only for browser
     const frontier=currentStatus.next_position??currentStatus.frontier_position??0;
     const maxBatch=currentStatus.max_batch_at_position??Infinity;
 
@@ -1659,7 +1641,7 @@ async function checkRoundDone(){
         }
       }catch(e){}
     }
-    setTimeout(miningLoop,1000);
+    setTimeout(miningLoop,3000); // 3s between rounds — browser is casual mining
   }
 }
 
@@ -1669,9 +1651,10 @@ async function checkRoundDone(){
 function computePowAttemptBudget(difficultyBits){
   const bits=Math.max(1,Math.min(60,Number.isFinite(difficultyBits)?difficultyBits:8));
   const expected=Math.pow(2,bits);
-  // Keep browser responsive: cap attempts even if expected work is much higher.
-  // 24 bits already implies ~16.7M expected attempts.
-  const maxAttempts=Math.floor(Math.min(20000000,Math.max(5000000,expected*1.5)));
+  // Browser PoW budget: much lower than CLI miners.
+  // If difficulty is too high, skip this round rather than grinding for minutes.
+  // 1M attempts max = ~1 second on modern CPU.
+  const maxAttempts=Math.floor(Math.min(1000000,Math.max(500000,expected*1.2)));
   const successPct=(1-Math.exp(-maxAttempts/expected))*100;
   return {bits,maxAttempts,successPct};
 }

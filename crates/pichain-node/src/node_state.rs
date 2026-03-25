@@ -1707,22 +1707,23 @@ impl StateProvider for NodeState {
         }
 
         if result.reward_amount > 0 {
-            // Credit the miner's account in both executor cache AND storage
-            let mut acct = self
-                .executor
+            // Read current balance from STORAGE (not executor cache which may be stale)
+            let mut store = self.store.write();
+            let mut acct = store
                 .get_account(miner_address)
-                .unwrap_or_default();
-            acct.balance = acct.balance.saturating_add(result.reward_amount);
-            self.executor.set_account(*miner_address, acct.clone());
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| pichain_types::Account::new(*miner_address));
+            acct.state.balance = acct.state.balance.saturating_add(result.reward_amount);
 
-            // Persist to storage so RPC queries see the updated balance
-            let account = pichain_types::Account {
-                address: *miner_address,
-                state: acct,
-            };
-            if let Err(e) = self.store.write().put_account(&account) {
+            // Write back to storage
+            if let Err(e) = store.put_account(&acct) {
                 tracing::error!(%e, "failed to persist pool mining reward");
             }
+            drop(store);
+
+            // Also update executor cache
+            self.executor.set_account(*miner_address, acct.state);
 
             self.total_minted.fetch_add(
                 result.reward_amount,
