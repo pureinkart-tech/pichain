@@ -1419,7 +1419,7 @@ function hideRoundProgress(){
 function toggleMining(){if(isMining)stopMining();else showMiningWarning();}
 
 function showMiningWarning(){
-  if(!walletKeypair)return;
+  if(!walletAddressHex)return;
   const mode=document.getElementById('power-mode');
   const modeText=mode.options[mode.selectedIndex].text;
   document.getElementById('cpu-warn-threads').textContent=modeText;
@@ -1456,7 +1456,7 @@ function stopMining(){
 }
 
 async function startMining(){
-  if(!walletKeypair)return;
+  if(!walletAddressHex)return;
   // Pre-flight: verify RPC is reachable
   document.getElementById('status-text').textContent='Connecting...';
   try{
