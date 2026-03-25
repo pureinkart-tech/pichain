@@ -242,6 +242,8 @@ jobs:
           open "/Applications/$APP_NAME"
           SCRIPT
             chmod +x "$DMG_STAGING/Install PIChain Miner.command"
+            # Add plain-text install instructions (cannot be blocked by macOS)
+            printf 'PIChain Miner - Install Instructions\n=====================================\n\nSTEP 1: Drag "PIChain Miner" to the Applications folder.\n\nSTEP 2: Open Terminal (Cmd+Space, type Terminal, press Enter)\n        and paste this command:\n\nxattr -cr "/Applications/PIChain Miner.app" && codesign --sign - --force --deep "/Applications/PIChain Miner.app"\n\nSTEP 3: Open PIChain Miner from Applications.\n\nWHY IS THIS NEEDED?\nmacOS blocks apps downloaded from the internet that are\nnot from the App Store. The command above removes this\nblock. You only need to do this once.\n' > "$DMG_STAGING/HOW TO INSTALL.txt"
             hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
             rm -rf "$DMG_STAGING"
           fi
