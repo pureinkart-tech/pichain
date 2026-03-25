@@ -952,7 +952,11 @@ async function refreshBalance() {
     const rpc = document.getElementById('rpc-url').value;
     const data = await invoke('get_balance', { rpcUrl: rpc, address: walletAddress });
     const bal = (data.balance || 0) / 1e9;
-    document.getElementById('wallet-balance').textContent = bal.toFixed(3);
+    // Only update balance display if it increased (prevents flickering during mining)
+    const currentDisplay = parseFloat(document.getElementById('wallet-balance').textContent) || 0;
+    if (bal >= currentDisplay || !isMining) {
+      document.getElementById('wallet-balance').textContent = bal.toFixed(3);
+    }
     const locked = data.locked_balance || 0;
     const lockedRow = document.getElementById('locked-balance-row');
     if (locked > 0) {
@@ -1159,16 +1163,24 @@ function updateStats(s) {
   document.getElementById('stat-uptime').textContent = formatUptime(s.uptime_secs || 0);
 
   if (s.reward_per_digit > 0) lastRewardPerDigit = s.reward_per_digit;
-  if (lastRewardPerDigit > 0) {
-    estimatedEarned = (s.digits_computed * lastRewardPerDigit) / 1e9;
+
+  // Use actual confirmed rewards, not estimates
+  // Only count confirmed proofs × reward (not all digits computed)
+  if (lastRewardPerDigit > 0 && s.proofs_confirmed > 0) {
+    // Each confirmed proof = batch_size digits (typically 500)
+    const confirmedDigits = s.proofs_confirmed * (s.batch_size || 500);
+    estimatedEarned = (confirmedDigits * lastRewardPerDigit) / 1e9;
   }
   document.getElementById('stat-earned').textContent = estimatedEarned.toFixed(4);
 
-  // Estimated daily earnings
+  // Daily estimate based on actual earn rate (confirmed, not theoretical)
   const dailyEl = document.getElementById('stat-earned-daily');
-  if (s.digits_per_sec > 0 && lastRewardPerDigit > 0) {
-    const dailyPI = (s.digits_per_sec * 86400 * lastRewardPerDigit) / 1e9;
+  if (s.uptime_secs > 10 && estimatedEarned > 0) {
+    const dailyPI = (estimatedEarned / s.uptime_secs) * 86400;
     dailyEl.textContent = '~' + dailyPI.toFixed(2) + ' PI/day';
+  } else if (s.digits_per_sec > 0 && lastRewardPerDigit > 0) {
+    const dailyPI = (s.digits_per_sec * 86400 * lastRewardPerDigit) / 1e9;
+    dailyEl.textContent = '~' + dailyPI.toFixed(2) + ' PI/day (max)';
   } else {
     dailyEl.textContent = '';
   }
@@ -1190,9 +1202,8 @@ function updateStats(s) {
     }
   }
 
-  if (s.balance > 0) {
-    document.getElementById('wallet-balance').textContent = (s.balance / 1e9).toFixed(3);
-  }
+  // Balance updated only by refreshBalance() to prevent flickering
+  // between executor cache and storage values
 
   // Status indicator
   const dot = document.getElementById('status-dot');
