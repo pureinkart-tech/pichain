@@ -1847,23 +1847,21 @@ impl StateProvider for NodeState {
     }
 
     fn activate_wallet(&self, address: &Address) -> Result<u64, String> {
-        // 3.14 PI in base units (1 PI = 1_000_000_000)
-        let locked_grant: u64 = 3_140_000_000;
-        // Global cap: first 3.14 million wallets
+        // Activation registers the wallet on-chain (no PI minted).
+        // Mining proofs are fee-exempt, so miners don't need a balance to start.
+        // Users get PI by mining or receiving from others.
         const MAX_ACTIVATIONS: u64 = 3_141_592;
 
-        // Check if already activated (read lock first for fast path)
         {
             let store = self.store.read();
             if store.is_wallet_activated(address).unwrap_or(false) {
                 return Err("wallet already activated".to_string());
             }
             if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
-                return Err("wallet activation cap reached (3,141,592 wallets)".to_string());
+                return Err("wallet activation cap reached".to_string());
             }
         }
 
-        // Mint locked PI directly to the target wallet under write lock
         let mut store = self.store.write();
 
         // Re-check under write lock (TOCTOU protection)
@@ -1871,40 +1869,16 @@ impl StateProvider for NodeState {
             return Err("wallet already activated".to_string());
         }
         if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
-            return Err("wallet activation cap reached (3,141,592 wallets)".to_string());
+            return Err("wallet activation cap reached".to_string());
         }
 
-        // Load or create target account
-        let mut account = store
-            .get_account(address)
-            .map_err(|e| format!("storage error: {e}"))?
-            .unwrap_or_else(|| Account::new(*address));
-
-        // Mint locked balance (non-transferable, gas fees only)
-        account.state.locked_balance = account
-            .state
-            .locked_balance
-            .checked_add(locked_grant)
-            .ok_or("locked balance overflow")?;
-
-        // Persist account + mark activated
-        store
-            .put_account(&account)
-            .map_err(|e| format!("storage error: {e}"))?;
         store
             .mark_wallet_activated(address)
             .map_err(|e| format!("storage error: {e}"))?;
 
-        // Update executor cache
-        self.executor.set_account(*address, account.state);
+        info!(%address, "wallet activated (no PI minted)");
 
-        info!(
-            %address,
-            locked_amount = locked_grant,
-            "wallet activated with minted locked PI grant"
-        );
-
-        Ok(locked_grant)
+        Ok(0)
     }
 
     fn scan_all_launches(&self) -> Vec<pichain_types::TokenLaunch> {
