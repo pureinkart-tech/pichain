@@ -297,9 +297,10 @@ pre .c { color: var(--dim); }
       <div class="tip-banner" id="tip-banner">
         <span class="tip-icon">&#x1f4a1;</span>
         <div>
-          <strong>Browser mining is great for trying out PiChain.</strong> For 10-50x more speed,
-          download the <a onclick="switchTab('cli');return false;">CLI miner</a> (native Rust binary).
-          Monitor all mining activity on the <a onclick="switchTab('dashboard');return false;" style="cursor:pointer;">live dashboard</a>.
+          <strong>Browser mining is great for getting started.</strong> For 10-50x more speed,
+          download the <a onclick="switchTab('cli');return false;">desktop app or terminal miner</a>.
+          Terminal mining with <code>--profile server</code> is the fastest option.
+          Monitor activity on the <a onclick="switchTab('dashboard');return false;" style="cursor:pointer;">live dashboard</a>.
         </div>
       </div>
 
@@ -381,7 +382,7 @@ pre .c { color: var(--dim); }
   <!-- ==================== CLI MINER TAB ==================== -->
   <div class="tab-content" id="tab-cli">
     <h2 style="font-size:28px;font-weight:800;margin-bottom:8px;">Download PIChain Miner</h2>
-    <p style="color:var(--muted);font-size:15px;margin-bottom:24px;">Desktop app with built-in wallet. 10-50x faster than browser mining. Install and start earning PI in minutes.</p>
+    <p style="color:var(--muted);font-size:15px;margin-bottom:24px;">Native mining is 10-50x faster than browser. Desktop app for easy use, or terminal miner for maximum performance.</p>
 
     <!-- Desktop App Downloads (primary) -->
     <div class="download-grid">
@@ -453,88 +454,101 @@ pre .c { color: var(--dim); }
 
     <!-- Linux instructions -->
     <div class="os-content active" id="os-linux">
+      <h4 style="margin-bottom:12px;color:var(--accent);">Option A — Desktop App (easiest)</h4>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Open Terminal &amp; go to Downloads</h4></div>
-        <p>Open your terminal and navigate to the folder where the file was downloaded:</p>
-        <pre>cd ~/Downloads</pre>
+        <div class="step-header"><span class="step-num">1</span><h4>Run the AppImage</h4></div>
+        <p>Click <strong>Download</strong> above, then make it executable and run:</p>
+        <pre>chmod +x ~/Downloads/pichain-miner-gui-linux-x86_64.AppImage
+~/Downloads/pichain-miner-gui-linux-x86_64.AppImage</pre>
+        <p style="margin-top:8px;">Create a wallet in the app and start mining. No installation needed.</p>
       </div>
-      <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Download &amp; make executable</h4></div>
-        <p>If you already clicked the Download button above, just make it executable. Otherwise download via terminal:</p>
-        <pre><span class="c"># Download (skip if you used the button above)</span>
-curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64
 
-<span class="c"># Make it executable</span>
+      <h4 style="margin-top:24px;margin-bottom:12px;color:var(--green);">Option B — Terminal Mining (fastest)</h4>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download the CLI miner</h4></div>
+        <pre>curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-linux-x86_64
 chmod +x pichain-miner-linux-x86_64</pre>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
-        <pre>./pichain-miner-linux-x86_64 --keypair wallet.json --generate-keypair</pre>
-        <p style="margin-top:8px;">This creates <code style="color:var(--cyan);">wallet.json</code> with your keypair. Keep this file safe!</p>
-      </div>
-      <div class="step-card">
-        <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
-        <pre>./pichain-miner-linux-x86_64 \
-  --keypair wallet.json \
-  --rpc-url https://pichain.net \
-  --profile desktop</pre>
-        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores)</p>
+        <div class="step-header"><span class="step-num">2</span><h4>Generate wallet &amp; mine</h4></div>
+        <pre><span class="c"># Generate wallet (one time)</span>
+./pichain-miner-linux-x86_64 --keypair wallet.json --generate-keypair
+
+<span class="c"># Start mining (use --profile server or max for fastest)</span>
+./pichain-miner-linux-x86_64 --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
       </div>
     </div>
 
     <!-- macOS instructions -->
     <div class="os-content" id="os-macos">
+      <h4 style="margin-bottom:12px;color:var(--accent);">Option A — Desktop App (easiest)</h4>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Download the installer</h4></div>
-        <p>Click <strong>Download Installer</strong> above. This downloads a small <code style="color:var(--cyan);">install-mac.command</code> file.</p>
-      </div>
-      <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Run the installer</h4></div>
-        <p>Open <strong>Terminal</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; type "Terminal" &rarr; Enter), then run:</p>
+        <div class="step-header"><span class="step-num">1</span><h4>Download &amp; run installer</h4></div>
+        <p>Click <strong>Download Installer</strong> above, then open <strong>Terminal</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "Terminal") and run:</p>
         <pre>chmod +x ~/Downloads/install-mac.command && ~/Downloads/install-mac.command</pre>
-        <p style="margin-top:8px;">The installer automatically downloads the app, installs it to Applications, and removes macOS security blocks.</p>
-        <div class="note" style="margin-top:8px;">
-          <strong>Why not just open the DMG?</strong> macOS blocks unsigned apps and won't let you open them. The installer handles this automatically so you don't have to deal with Gatekeeper.
-        </div>
+        <p style="margin-top:8px;">Automatically downloads the app, installs to Applications, and removes macOS security blocks.</p>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">3</span><h4>Open PIChain Miner</h4></div>
-        <p>The installer will ask if you want to open the app. You can also find it in <strong>Launchpad</strong> or <strong>Spotlight</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "PIChain").</p>
-        <p style="margin-top:8px;">Create a wallet, set a password, and start mining. No terminal needed after installation.</p>
+        <div class="step-header"><span class="step-num">2</span><h4>Open and mine</h4></div>
+        <p>Find PIChain Miner in <strong>Launchpad</strong> or <strong>Spotlight</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "PIChain"). Create a wallet and start mining.</p>
       </div>
       <div class="step-card" style="opacity:0.7;">
-        <div class="step-header"><h4 style="font-size:14px;">Already installed the DMG manually?</h4></div>
-        <p style="font-size:13px;">If macOS says "move to trash", run this in Terminal to fix it:</p>
+        <div class="step-header"><h4 style="font-size:14px;">Installed DMG manually and macOS says "move to trash"?</h4></div>
         <pre style="font-size:12px;">xattr -cr "/Applications/PIChain Miner.app" && codesign --sign - --force --deep "/Applications/PIChain Miner.app"</pre>
+      </div>
+
+      <h4 style="margin-top:24px;margin-bottom:12px;color:var(--green);">Option B — Terminal Mining (fastest)</h4>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download the CLI miner</h4></div>
+        <pre><span class="c"># Apple Silicon (M1/M2/M3/M4)</span>
+curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64
+chmod +x pichain-miner-macos-arm64 && xattr -cr pichain-miner-macos-arm64
+
+<span class="c"># Intel Mac</span>
+curl -LO https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-x86_64
+chmod +x pichain-miner-macos-x86_64 && xattr -cr pichain-miner-macos-x86_64</pre>
+      </div>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">2</span><h4>Generate wallet &amp; mine</h4></div>
+        <pre><span class="c"># Generate wallet (one time)</span>
+./pichain-miner-macos-arm64 --keypair wallet.json --generate-keypair
+
+<span class="c"># Start mining (use --profile server or max for fastest)</span>
+./pichain-miner-macos-arm64 --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
       </div>
     </div>
 
     <!-- Windows instructions -->
     <div class="os-content" id="os-windows">
+      <h4 style="margin-bottom:12px;color:var(--accent);">Option A — Desktop App (easiest)</h4>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Download the .exe</h4></div>
-        <p>Click the Download button above to get <code style="color:var(--cyan);">pichain-miner-windows-x86_64.exe</code></p>
+        <div class="step-header"><span class="step-num">1</span><h4>Install the app</h4></div>
+        <p>Click <strong>Download</strong> above to get the MSI installer. Run it and follow the prompts.</p>
         <div class="note">
-          <strong>Note:</strong> The CLI version runs from PowerShell/Terminal. For the desktop app, use the Download button above.
           If SmartScreen warns "Windows protected your PC", click <em>More info</em> &rarr; <em>Run anyway</em>.
         </div>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Open PowerShell</h4></div>
-        <p>Press <code style="color:var(--cyan);">Win + X</code> &rarr; <em>Terminal</em> (or <em>PowerShell</em>), then navigate to the download folder:</p>
-        <pre>cd $HOME\Downloads</pre>
+        <div class="step-header"><span class="step-num">2</span><h4>Open and mine</h4></div>
+        <p>Find PIChain Miner in your Start menu. Create a wallet and start mining.</p>
+      </div>
+
+      <h4 style="margin-top:24px;margin-bottom:12px;color:var(--green);">Option B — Terminal Mining (fastest)</h4>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">1</span><h4>Download CLI miner</h4></div>
+        <p>Click <strong>CLI version</strong> link above, or download via PowerShell:</p>
+        <pre>Invoke-WebRequest -Uri "https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-windows-x86_64.exe" -OutFile "pichain-miner.exe"</pre>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">3</span><h4>Generate a wallet</h4></div>
-        <pre>.\pichain-miner-windows-x86_64.exe --keypair wallet.json --generate-keypair</pre>
-      </div>
-      <div class="step-card">
-        <div class="step-header"><span class="step-num">4</span><h4>Start mining</h4></div>
-        <pre>.\pichain-miner-windows-x86_64.exe `
-  --keypair wallet.json `
-  --rpc-url https://pichain.net `
-  --profile desktop</pre>
-        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores)</p>
+        <div class="step-header"><span class="step-num">2</span><h4>Generate wallet &amp; mine</h4></div>
+        <pre><span class="c"># Generate wallet (one time)</span>
+.\pichain-miner.exe --keypair wallet.json --generate-keypair
+
+<span class="c"># Start mining (use --profile server or max for fastest)</span>
+.\pichain-miner.exe --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
+        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
       </div>
     </div>
 
@@ -579,7 +593,7 @@ cargo build --release -p pichain-miner
 ./target/release/pichain-miner \
   --keypair wallet.json \
   --rpc-url https://pichain.net \
-  --profile desktop</pre>
+  --profile server</pre>
       </div>
 
       <!-- macOS Build -->
@@ -613,7 +627,7 @@ cargo build --release -p pichain-miner
 ./target/release/pichain-miner \
   --keypair wallet.json \
   --rpc-url https://pichain.net \
-  --profile desktop</pre>
+  --profile server</pre>
         <div class="note" style="margin-top:12px;">
           <strong>Common macOS issues:</strong><br>
           &bull; <em>"exit status 69"</em> &mdash; Run <code style="color:var(--cyan);">sudo xcodebuild -license</code> and accept<br>
@@ -651,7 +665,7 @@ cargo build --release -p pichain-miner
 .\target\release\pichain-miner.exe `
   --keypair wallet.json `
   --rpc-url https://pichain.net `
-  --profile desktop</pre>
+  --profile server</pre>
         <div class="note" style="margin-top:12px;">
           <strong>Common Windows issues:</strong><br>
           &bull; <em>"link.exe not found"</em> &mdash; Install Visual Studio Build Tools with "Desktop development with C++"<br>
