@@ -5824,6 +5824,7 @@ dependencies = [
  "pichain-crypto",
  "pichain-mining",
  "pichain-types",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
