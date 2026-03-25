@@ -34,6 +34,10 @@ pub struct MempoolConfig {
     /// Expected chain_id — rejects transactions targeting a different chain.
     /// 0 means no chain_id enforcement (for tests).
     pub chain_id: u64,
+    /// Require post-quantum signatures (reject Ed25519 legacy).
+    /// Enabled by default in production. Disabled in tests for performance
+    /// (PQ keygen is ~100ms vs <1ms for Ed25519).
+    pub require_pq: bool,
 }
 
 impl Default for MempoolConfig {
@@ -42,9 +46,10 @@ impl Default for MempoolConfig {
             max_transactions: 100_000,
             max_per_sender: 1_000,
             min_base_fee: 1, // 1 base unit minimum
-            max_tx_age_secs: 120, // 2 minutes TTL
+            max_tx_age_secs: 300, // 5 minutes TTL — gives slow networks time to include txs
             max_tx_size_bytes: 512 * 1024, // 512KB max transaction size
             chain_id: 0, // 0 = no enforcement (tests); set to real chain_id in production
+            require_pq: true, // Reject Ed25519 legacy transactions in production
         }
     }
 }
@@ -103,7 +108,8 @@ impl SenderQueue {
 }
 
 /// Maximum transactions accepted per sender per second.
-const MAX_SENDER_TX_PER_SECOND: u64 = 10;
+/// 25 tx/sec allows high-frequency dApps while preventing spam.
+const MAX_SENDER_TX_PER_SECOND: u64 = 25;
 
 /// Thread-safe transaction mempool.
 pub struct TransactionPool {
@@ -143,6 +149,12 @@ impl TransactionPool {
     /// Insert a transaction into the pool.
     /// Returns Ok(tx_hash) if accepted, Err if rejected.
     pub fn insert(&self, tx: SignedTransaction) -> Result<Hash, MempoolError> {
+        // SECURITY: Reject Ed25519 (legacy) transactions — vulnerable to quantum attacks.
+        // Only post-quantum signed transactions are accepted by the network.
+        if self.config.require_pq && !tx.crypto_version.is_post_quantum() {
+            return Err(MempoolError::LegacyCryptoRejected);
+        }
+
         // Signature verification — reject forged transactions at ingress
         if tx.verify().is_err() {
             return Err(MempoolError::InvalidSignature);
@@ -228,6 +240,27 @@ impl TransactionPool {
 
         let priority_fee = tx.data.max_priority_fee;
         let nonce = tx.data.nonce;
+
+        // SECURITY: Reject transactions with excessive nonce gaps to prevent DoS.
+        // An attacker can submit nonce 10000 to block all future transactions from
+        // an address until the gap is filled. Cap the gap at 64 transactions ahead
+        // of the sender's current next_nonce.
+        const MAX_NONCE_GAP: u64 = 64;
+        {
+            let next_nonce = self.sender_queues
+                .get(&sender)
+                .map(|q| q.next_nonce)
+                .unwrap_or(0);
+            if nonce > next_nonce.saturating_add(MAX_NONCE_GAP) {
+                // Remove from known_hashes since we're rejecting
+                self.known_hashes.remove(&tx_hash);
+                return Err(MempoolError::NonceTooFar {
+                    nonce,
+                    expected: next_nonce,
+                    max_gap: MAX_NONCE_GAP,
+                });
+            }
+        }
 
         let pending = PendingTx {
             tx,
@@ -328,11 +361,36 @@ impl TransactionPool {
     /// double-claimed by a concurrent pipeline stage.
     pub fn claim_ready_transactions(&self, max: usize) -> Vec<SignedTransaction> {
         let txs = self.get_ready_transactions(max);
+        if txs.is_empty() {
+            return txs;
+        }
+
+        // Track the highest nonce claimed per sender so we can advance next_nonce.
+        // Without this, the sender queue is deleted (when empty) but next_nonce
+        // is never updated, causing future transactions at nonce N+1 to appear
+        // "not ready" because the queue still expects nonce N (or 0 for a
+        // freshly-created default queue).
+        let mut sender_max_nonce: std::collections::HashMap<pichain_crypto::ed25519::Address, u64> =
+            std::collections::HashMap::new();
+        for tx in &txs {
+            let entry = sender_max_nonce.entry(tx.data.sender).or_insert(0);
+            *entry = (*entry).max(tx.data.nonce);
+        }
+
         // Remove claimed transactions from the pool to prevent double-processing
         for tx in &txs {
             let hash = tx.hash();
             self.remove(&hash);
         }
+
+        // Advance next_nonce for each sender past the claimed transactions.
+        // Re-create the sender queue entry if remove() deleted it (queue was empty).
+        for (sender, max_nonce) in sender_max_nonce {
+            let new_next = max_nonce.saturating_add(1);
+            let mut entry = self.sender_queues.entry(sender).or_default();
+            entry.next_nonce = entry.next_nonce.max(new_next);
+        }
+
         txs
     }
 
@@ -500,6 +558,10 @@ pub enum MempoolError {
     TransactionTooLarge { size: usize, limit: usize },
     #[error("wrong chain_id: expected {expected}, got {got}")]
     WrongChainId { expected: u64, got: u64 },
+    #[error("nonce too far ahead: nonce {nonce}, expected ~{expected}, max gap {max_gap}")]
+    NonceTooFar { nonce: u64, expected: u64, max_gap: u64 },
+    #[error("Ed25519 transactions rejected — use post-quantum wallet (ML-DSA + SLH-DSA)")]
+    LegacyCryptoRejected,
 }
 
 #[cfg(test)]
@@ -507,6 +569,14 @@ mod tests {
     use super::*;
     use pichain_crypto::Keypair;
     use pichain_types::transaction::Transaction;
+
+    /// Test config: PQ requirement disabled for performance (Ed25519 keygen is ~100x faster).
+    fn test_config() -> MempoolConfig {
+        MempoolConfig {
+            require_pq: false,
+            ..Default::default()
+        }
+    }
 
     fn make_tx(sender: &Keypair, nonce: u64, priority_fee: PiAmount) -> SignedTransaction {
         let recipient = Keypair::generate();
@@ -518,12 +588,12 @@ mod tests {
             1,
         );
         data.max_priority_fee = priority_fee;
-        Transaction::sign(data, sender)
+        Transaction::sign_ed25519_for_tests_only(data, sender)
     }
 
     #[test]
     fn insert_and_retrieve() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
         let tx = make_tx(&sender, 0, 100);
         let hash = tx.hash();
@@ -535,7 +605,7 @@ mod tests {
 
     #[test]
     fn duplicate_rejected() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
         let tx = make_tx(&sender, 0, 100);
 
@@ -545,7 +615,7 @@ mod tests {
 
     #[test]
     fn ready_transactions_ordered_by_priority() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
 
         let s1 = Keypair::generate();
         let s2 = Keypair::generate();
@@ -566,7 +636,7 @@ mod tests {
 
     #[test]
     fn nonce_ordering_within_sender() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
 
         // Insert nonces out of order
@@ -581,7 +651,7 @@ mod tests {
 
     #[test]
     fn gap_in_nonces_blocks_later_txs() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
 
         // Insert nonce 0 and 2 (gap at 1)
@@ -596,7 +666,7 @@ mod tests {
 
     #[test]
     fn remove_transaction() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
         let tx = make_tx(&sender, 0, 100);
         let hash = tx.hash();
@@ -613,7 +683,7 @@ mod tests {
     fn per_sender_limit() {
         let config = MempoolConfig {
             max_per_sender: 3,
-            ..Default::default()
+            ..test_config()
         };
         let pool = TransactionPool::with_config(config);
         let sender = Keypair::generate();
@@ -628,7 +698,7 @@ mod tests {
 
     #[test]
     fn stats() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let s1 = Keypair::generate();
         let s2 = Keypair::generate();
 
@@ -648,7 +718,7 @@ mod tests {
             max_transactions: 3,
             max_per_sender: 10,
             min_base_fee: 1,
-            ..Default::default()
+            ..test_config()
         };
         let pool = TransactionPool::with_config(config);
 
@@ -678,7 +748,7 @@ mod tests {
     fn expire_old_transactions() {
         let config = MempoolConfig {
             max_tx_age_secs: 0, // Expire immediately
-            ..Default::default()
+            ..test_config()
         };
         let pool = TransactionPool::with_config(config);
         let sender = Keypair::generate();
@@ -699,7 +769,7 @@ mod tests {
     fn get_ready_expires_old_txs() {
         let config = MempoolConfig {
             max_tx_age_secs: 0,
-            ..Default::default()
+            ..test_config()
         };
         let pool = TransactionPool::with_config(config);
         let sender = Keypair::generate();
@@ -715,7 +785,7 @@ mod tests {
 
     #[test]
     fn invalid_signature_rejected() {
-        let pool = TransactionPool::new();
+        let pool = TransactionPool::with_config(test_config());
         let sender = Keypair::generate();
         let other = Keypair::generate();
 

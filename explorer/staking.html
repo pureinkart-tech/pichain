@@ -28,6 +28,7 @@ a:hover{text-decoration:underline;}
 .nav-links a.active{color:var(--accent-light);background:rgba(99,102,241,0.1);}
 .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:8px;}
 @media(max-width:768px){.hamburger{display:block;}.nav-links{display:none;}.nav-links.active{display:flex;flex-direction:column;position:absolute;top:64px;left:0;right:0;background:rgba(6,8,13,0.98);border-bottom:1px solid var(--border);padding:16px 24px;gap:4px;}}
+}
 .main{max-width:1200px;margin:0 auto;padding:88px 24px 48px;}
 .page-title{font-size:32px;font-weight:800;margin-bottom:4px;}
 .page-desc{color:var(--muted);margin-bottom:32px;font-size:15px;}
@@ -96,12 +97,12 @@ tr:hover{background:rgba(99,102,241,0.04);}
       <a href="/explorer">Explorer</a>
       <a href="/trade">Swap</a>
       <a href="/dex">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
       <a href="/mine">Mine</a>
       <a href="/staking" class="active">Staking</a>
-      <a href="/nft">NFTs</a>
-      <a href="/download">Download</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -213,7 +214,7 @@ tr:hover{background:rgba(99,102,241,0.04);}
 <div style="text-align:center;color:var(--dim);font-size:13px;margin-top:48px;padding:24px;border-top:1px solid var(--border);">PiChain &mdash; Computing the Infinite | <a href="/terms" style="color:var(--dim)">Terms</a> &middot; <a href="/privacy" style="color:var(--dim)">Privacy</a></div>
 
 <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
-<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script src="/pichain-wallet.js"></script>
 <script>
 // =====================================================================
 // BLAKE3 (pure JS, matches Rust blake3::hash exactly)
@@ -300,22 +301,27 @@ let piBalance = 0;
 let currentBaseFee = 1000;
 let pendingNewSeed = null;
 
+const WALLET_PAGE_ID='staking';
 function initWallet(seed, skipModalClose) {
-  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
+  // PQ: keypair managed by signing proxy
+  walletKeypair = {publicKey:walletAddress}; // shim for compatibility checks
   walletAddress = deriveAddress(walletKeypair.publicKey);
   walletAddressHex = hexEncode(walletAddress);
   walletSeedHex = hexEncode(seed);
   localStorage.setItem('pichain_seed', walletSeedHex);
   localStorage.setItem('pichain_wallet_seed', walletSeedHex);
+  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
   updateWalletUI();
   updateBalance();
   if(!skipModalClose) closeWalletModal();
 }
 
 function createWalletStep1() {
-  pendingNewSeed = nacl.randomBytes(32);
+  pendingNewSeed = crypto.getRandomValues(new Uint8Array(32));
   document.getElementById('newWalletSeed').value = hexEncode(pendingNewSeed);
-  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  const kp = {publicKey:new Uint8Array(32)}; // PQ: key preview not available
   document.getElementById('newWalletAddr').value = 'Pi314' + hexEncode(deriveAddress(kp.publicKey));
   document.getElementById('savedKeyCheck').checked = false;
   document.getElementById('confirmWalletBtn').disabled = true;
@@ -479,8 +485,7 @@ function showPrivateKey() {
 }
 
 function disconnectWallet() {
-  localStorage.removeItem('pichain_seed');
-  localStorage.removeItem('pichain_wallet_seed');
+  localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   updateWalletUI();
@@ -505,6 +510,7 @@ async function updateBalance() {
 }
 
 function loadWallet() {
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
   const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
   if(saved && saved.length===64) { initWallet(hexDecode(saved)); activateWallet(); }
 }
@@ -576,10 +582,8 @@ async function doStake() {
   btn.disabled = true; btn.textContent = 'Staking...';
   try {
     await updateBalance();
-    const canonical = buildStakeCanonical(walletAddress, accountNonce, validatorAddr, amountBase);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('Stake', { validator: Array.from(validatorAddr), amount: amountBase }, accountNonce, sig, 25000);
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       accountNonce++;
       showMsg('Stake submitted! Tx: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
@@ -603,10 +607,8 @@ async function doUnstake() {
   btn.disabled = true; btn.textContent = 'Unstaking...';
   try {
     await updateBalance();
-    const canonical = buildUnstakeCanonical(walletAddress, accountNonce, validatorAddr, amountBase);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('Unstake', { validator: Array.from(validatorAddr), amount: amountBase }, accountNonce, sig, 25000);
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       accountNonce++;
       showMsg('Unstake submitted! Tx: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
@@ -642,8 +644,8 @@ async function loadValidators() {
         <td>${i+1}</td>
         <td class="addr">${addr ? escHtml(addr.substring(0,12))+'...' : '-'}</td>
         <td>${fmt(v.stake||0)}</td>
-        <td>${v.commission||0}%</td>
-        <td>${v.delegators||0}</td>
+        <td>${((v.commission_bps||v.commission||0)/100).toFixed(1)}%</td>
+        <td>${v.delegators||v.delegated||0}</td>
         <td>${badge}</td>
         <td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectValidator('${escHtml(addr)}')">Select</button></td>
       </tr>`;
@@ -663,13 +665,13 @@ async function loadMyDelegations() {
     const dD = await dR.json();
     const rD = await rR.json();
     const delegations = dD.delegations || [];
-    const rewards = rD.total_rewards || 0;
+    const rewards = rD.pending_rewards || rD.total_rewards || 0;
     const tbody = document.getElementById('my-delegations-body');
     if (!delegations.length) { tbody.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;">No delegations found</td></tr>'; return; }
     tbody.innerHTML = delegations.map(d => `<tr>
       <td class="addr" style="cursor:pointer;" onclick="selectValidator('${escHtml(d.validator)}')">${escHtml(d.validator.substring(0,12))}...</td>
       <td>${fmt(d.amount||0)}</td>
-      <td>${fmt(d.rewards||0)}</td>
+      <td>${fmt(d.rewards_earned||d.rewards||0)}</td>
       <td>${d.since_epoch||'-'}</td>
     </tr>`).join('');
     document.getElementById('avg-apy').textContent = rewards > 0 ? fmt(rewards)+' earned' : '-';
@@ -688,6 +690,8 @@ async function loadInfo() {
 // =====================================================================
 // INIT
 // =====================================================================
+// Wait for async nacl library before loading wallet
+// PQ wallet auto-connect (no NaCl dependency)
 loadWallet();
 loadValidators();
 loadInfo();

@@ -374,6 +374,15 @@ pub enum TransactionKind {
         /// Match to cancel.
         match_id: [u8; 32],
     },
+
+    /// Remove a participant from a match — refund their wager individually.
+    /// Creator-only. Cannot remove self (use CancelMatch instead).
+    RemoveParticipant {
+        /// Match to remove participant from.
+        match_id: [u8; 32],
+        /// Address of participant to remove and refund.
+        participant: Address,
+    },
 }
 
 impl TransactionData {
@@ -670,6 +679,11 @@ impl TransactionData {
                 buf.push(35);
                 buf.extend_from_slice(match_id);
             }
+            TransactionKind::RemoveParticipant { match_id, participant } => {
+                buf.push(36);
+                buf.extend_from_slice(match_id);
+                buf.extend_from_slice(&participant.0);
+            }
         }
 
         buf
@@ -677,6 +691,14 @@ impl TransactionData {
 }
 
 /// A transaction with its signature.
+///
+/// Supports two authentication modes via [`CryptoVersion`]:
+/// - **Ed25519Legacy** (v0): Classical Ed25519 signature + public key.
+/// - **PqDualV1** (v1): Dual post-quantum ML-DSA-65 + SLH-DSA-SHAKE-128f.
+///   Both PQ signatures must verify. Address derived via quantum-safe hash combiner.
+///
+/// The `crypto_version` field enables crypto agility — new schemes can be added
+/// without hard forks. Old versions remain verifiable for historical blocks.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedTransaction {
     /// The transaction data.
@@ -685,6 +707,17 @@ pub struct SignedTransaction {
     pub signature: Signature,
     /// Sender's public key (for verification without state lookup).
     pub public_key: PublicKey,
+    /// Cryptographic scheme version (default: Ed25519Legacy for backwards compat).
+    #[serde(default)]
+    pub crypto_version: pichain_crypto::CryptoVersion,
+    /// Post-quantum dual signature (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+    /// Present only when `crypto_version == PqDualV1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pq_signature: Option<pichain_crypto::PqDualSignature>,
+    /// Post-quantum public keys (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+    /// Present only when `crypto_version == PqDualV1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pq_public_keys: Option<pichain_crypto::PqPublicKeys>,
 }
 
 impl SignedTransaction {
@@ -692,22 +725,79 @@ impl SignedTransaction {
     /// Includes the signature to prevent transaction malleability — even though
     /// Ed25519 signatures are deterministic, including them ensures the hash
     /// uniquely identifies both the intent and its authorization.
+    ///
+    /// For PQ transactions, the hash also includes the ML-DSA signature component
+    /// to bind the PQ auth to the transaction identity.
     pub fn hash(&self) -> Hash {
         let data_bytes = self.data.canonical_bytes();
-        let sig_bytes = self.signature.to_bytes();
-        pichain_crypto::hash_concat(&[&data_bytes, &sig_bytes])
+        match self.crypto_version {
+            pichain_crypto::CryptoVersion::Ed25519Legacy => {
+                let sig_bytes = self.signature.to_bytes();
+                pichain_crypto::hash_concat(&[&data_bytes, &sig_bytes])
+            }
+            pichain_crypto::CryptoVersion::PqDualV1 => {
+                // Include ML-DSA sig in hash (3,309 bytes — smaller than SLH-DSA's 17KB)
+                if let Some(ref pq_sig) = self.pq_signature {
+                    pichain_crypto::hash_concat(&[
+                        &data_bytes,
+                        pq_sig.ml_sig.as_bytes(),
+                    ])
+                } else {
+                    // Fallback: should not happen for valid PQ txs
+                    pichain_crypto::hash_concat(&[&data_bytes, &[1u8]])
+                }
+            }
+        }
     }
 
-    /// Verify the transaction signature.
-    /// Uses canonical binary encoding for deterministic verification.
+    /// Verify the transaction signature based on the crypto version.
+    ///
+    /// - **Ed25519Legacy**: Verifies Ed25519 signature and checks pubkey→address derivation.
+    /// - **PqDualV1**: Verifies BOTH ML-DSA-65 and SLH-DSA-SHAKE-128f signatures,
+    ///   and checks that the PQ public keys derive the sender address via the
+    ///   quantum-safe hash combiner (Blake3 XOR SHA3-256).
     pub fn verify(&self) -> Result<(), pichain_crypto::CryptoError> {
-        // Verify pubkey matches sender address
-        let derived_addr = self.public_key.to_address();
-        if derived_addr != self.data.sender {
-            return Err(pichain_crypto::CryptoError::InvalidPublicKey);
+        match self.crypto_version {
+            pichain_crypto::CryptoVersion::Ed25519Legacy => {
+                // Ed25519 verification retained for internal/test use.
+                // The mempool and RPC layer reject Ed25519 transactions from external users.
+                let derived_addr = self.public_key.to_address();
+                if derived_addr != self.data.sender {
+                    return Err(pichain_crypto::CryptoError::InvalidPublicKey);
+                }
+                let bytes = self.data.canonical_bytes();
+                self.public_key.verify(&bytes, &self.signature)
+            }
+            pichain_crypto::CryptoVersion::PqDualV1 => {
+                // SECURITY: Both PQ components MUST be present for PqDualV1.
+                // Reject transactions that claim PQ version but are missing components.
+                let pq_sig = self.pq_signature.as_ref().ok_or_else(|| {
+                    pichain_crypto::CryptoError::Serialization(
+                        "PqDualV1 transaction missing pq_signature".into()
+                    )
+                })?;
+                let pq_pks = self.pq_public_keys.as_ref().ok_or_else(|| {
+                    pichain_crypto::CryptoError::Serialization(
+                        "PqDualV1 transaction missing pq_public_keys".into()
+                    )
+                })?;
+
+                // Verify PQ public keys derive the sender address
+                let derived_addr = pichain_crypto::pq_address(&pq_pks.ml_pk, &pq_pks.slh_pk);
+                if derived_addr != self.data.sender {
+                    return Err(pichain_crypto::CryptoError::InvalidPublicKey);
+                }
+
+                // Verify BOTH PQ signatures over canonical tx data
+                let bytes = self.data.canonical_bytes();
+                pq_sig.verify(&bytes, &pq_pks.ml_pk, &pq_pks.slh_pk)
+            }
         }
-        let bytes = self.data.canonical_bytes();
-        self.public_key.verify(&bytes, &self.signature)
+    }
+
+    /// Returns true if this transaction uses post-quantum signatures.
+    pub fn is_post_quantum(&self) -> bool {
+        self.crypto_version.is_post_quantum()
     }
 
     /// Check if this is a simple transfer (eligible for Avalanche fast-path).
@@ -775,6 +865,7 @@ impl SignedTransaction {
                 50_000u64.saturating_add((winners.len() as Gas).saturating_mul(10_000))
             }
             TransactionKind::CancelMatch { .. } => 30_000,
+            TransactionKind::RemoveParticipant { .. } => 35_000,
         }
     }
 }
@@ -802,6 +893,7 @@ impl TransactionKind {
             TransactionKind::MintToken { recipient, .. } => Some(*recipient),
             TransactionKind::TransferToken { recipient, .. } => Some(*recipient),
             TransactionKind::TransferNft { recipient, .. } => Some(*recipient),
+            TransactionKind::RemoveParticipant { participant, .. } => Some(*participant),
             _ => None,
         }
     }
@@ -1042,7 +1134,8 @@ impl TransactionKind {
             TransactionKind::JoinMatch { match_id, .. }
             | TransactionKind::StartMatch { match_id }
             | TransactionKind::ResolveMatch { match_id, .. }
-            | TransactionKind::CancelMatch { match_id } => {
+            | TransactionKind::CancelMatch { match_id }
+            | TransactionKind::RemoveParticipant { match_id, .. } => {
                 let mut vaddr = [0u8; 20];
                 vaddr.copy_from_slice(&match_id[..20]);
                 accesses.push(AccountAccess {
@@ -1098,13 +1191,43 @@ impl Transaction {
         }
     }
 
-    pub fn sign(data: TransactionData, keypair: &pichain_crypto::Keypair) -> SignedTransaction {
+    /// DO NOT USE IN PRODUCTION. Ed25519 is quantum-vulnerable.
+    /// Exists only for test infrastructure across crates. The mempool
+    /// rejects Ed25519 transactions (require_pq=true in production).
+    #[doc(hidden)]
+    pub fn sign_ed25519_for_tests_only(data: TransactionData, keypair: &pichain_crypto::Keypair) -> SignedTransaction {
         let bytes = data.canonical_bytes();
         let signature = keypair.sign(&bytes);
         SignedTransaction {
             data,
             signature,
             public_key: keypair.public,
+            crypto_version: pichain_crypto::CryptoVersion::Ed25519Legacy,
+            pq_signature: None,
+            pq_public_keys: None,
+        }
+    }
+
+    /// Sign with dual post-quantum signatures (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+    /// This is the ONLY signing method accepted by the network for external transactions.
+    pub fn sign_pq(
+        data: TransactionData,
+        pq_keypair: &pichain_crypto::PqKeypair,
+    ) -> SignedTransaction {
+        let bytes = data.canonical_bytes();
+        let pq_sig = pq_keypair.sign(&bytes);
+        let pq_pks = pichain_crypto::PqPublicKeys {
+            ml_pk: pq_keypair.ml_dsa_pk.clone(),
+            slh_pk: pq_keypair.slh_dsa_pk.clone(),
+        };
+        SignedTransaction {
+            data,
+            // Placeholder Ed25519 fields (not used for PQ verification)
+            signature: Signature::from_bytes(&[0u8; 64]),
+            public_key: PublicKey::from_bytes(&[0u8; 32]),
+            crypto_version: pichain_crypto::CryptoVersion::PqDualV1,
+            pq_signature: Some(pq_sig),
+            pq_public_keys: Some(pq_pks),
         }
     }
 }
@@ -1166,7 +1289,7 @@ mod tests {
             1,             // chain_id
         );
 
-        let signed = Transaction::sign(tx_data, &sender_kp);
+        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender_kp);
         assert!(signed.verify().is_ok());
         assert!(signed.is_simple());
         assert_eq!(signed.estimated_gas(), 21_000);
@@ -1193,6 +1316,9 @@ mod tests {
             data: tx_data,
             signature: sig,
             public_key: wrong_kp.public, // wrong pubkey doesn't match sender
+            crypto_version: pichain_crypto::CryptoVersion::Ed25519Legacy,
+            pq_signature: None,
+            pq_public_keys: None,
         };
 
         assert!(signed.verify().is_err());
@@ -1202,7 +1328,7 @@ mod tests {
     fn tx_hash_is_deterministic() {
         let kp = Keypair::generate();
         let tx_data = Transaction::transfer(kp.address(), 0, Address::ZERO, 100, 1);
-        let signed = Transaction::sign(tx_data, &kp);
+        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
         let h1 = signed.hash();
         let h2 = signed.hash();
         assert_eq!(h1, h2);

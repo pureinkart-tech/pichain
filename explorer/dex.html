@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script async src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script src="/pichain-wallet.js"></script>
 <style>
 :root {
   --bg: #06080d; --bg-2: #0c1018;
@@ -58,6 +58,31 @@ a:hover { text-decoration: underline; }
 .pair-item .pair-sub { font-size: 11px; color: var(--dim); }
 .pair-item .pair-price { text-align: right; font-weight: 600; font-size: 13px; }
 .pair-item .pair-tvl { text-align: right; font-size: 11px; color: var(--dim); }
+.badge { display: inline-block; padding: 2px 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-left: 4px; }
+.badge-graduated { background: rgba(52,211,153,0.2); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+.badge-new { background: rgba(99,102,241,0.2); color: var(--accent-light); border: 1px solid rgba(99,102,241,0.4); }
+.pct-up { color: var(--green); }
+.pct-down { color: var(--rose); }
+.chart-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chart-header-actions a, .chart-header-actions .link-btn { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; text-decoration: none; transition: all 0.15s; }
+.chart-header-actions .link-swap { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; border: none; }
+.chart-header-actions .link-swap:hover { opacity: 0.9; text-decoration: none; }
+.chart-header-actions .link-launch { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+.chart-header-actions .link-launch:hover { border-color: var(--accent); color: var(--accent-light); text-decoration: none; }
+.pair-sort { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.pair-sort select { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 12px; }
+.section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--dim); letter-spacing: 0.5px; padding: 8px 14px 4px; }
+.token-img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; }
+.token-img-lg { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); }
+.btn-icon { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--muted); cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.btn-icon:hover { color: var(--text); border-color: var(--border-light); }
+.social-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.social-links a { font-size: 12px; color: var(--accent-light); text-decoration: none; }
+.social-links a:hover { text-decoration: underline; }
+.holder-dist { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.holder-dist-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.holder-dist-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.holder-dist-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); border-radius: 3px; }
 
 /* Center: chart + info + trades */
 .center-panel { display: flex; flex-direction: column; overflow: hidden; }
@@ -176,6 +201,19 @@ a:hover { text-decoration: underline; }
 .wm-row input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; }
 .wm-row input:focus { outline: none; border-color: var(--accent); }
 .slip-input { width: 45px; padding: 2px 4px; font-size: 11px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+.badge { display: inline-block; padding: 2px 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; }
+.badge-graduated { background: rgba(52,211,153,0.2); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+.badge-new { background: rgba(251,191,36,0.2); color: var(--gold); border: 1px solid rgba(251,191,36,0.4); }
+.pct-up { color: var(--green); }
+.pct-down { color: var(--rose); }
+.chart-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chart-header-actions a, .chart-header-actions .link-btn { padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 8px; text-decoration: none; transition: all 0.15s; }
+.chart-header-actions .link-swap { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; border: none; }
+.chart-header-actions .link-swap:hover { opacity: 0.9; text-decoration: none; }
+.chart-header-actions .link-launch { background: transparent; border: 1px solid var(--border-light); color: var(--cyan); }
+.chart-header-actions .link-launch:hover { background: rgba(34,211,238,0.1); text-decoration: none; }
+.pair-sort { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.pair-sort select { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--text); }
 </style>
 </head>
 <body>
@@ -188,11 +226,11 @@ a:hover { text-decoration: underline; }
       <a href="/explorer">Explorer</a>
       <a href="/trade">Swap</a>
       <a href="/dex" class="active">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
       <a href="/mine">Mine</a>
-      <a href="/staking">Staking</a>
-      <a href="/nft">NFTs</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <div class="wallet-bar" id="dexWalletBar">
       <span id="dexWalletStatus" style="font-size:12px;color:var(--dim);">No wallet</span>
@@ -258,6 +296,25 @@ a:hover { text-decoration: underline; }
   <div class="pair-sidebar">
     <div class="pair-search">
       <input type="text" placeholder="Search pairs..." id="pairSearch" oninput="filterPairs()">
+      <div class="pair-sort">
+        <select id="pairSort" onchange="applySortFilter(); renderPairList();">
+          <option value="tvl">Sort: TVL</option>
+          <option value="volume24h">Sort: 24h Vol</option>
+          <option value="change24h">Sort: 24h %</option>
+          <option value="newest">Sort: Newest</option>
+        </select>
+        <select id="minTvlFilter" onchange="applySortFilter(); renderPairList();">
+          <option value="0">Min TVL: All</option>
+          <option value="100">100 PI</option>
+          <option value="1000">1K PI</option>
+          <option value="10000">10K PI</option>
+          <option value="100000">100K PI</option>
+        </select>
+      </div>
+    </div>
+    <div id="newlyGraduated" style="display:none;padding:8px 12px;border-bottom:1px solid var(--border);">
+      <div style="font-size:11px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Newly Graduated</div>
+      <div id="newlyGraduatedList"></div>
     </div>
     <div class="pair-list" id="pairList">
       <div class="loading"><div class="spinner"></div> Loading pairs...</div>
@@ -271,12 +328,25 @@ a:hover { text-decoration: underline; }
   <div class="center-panel">
     <div class="chart-header">
       <div class="chart-pair-info">
-        <div class="chart-pair-name" id="chartPairName">Select a pair</div>
-        <div class="chart-pair-price" id="chartPairPrice">--</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="chart-pair-name" id="chartPairName">Select a pair</div>
+          <span id="chartPairBadge" style="display:none;"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div class="chart-pair-price" id="chartPairPrice">--</div>
+          <span id="chartPair24h" style="font-size:13px;"></span>
+        </div>
+      </div>
+      <div class="chart-header-actions" id="chartHeaderActions" style="display:none;">
+        <a href="#" class="link-swap" id="linkSwap" target="_blank">Swap</a>
+        <a href="#" class="link-launch" id="linkLaunch" target="_blank">View Launch</a>
+        <button class="btn-icon" id="btnCopyPool" onclick="copyPoolAddress()" title="Copy pool ID">Copy</button>
+        <button class="btn-icon" id="btnShare" onclick="sharePair()" title="Share">Share</button>
       </div>
       <div class="chart-pair-stats" id="chartStats">
         <div class="stat"><div class="stat-label">TVL</div><div class="stat-value" id="statTvl">--</div></div>
-        <div class="stat"><div class="stat-label">Volume</div><div class="stat-value" id="statVolume">--</div></div>
+        <div class="stat"><div class="stat-label">24h Vol</div><div class="stat-value" id="statVolume24h">--</div></div>
+        <div class="stat"><div class="stat-label">24h Tx</div><div class="stat-value" id="statTx24h">--</div></div>
         <div class="stat"><div class="stat-label">Fee</div><div class="stat-value" id="statFee">--</div></div>
         <div class="stat"><div class="stat-label">LP Supply</div><div class="stat-value" id="statLp">--</div></div>
       </div>
@@ -346,6 +416,7 @@ a:hover { text-decoration: underline; }
           <button class="preset-btn" onclick="setBuyPreset(5)">5</button>
         </div>
         <div class="trade-row"><span>You receive (est.)</span><span class="tval" id="buyEstTxt">--</span></div>
+        <div class="trade-row"><span>Price impact</span><span class="tval" id="buyImpactTxt">--</span></div>
         <div class="trade-row"><span>Slippage</span><span class="tval"><input type="number" class="slip-input" id="buySlip" value="1" step="0.1" min="0.1" max="50">%</span></div>
         <button class="trade-exec buy" id="buyExecBtn" onclick="execBuy()">Buy <span id="buySymLbl"></span></button>
       </div>
@@ -362,6 +433,7 @@ a:hover { text-decoration: underline; }
           <button class="preset-btn" onclick="setSellPreset(100)">100%</button>
         </div>
         <div class="trade-row"><span>You receive (est.)</span><span class="tval" id="sellEstTxt">--</span></div>
+        <div class="trade-row"><span>Price impact</span><span class="tval" id="sellImpactTxt">--</span></div>
         <div class="trade-row"><span>Slippage</span><span class="tval"><input type="number" class="slip-input" id="sellSlip" value="1" step="0.1" min="0.1" max="50">%</span></div>
         <button class="trade-exec sell" id="sellExecBtn" onclick="execSell()">Sell <span id="sellSymLbl"></span></button>
       </div>
@@ -417,19 +489,25 @@ let sellExactBase = null;
 
 function showToast(msg,type){const el=document.getElementById('toast');el.textContent=msg;el.className='toast toast-'+type+' show';setTimeout(()=>el.classList.remove('show'),4000);}
 
+const WALLET_PAGE_ID='dex';
 function initWallet(seed,skipClose){
-  walletKeypair=nacl.sign.keyPair.fromSeed(seed);
+  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
+  // PQ: keypair managed by signing proxy
+  walletKeypair={publicKey:walletAddress}; // shim for compatibility checks
   walletAddress=deriveAddress(walletKeypair.publicKey);
   walletAddressHex=hexEncode(walletAddress);
   walletSeedHex=hexEncode(seed);
   localStorage.setItem('pichain_seed',walletSeedHex);
   localStorage.setItem('pichain_wallet_seed',walletSeedHex);
+  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
   updateWalletUI();
   updateWalletBalance();
   if(!skipClose){document.getElementById('walletModal').classList.remove('show');resetWalletModal();}
 }
 
 function loadDexWallet(){
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
   const saved=localStorage.getItem('pichain_wallet_seed')||localStorage.getItem('pichain_seed');
   if(saved&&saved.length===64){initWallet(hexDecode(saved));tryActivate();}
 }
@@ -445,8 +523,8 @@ function resetWalletModal(){
 }
 
 function createNewWallet(){
-  pendingNewSeed=nacl.randomBytes(32);
-  const kp=nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  pendingNewSeed=crypto.getRandomValues(new Uint8Array(32));
+  const kp={publicKey:new Uint8Array(32)}; // PQ: key preview not available
   document.getElementById('wmNewSeed').value=hexEncode(pendingNewSeed);
   document.getElementById('wmNewAddr').value=hexEncode(deriveAddress(kp.publicKey));
   document.getElementById('wmSavedCheck').checked=false;
@@ -535,7 +613,7 @@ function updateWalletUI(){
 }
 
 function disconnectWallet(){
-  localStorage.removeItem('pichain_seed');localStorage.removeItem('pichain_wallet_seed');
+  localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletKeypair=null;walletAddress=null;walletAddressHex='';piBalance=0;accountNonce=0;
   updateWalletUI();updateTradeBalances();
 }
@@ -621,14 +699,16 @@ function setSellPreset(pct){
   if(!selectedPair)return;
   if(pct===100)sellExactBase=tokenBalance;
   else sellExactBase=tokenBalance*BigInt(pct)/100n;
-  document.getElementById('sellAmtInput').value=formatTokensBig(sellExactBase,9);
+  const tokenDec=selectedPair.mint_a===NATIVE_MINT?(selectedPair.decimals_b||9):(selectedPair.decimals_a||9);
+  document.getElementById('sellAmtInput').value=formatTokensBig(sellExactBase,tokenDec);
   previewSellDex();
 }
 
 async function previewBuyDex(){
   const piAmount=parseFloat(document.getElementById('buyAmtInput').value)||0;
   const el=document.getElementById('buyEstTxt');
-  if(piAmount<=0||!selectedPair){el.textContent='--';return;}
+  var impEl=document.getElementById('buyImpactTxt');
+  if(piAmount<=0||!selectedPair){el.textContent='--';if(impEl)impEl.textContent='--';return;}
   const amountBase=Math.floor(piAmount*1e9);
   const mintIn=NATIVE_MINT;
   const mintOut=selectedPair.mint_a===NATIVE_MINT?selectedPair.mint_b:selectedPair.mint_a;
@@ -636,24 +716,33 @@ async function previewBuyDex(){
   try{
     const r=await fetch(API+'/api/v1/swap/quote/'+mintIn+'/'+mintOut+'/'+amountBase);
     const q=await r.json();
-    if(q.found){el.textContent=(q.amount_out/1e9).toLocaleString(undefined,{maximumFractionDigits:2})+' $'+sym;}
-    else{el.textContent='No pool';}
-  }catch(e){el.textContent='Error';}
+    if(q.found){
+      const outDec=selectedPair.mint_a===NATIVE_MINT?(selectedPair.decimals_b||9):(selectedPair.decimals_a||9);
+      el.textContent=(q.amount_out/Math.pow(10,outDec)).toLocaleString(undefined,{maximumFractionDigits:2})+' $'+sym;
+      var impEl=document.getElementById('buyImpactTxt');
+      if(impEl) impEl.textContent=(q.price_impact_bps!=null?(q.price_impact_bps/100).toFixed(2):'0')+'%';
+    }else{el.textContent='No pool';var impEl=document.getElementById('buyImpactTxt');if(impEl)impEl.textContent='--';}
+  }catch(e){el.textContent='Error';var impEl=document.getElementById('buyImpactTxt');if(impEl)impEl.textContent='--';}
 }
 
 async function previewSellDex(){
   const tokAmount=parseFloat(document.getElementById('sellAmtInput').value)||0;
   const el=document.getElementById('sellEstTxt');
-  if(tokAmount<=0||!selectedPair){el.textContent='--';return;}
+  var impEl=document.getElementById('sellImpactTxt');
+  if(tokAmount<=0||!selectedPair){el.textContent='--';if(impEl)impEl.textContent='--';return;}
   const mintOut=NATIVE_MINT;
   const mintIn=selectedPair.mint_a===NATIVE_MINT?selectedPair.mint_b:selectedPair.mint_a;
-  const amountBase=sellExactBase!==null?sellExactBase:parseBigTokenAmount(tokAmount,9);
+  const tokenDec=selectedPair.mint_a===NATIVE_MINT?(selectedPair.decimals_b||9):(selectedPair.decimals_a||9);
+  const amountBase=sellExactBase!==null?sellExactBase:parseBigTokenAmount(tokAmount,tokenDec);
   try{
     const r=await fetch(API+'/api/v1/swap/quote/'+mintIn+'/'+mintOut+'/'+amountBase);
     const q=await r.json();
-    if(q.found){el.textContent=formatPI(q.amount_out)+' PI';}
-    else{el.textContent='No pool';}
-  }catch(e){el.textContent='Error';}
+    if(q.found){
+      el.textContent=formatPI(q.amount_out)+' PI';
+      var impEl=document.getElementById('sellImpactTxt');
+      if(impEl) impEl.textContent=(q.price_impact_bps!=null?(q.price_impact_bps/100).toFixed(2):'0')+'%';
+    }else{el.textContent='No pool';var impEl=document.getElementById('sellImpactTxt');if(impEl)impEl.textContent='--';}
+  }catch(e){el.textContent='Error';var impEl=document.getElementById('sellImpactTxt');if(impEl)impEl.textContent='--';}
 }
 
 async function execBuy(){
@@ -673,10 +762,8 @@ async function execBuy(){
     if(!q.found){showToast('No liquidity pool found','error');return;}
     const minOut=Math.floor(q.amount_out*(1-slippage/100));
     await updateWalletBalance();
-    const canonical=buildSwapCanonical(walletAddress,accountNonce,mintInBytes,mintOutBytes,amountBase,minOut);
-    const sig=nacl.sign.detached(canonical,walletKeypair.secretKey);
     const hex=buildSignedTxJson('Swap',{mint_in:Array.from(mintInBytes),mint_out:Array.from(mintOutBytes),amount_in:amountBase,min_amount_out:minOut},accountNonce,sig,50000);
-    const result=await submitTx(hex);
+    const result=await submitPQTx(hex);
     if(result.status==='pending'){
       showToast('Buy submitted, confirming...','info');
       try{await waitForConfirmation(result.tx_hash);await updateWalletBalance();showToast('Bought $'+sym+'!','success');loadTrades();loadPairInfo();}
@@ -694,7 +781,8 @@ async function execSell(){
   const mintInHex=selectedPair.mint_a===NATIVE_MINT?selectedPair.mint_b:selectedPair.mint_a;
   const mintOutHex=NATIVE_MINT;
   const mintInBytes=hexDecode(mintInHex);const mintOutBytes=hexDecode(mintOutHex);
-  const amountBase=sellExactBase!==null?sellExactBase:parseBigTokenAmount(tokAmount,9);
+  const tokenDec=selectedPair.mint_a===NATIVE_MINT?(selectedPair.decimals_b||9):(selectedPair.decimals_a||9);
+  const amountBase=sellExactBase!==null?sellExactBase:parseBigTokenAmount(tokAmount,tokenDec);
   sellExactBase=null;
   if(amountBase<=0n){showToast('Enter a token amount','error');return;}
   const sym=selectedPair.mint_a===NATIVE_MINT?selectedPair.symbol_b:selectedPair.symbol_a;
@@ -704,10 +792,8 @@ async function execSell(){
     if(!q.found){showToast('No liquidity pool found','error');return;}
     const minOut=Math.floor(q.amount_out*(1-slippage/100));
     await updateWalletBalance();
-    const canonical=buildSwapCanonical(walletAddress,accountNonce,mintInBytes,mintOutBytes,amountBase,minOut);
-    const sig=nacl.sign.detached(canonical,walletKeypair.secretKey);
-    const hex=buildSignedTxJson('Swap',{mint_in:Array.from(mintInBytes),mint_out:Array.from(mintOutBytes),amount_in:amountBase,min_amount_out:minOut},accountNonce,sig,50000);
-    const result=await submitTx(hex);
+    const hex=buildSignedTxJson('Swap',{mint_in:Array.from(mintInBytes),mint_out:Array.from(mintOutBytes),amount_in:Number(amountBase),min_amount_out:minOut},accountNonce,sig,50000);
+    const result=await submitPQTx(hex);
     if(result.status==='pending'){
       showToast('Sell submitted, confirming...','info');
       try{await waitForConfirmation(result.tx_hash);await updateWalletBalance();showToast('Sold $'+sym+'!','success');loadTrades();loadPairInfo();}
@@ -721,6 +807,7 @@ const NATIVE_MINT = '00000000000000000000000000000000000000000000000000000000000
 
 let allPairs = [];
 let selectedPair = null;
+let pairSortBy = 'tvl';
 let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
@@ -744,6 +831,27 @@ function fmtPrice(p) {
 }
 function shortAddr(a) { return a.slice(0,6)+'...'+a.slice(-4); }
 function escapeHtml(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function parseMetadataUri(uri) {
+  if (!uri || typeof uri !== 'string') return {};
+  try {
+    var j = JSON.parse(uri);
+    return { image: j.image, website: j.website, twitter: j.twitter, telegram: j.telegram, description: j.description };
+  } catch(e) { return uri.startsWith('http') ? { website: uri } : {}; }
+}
+function copyPoolAddress() {
+  if (!selectedPair) return;
+  navigator.clipboard.writeText(selectedPair.pool_id).then(function(){ showToast('Pool ID copied','success'); });
+}
+function sharePair() {
+  if (!selectedPair) return;
+  var url = window.location.href;
+  if (navigator.share) {
+    navigator.share({ title: selectedPair.symbol_a+'/'+selectedPair.symbol_b, url: url }).then(function(){ showToast('Shared','success'); }).catch(function(){ fallbackCopy(url); });
+  } else { fallbackCopy(url); }
+}
+function fallbackCopy(url) {
+  navigator.clipboard.writeText(url).then(function(){ showToast('Link copied','success'); });
+}
 function timeAgo(ms) {
   var s = Math.floor((Date.now()-ms)/1000);
   if (s < 60) return s+'s ago';
@@ -753,18 +861,33 @@ function timeAgo(ms) {
 }
 
 // ============ DATA LOADING ============
+function getUrlPairId() {
+  var params = new URLSearchParams(window.location.search);
+  return params.get('pair') || null;
+}
+function setUrlPairId(poolId) {
+  var url = new URL(window.location.href);
+  if (poolId) url.searchParams.set('pair', poolId);
+  else url.searchParams.delete('pair');
+  window.history.replaceState({}, '', url.toString());
+}
+
 async function loadPairs() {
   try {
     var r = await fetch(API+'/api/v1/dex/pairs');
     var d = await r.json();
     allPairs = (d.pairs||[]).filter(function(p){ return p.active && p.reserve_a > 0; });
-    allPairs.sort(function(a,b){ return (b.tvl_a+b.tvl_b) - (a.tvl_a+a.tvl_b); });
+    applySortFilter();
     renderPairList();
+    renderNewlyGraduated();
     renderTicker();
-    if (!selectedPair && allPairs.length > 0) {
+    var urlPairId = getUrlPairId();
+    var pairToSelect = urlPairId ? allPairs.find(function(p){ return p.pool_id === urlPairId; }) : null;
+    if (pairToSelect) {
+      selectPair(pairToSelect);
+    } else if (!selectedPair && allPairs.length > 0) {
       selectPair(allPairs[0]);
     } else if (selectedPair) {
-      // Refresh selected pair data
       var updated = allPairs.find(function(p){ return p.pool_id === selectedPair.pool_id; });
       if (updated) {
         selectedPair = updated;
@@ -774,10 +897,57 @@ async function loadPairs() {
   } catch(e) { console.error('loadPairs error:', e); }
 }
 
+function applySortFilter() {
+  pairSortBy = (document.getElementById('pairSort')&&document.getElementById('pairSort').value) || 'tvl';
+  if (pairSortBy === 'tvl') {
+    allPairs.sort(function(a,b){ return (b.tvl_a+b.tvl_b) - (a.tvl_a+a.tvl_b); });
+  } else if (pairSortBy === 'volume24h') {
+    allPairs.sort(function(a,b){ return (b.volume_24h||0) - (a.volume_24h||0); });
+  } else if (pairSortBy === 'change24h') {
+    allPairs.sort(function(a,b){
+      var pa = (a.price_change_24h_pct != null ? a.price_change_24h_pct : -Infinity);
+      var pb = (b.price_change_24h_pct != null ? b.price_change_24h_pct : -Infinity);
+      return pb - pa;
+    });
+  } else if (pairSortBy === 'newest') {
+    allPairs.sort(function(a,b){ return (b.created_at_ms||0) - (a.created_at_ms||0); });
+  }
+}
+
+function renderNewlyGraduated() {
+  var now = Date.now();
+  var cutoff48h = now - 48 * 60 * 60 * 1000;
+  var newOnes = allPairs.filter(function(p){
+    return p.graduated_from_launch && (p.graduated_at_ms||p.created_at_ms||0) >= cutoff48h;
+  });
+  var el = document.getElementById('newlyGraduated');
+  var listEl = document.getElementById('newlyGraduatedList');
+  if (!el || !listEl) return;
+  if (newOnes.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  listEl.innerHTML = newOnes.slice(0, 5).map(function(p){
+    var isActive = selectedPair && selectedPair.pool_id === p.pool_id ? ' active' : '';
+    return '<div class="pair-item'+isActive+'" onclick="selectPairById(\''+escapeHtml(p.pool_id)+'\')" style="padding:6px 10px;">' +
+      '<div class="pair-name">'+escapeHtml(p.symbol_a)+'/'+escapeHtml(p.symbol_b)+'</div>' +
+      '<span class="badge badge-new">New</span></div>';
+  }).join('');
+}
+
 function renderPairList() {
   var search = (document.getElementById('pairSearch').value||'').toLowerCase();
+  var minTvl = parseInt((document.getElementById('minTvlFilter')&&document.getElementById('minTvlFilter').value)||'0', 10) || 0;
   var filtered = allPairs.filter(function(p){
-    return !search || p.symbol_a.toLowerCase().indexOf(search) >= 0 || p.symbol_b.toLowerCase().indexOf(search) >= 0;
+    var tvl = p.tvl_a + p.tvl_b;
+    if (minTvl > 0 && tvl < minTvl) return false;
+    if (search) {
+      var match = p.symbol_a.toLowerCase().indexOf(search) >= 0 || p.symbol_b.toLowerCase().indexOf(search) >= 0 ||
+        (p.name||'').toLowerCase().indexOf(search) >= 0;
+      if (!match) return false;
+    }
+    return true;
   });
   var el = document.getElementById('pairList');
   if (filtered.length === 0) {
@@ -787,11 +957,22 @@ function renderPairList() {
   el.innerHTML = filtered.map(function(p){
     var isActive = selectedPair && selectedPair.pool_id === p.pool_id ? ' active' : '';
     var tvl = p.tvl_a + p.tvl_b;
+    var vol24 = p.volume_24h != null ? fmtNum(p.volume_24h) : fmtNum(parseFloat(p.cumulative_volume_a||0)/1e9);
+    var pct24 = p.price_change_24h_pct;
+    var pct24Html = '';
+    if (pct24 != null && !isNaN(pct24)) {
+      var cls = pct24 >= 0 ? 'pct-up' : 'pct-down';
+      pct24Html = '<span class="'+cls+'" style="font-size:11px;">'+(pct24 >= 0 ? '+' : '')+pct24.toFixed(1)+'%</span>';
+    }
+    var meta = parseMetadataUri(p.metadata_uri);
+    var imgHtml = meta.image ? '<img src="'+escapeHtml(meta.image)+'" alt="" class="token-img" onerror="this.style.display=\'none\'">' : '';
+    var gradMs = p.graduated_at_ms || p.created_at_ms || 0;
+    var badgeHtml = p.graduated_from_launch ? '<span class="badge badge-graduated">'+(gradMs ? 'Graduated '+timeAgo(gradMs) : 'Graduated')+'</span>' : '';
     return '<div class="pair-item'+isActive+'" onclick="selectPairById(\''+escapeHtml(p.pool_id)+'\')">' +
-      '<div><div class="pair-name">'+escapeHtml(p.symbol_a)+'/'+escapeHtml(p.symbol_b)+'</div>' +
-      '<div class="pair-sub">TVL: '+fmtNum(tvl)+'</div></div>' +
+      '<div style="display:flex;align-items:center;gap:8px;"><div>'+imgHtml+'</div><div><div class="pair-name">'+escapeHtml(p.symbol_a)+'/'+escapeHtml(p.symbol_b)+' '+badgeHtml+'</div>' +
+      '<div class="pair-sub">TVL: '+fmtNum(tvl)+' &middot; 24h: '+vol24+'</div></div></div>' +
       '<div><div class="pair-price">'+fmtPrice(p.price)+'</div>' +
-      '<div class="pair-tvl">Vol: '+fmtNum(parseFloat(p.cumulative_volume_a||0)/1e9)+'</div></div></div>';
+      '<div class="pair-tvl">'+pct24Html+'</div></div></div>';
   }).join('');
 }
 
@@ -821,7 +1002,9 @@ function selectPairById(poolId) {
 
 async function selectPair(pair) {
   selectedPair = pair;
+  setUrlPairId(pair ? pair.pool_id : null);
   renderPairList();
+  renderNewlyGraduated();
   updateChartHeader();
   loadOHLCV();
   loadTrades();
@@ -833,13 +1016,63 @@ async function selectPair(pair) {
 function updateChartHeader() {
   if (!selectedPair) return;
   var p = selectedPair;
-  document.getElementById('chartPairName').textContent = p.symbol_a+'/'+p.symbol_b;
+  var meta = parseMetadataUri(p.metadata_uri);
+  var nameEl = document.getElementById('chartPairName');
+  if (meta.image) {
+    nameEl.innerHTML = '<img src="'+meta.image.replace(/"/g,'&quot;')+'" alt="" class="token-img-lg" onerror="this.style.display=\'none\'">' +
+      '<span>'+escapeHtml(p.symbol_a)+'/'+escapeHtml(p.symbol_b)+'</span>';
+    nameEl.style.display = 'flex';
+    nameEl.style.alignItems = 'center';
+    nameEl.style.gap = '10px';
+  } else {
+    nameEl.innerHTML = escapeHtml(p.symbol_a)+'/'+escapeHtml(p.symbol_b);
+    nameEl.style.display = '';
+  }
+  var badgeEl = document.getElementById('chartPairBadge');
+  if (badgeEl) {
+    var gradMs = p.graduated_at_ms || p.created_at_ms || 0;
+    if (p.graduated_from_launch) {
+      badgeEl.innerHTML = '<span class="badge badge-graduated">'+(gradMs ? 'Graduated '+timeAgo(gradMs) : 'Graduated')+'</span>';
+      badgeEl.style.display = '';
+    } else {
+      badgeEl.innerHTML = '';
+      badgeEl.style.display = 'none';
+    }
+  }
   document.getElementById('chartPairPrice').textContent = fmtPrice(p.price);
   document.getElementById('chartPairPrice').style.color = 'var(--green)';
+  var pct24El = document.getElementById('chartPair24h');
+  if (pct24El) {
+    var pct24 = p.price_change_24h_pct;
+    if (pct24 != null && !isNaN(pct24)) {
+      pct24El.innerHTML = '<span class="'+(pct24 >= 0 ? 'pct-up' : 'pct-down')+'">('+(pct24 >= 0 ? '+' : '')+pct24.toFixed(1)+'% 24h)</span>';
+      pct24El.style.display = '';
+    } else {
+      pct24El.innerHTML = '';
+      pct24El.style.display = 'none';
+    }
+  }
   document.getElementById('statTvl').textContent = fmtNum(p.tvl_a + p.tvl_b);
-  document.getElementById('statVolume').textContent = fmtNum(parseFloat(p.cumulative_volume_a||0)/1e9);
+  document.getElementById('statVolume24h').textContent = fmtNum(p.volume_24h != null ? p.volume_24h : parseFloat(p.cumulative_volume_a||0)/1e9);
+  var tx24El = document.getElementById('statTx24h');
+  if (tx24El) tx24El.textContent = (p.tx_count_24h != null ? p.tx_count_24h : 0);
   document.getElementById('statFee').textContent = (p.fee_bps/100).toFixed(2) + '%';
   document.getElementById('statLp').textContent = fmtNum(p.lp_supply/1e9);
+  var actionsEl = document.getElementById('chartHeaderActions');
+  var swapEl = document.getElementById('linkSwap');
+  var launchEl = document.getElementById('linkLaunch');
+  if (actionsEl && swapEl && launchEl) {
+    var tokenMint = p.mint_a === NATIVE_MINT ? p.mint_b : p.mint_a;
+    swapEl.href = '/trade?from='+NATIVE_MINT+'&to='+tokenMint;
+    swapEl.style.display = '';
+    if (p.graduated_from_launch && p.launch_mint) {
+      launchEl.href = '/launch?mint='+p.launch_mint;
+      launchEl.style.display = '';
+    } else {
+      launchEl.style.display = 'none';
+    }
+    actionsEl.style.display = 'flex';
+  }
 }
 
 // ============ CHART ============
@@ -963,8 +1196,19 @@ async function loadPairInfo() {
     if (!d.found) return;
 
     var poolEl = document.getElementById('poolInfoContent');
+    var gradHtml = d.graduated_from_launch ? '<div class="info-row"><span class="label">Status</span><span class="value"><span class="badge badge-graduated">Graduated from Launch</span></span></div>' : '';
+    var vol24Html = (d.volume_24h != null && d.volume_24h > 0) ? '<div class="info-row"><span class="label">24h Volume</span><span class="value">'+fmtNum(d.volume_24h)+' PI</span></div>' : '';
+    var buySellHtml = '';
+    if (d.volume_buy_24h != null && d.volume_sell_24h != null && (d.volume_buy_24h > 0 || d.volume_sell_24h > 0)) {
+      buySellHtml = '<div class="info-row"><span class="label">24h Buy</span><span class="value pct-up">'+fmtNum(d.volume_buy_24h)+' PI</span></div>' +
+        '<div class="info-row"><span class="label">24h Sell</span><span class="value pct-down">'+fmtNum(d.volume_sell_24h)+' PI</span></div>';
+    }
+    var tx24Html = (d.tx_count_24h != null && d.tx_count_24h > 0) ? '<div class="info-row"><span class="label">24h Tx</span><span class="value">'+d.tx_count_24h+'</span></div>' : '';
+    var pct24Html = (d.price_change_24h_pct != null && !isNaN(d.price_change_24h_pct)) ? '<div class="info-row"><span class="label">24h Change</span><span class="value '+(d.price_change_24h_pct>=0?'pct-up':'pct-down')+'">'+(d.price_change_24h_pct>=0?'+':'')+d.price_change_24h_pct.toFixed(1)+'%</span></div>' : '';
+    var mcapHtml = (d.market_cap != null && d.market_cap > 0) ? '<div class="info-row"><span class="label">Market Cap</span><span class="value">'+fmtNum(d.market_cap)+' PI</span></div>' : '';
     poolEl.innerHTML =
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+      gradHtml + mcapHtml + vol24Html + buySellHtml + tx24Html + pct24Html +
       '<div class="info-row"><span class="label">Pool ID</span><span class="value" style="font-size:11px;font-family:monospace;">'+d.pool_id.slice(0,16)+'...</span></div>' +
       '<div class="info-row"><span class="label">Fee</span><span class="value">'+(d.fee_bps/100).toFixed(2)+'%</span></div>' +
       '<div class="info-row"><span class="label">Reserve '+escapeHtml(d.symbol_a)+'</span><span class="value">'+fmtNum(d.reserve_a/1e9)+'</span></div>' +
@@ -997,10 +1241,23 @@ function updateTokenInfo(d) {
   var el = document.getElementById('tokenInfoContent');
   var reserveA = d.reserve_a / 1e9;
   var reserveB = d.reserve_b / 1e9;
-  var price = reserveA > 0 ? reserveB / reserveA : 0;
+  var price = d.price != null ? d.price : (reserveA > 0 ? reserveB / reserveA : 0);
+  var mcapHtml = (d.market_cap != null && d.market_cap > 0) ? '<div class="info-row"><span class="label">Market Cap</span><span class="value">'+fmtNum(d.market_cap)+' PI</span></div>' : '';
+  var nameHtml = (d.name && d.name.length > 0) ? '<div class="info-row"><span class="label">Name</span><span class="value">'+escapeHtml(d.name)+'</span></div>' : '';
+  var meta = parseMetadataUri(d.metadata_uri);
+  var socialHtml = '';
+  if (meta.website || meta.twitter || meta.telegram) {
+    socialHtml = '<div class="social-links">';
+    if (meta.website) socialHtml += '<a href="'+escapeHtml(meta.website)+'" target="_blank" rel="noopener">Website</a>';
+    if (meta.twitter) socialHtml += '<a href="'+escapeHtml(meta.twitter)+'" target="_blank" rel="noopener">Twitter</a>';
+    if (meta.telegram) socialHtml += '<a href="'+escapeHtml(meta.telegram)+'" target="_blank" rel="noopener">Telegram</a>';
+    socialHtml += '</div>';
+  }
   el.innerHTML =
+    nameHtml + socialHtml +
     '<div class="info-row"><span class="label">Pair</span><span class="value">'+escapeHtml(d.symbol_a)+'/'+escapeHtml(d.symbol_b)+'</span></div>' +
     '<div class="info-row"><span class="label">Price</span><span class="value" style="color:var(--green)">'+fmtPrice(price)+'</span></div>' +
+    mcapHtml +
     '<div class="info-row"><span class="label">Reserve A</span><span class="value">'+fmtNum(reserveA)+'</span></div>' +
     '<div class="info-row"><span class="label">Reserve B</span><span class="value">'+fmtNum(reserveB)+'</span></div>' +
     '<div class="info-row"><span class="label">TVL</span><span class="value">'+fmtNum(reserveA + reserveB)+'</span></div>' +
@@ -1022,7 +1279,15 @@ async function loadTokenHolders() {
       el.innerHTML = '<div style="padding:8px;color:var(--dim);font-size:12px;">No holders found for '+escapeHtml(symbol)+'</div>';
       return;
     }
+    var top10 = holders.slice(0, 10);
+    var distHtml = '<div class="holder-dist" style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:var(--dim);margin-bottom:6px;">Holder distribution</div>' +
+      top10.map(function(h,i){
+        return '<div class="holder-dist-row"><span style="min-width:20px;">#'+(i+1)+'</span>' +
+          '<div class="holder-dist-bar"><div class="holder-dist-fill" style="width:'+Math.min(h.pct,100)+'%"></div></div>' +
+          '<span style="min-width:45px;font-weight:600;">'+h.pct.toFixed(1)+'%</span></div>';
+      }).join('') + '</div>';
     el.innerHTML = '<div style="font-size:11px;color:var(--dim);margin-bottom:8px;">'+d.total_holders+' holders &middot; Supply: '+fmtNum(d.total_supply/1e9)+'</div>' +
+      distHtml +
       holders.map(function(h,i){
         return '<div class="holder-item"><span class="rank">#'+(i+1)+'</span>' +
           '<span class="addr">'+shortAddr(h.address)+'</span>' +
@@ -1044,11 +1309,14 @@ async function loadTopMovers() {
       return;
     }
     el.innerHTML = movers.slice(0, 8).map(function(m){
+      var vol = m.volume_24h != null ? m.volume_24h : (m.volume||0);
+      var pct24 = m.price_change_24h_pct;
+      var pctHtml = (pct24 != null && !isNaN(pct24)) ? '<span class="'+(pct24>=0?'pct-up':'pct-down')+'" style="font-size:11px;">'+(pct24>=0?'+':'')+pct24.toFixed(1)+'%</span>' : '';
       return '<div class="pair-item" style="padding:6px 0;border:none;cursor:pointer;" onclick="selectPairById(\''+escapeHtml(m.pool_id)+'\')">' +
-        '<div><div style="font-weight:700;font-size:13px;">'+escapeHtml(m.pair)+'</div>' +
+        '<div><div style="font-weight:700;font-size:13px;">'+escapeHtml(m.pair)+' <span class="badge badge-graduated">Graduated</span></div>' +
         '<div style="font-size:11px;color:var(--dim);">TVL: '+fmtNum(m.tvl)+'</div></div>' +
         '<div style="text-align:right;"><div style="font-weight:600;font-size:13px;">'+fmtPrice(m.price)+'</div>' +
-        '<div style="font-size:11px;color:var(--dim);">Vol: '+fmtNum(m.volume)+'</div></div></div>';
+        '<div style="font-size:11px;">'+pctHtml+' 24h Vol: '+fmtNum(vol)+'</div></div></div>';
     }).join('');
   } catch(e) { console.error('loadTopMovers error:', e); }
 }
@@ -1123,7 +1391,8 @@ function connectWS() {
 
 // ============ INIT ============
 async function init() {
-  loadDexWallet();
+  // Wait for async nacl library before loading wallet
+  const _naclPoll=setInterval(()=>{if(typeof nacl!=='undefined'){clearInterval(_naclPoll);loadDexWallet();}},50);
   initChart();
   setupTimeframeButtons();
   await loadPairs();

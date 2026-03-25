@@ -72,6 +72,7 @@ struct Args {
     #[arg(long)]
     generate_keypair: bool,
 
+
     /// Position offset for multi-miner operation.
     /// Each miner should use a different offset (e.g., 0, 1, 2...)
     /// to avoid computing the same range as other miners.
@@ -146,12 +147,44 @@ impl MiningConfig {
     }
 }
 
-/// Wallet file format.
+/// Wallet file format (supports both legacy Ed25519 and PQ wallets).
 #[derive(Serialize, Deserialize)]
 struct WalletFile {
-    secret_key: String,
+    /// Ed25519 secret key (legacy wallets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     address: Option<String>,
+    /// PQ wallet version (present in PQ wallet files).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<u32>,
+    /// PQ wallet crypto version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crypto_version: Option<u32>,
+    /// ML-DSA secret key (PQ wallets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ml_dsa_secret_key: Option<String>,
+    /// ML-DSA public key (PQ wallets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ml_dsa_public_key: Option<String>,
+    /// SLH-DSA secret key (PQ wallets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slh_dsa_secret_key: Option<String>,
+    /// SLH-DSA public key (PQ wallets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slh_dsa_public_key: Option<String>,
+}
+
+/// Loaded PQ wallet.
+#[allow(dead_code)]
+struct LoadedWallet {
+    pq_keypair: pichain_crypto::PqKeypair,
+}
+
+impl LoadedWallet {
+    fn address(&self) -> pichain_crypto::ed25519::Address {
+        self.pq_keypair.address()
+    }
 }
 
 /// Mining status response from the RPC.
@@ -192,13 +225,12 @@ fn default_max_batch() -> u64 {
 
 /// Slot assignment response from the RPC.
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct SlotResponse {
-    #[allow(dead_code)]
     address: String,
     slot_index: u32,
     recommended_position: u64,
     active_miners: usize,
-    #[allow(dead_code)]
     slot_range_size: u64,
 }
 
@@ -221,50 +253,63 @@ struct AccountResponse {
 }
 
 
-fn load_keypair(path: &PathBuf) -> anyhow::Result<Keypair> {
+fn load_wallet(path: &PathBuf) -> anyhow::Result<LoadedWallet> {
     let contents = std::fs::read_to_string(path)?;
     let wallet: WalletFile = serde_json::from_str(&contents)?;
-    let secret_bytes = hex::decode(&wallet.secret_key)?;
-    if secret_bytes.len() != 32 {
-        anyhow::bail!("secret key must be 32 bytes (got {})", secret_bytes.len());
+
+    // Require PQ wallet — legacy Ed25519 wallets are no longer accepted
+    if wallet.ml_dsa_secret_key.is_none() {
+        if wallet.secret_key.is_some() {
+            anyhow::bail!(
+                "Legacy Ed25519 wallets are no longer supported — they are vulnerable to quantum attacks.\n\
+                 Generate a new post-quantum wallet with: pichain-miner --keypair wallet.json --generate-keypair"
+            );
+        }
+        anyhow::bail!("Invalid wallet file — missing PQ key fields");
     }
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&secret_bytes);
-    Ok(Keypair::from_secret_bytes(&arr))
+
+    info!("Loading post-quantum wallet (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
+    let export = pichain_crypto::pq_wallet::PqWalletExport {
+        version: wallet.version.unwrap_or(1),
+        crypto_version: wallet.crypto_version.unwrap_or(1),
+        address: wallet.address.unwrap_or_default(),
+        ml_dsa_secret_key: wallet.ml_dsa_secret_key.unwrap_or_default(),
+        ml_dsa_public_key: wallet.ml_dsa_public_key.unwrap_or_default(),
+        slh_dsa_secret_key: wallet.slh_dsa_secret_key.unwrap_or_default(),
+        slh_dsa_public_key: wallet.slh_dsa_public_key.unwrap_or_default(),
+    };
+    let pq_keypair = pichain_crypto::restore_pq_wallet(&export)
+        .map_err(|e| anyhow::anyhow!("Failed to restore PQ wallet: {e}"))?;
+    Ok(LoadedWallet { pq_keypair })
 }
 
 fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
-    // Refuse to overwrite an existing wallet file to prevent accidental key loss
     if path.exists() {
         anyhow::bail!(
-            "wallet file already exists at '{}'. Remove it manually or choose a different path to generate a new keypair.",
+            "wallet file already exists at '{}'. Remove it manually or choose a different path.",
             path.display()
         );
     }
 
-    let kp = Keypair::generate();
-    let wallet = WalletFile {
-        secret_key: hex::encode(kp.secret.to_bytes()),
-        address: Some(kp.address().to_string()),
-    };
-    let json = serde_json::to_string_pretty(&wallet)?;
+    println!("Generating post-quantum keypair (ML-DSA-65 + SLH-DSA-SHAKE-128f)...");
+    println!("This may take a moment.\n");
+
+    let (kp, export) = pichain_crypto::generate_pq_wallet();
+    let json = serde_json::to_string_pretty(&export)?;
     std::fs::write(path, &json)?;
 
-    // Set restrictive permissions (owner read/write only) on unix platforms
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-            eprintln!("WARNING: Failed to set restrictive permissions on wallet file: {e}");
-            eprintln!("Please manually run: chmod 600 {}", path.display());
-        }
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     }
 
     println!("=== New PIChain Mining Wallet ===");
     println!("Address:    {}", kp.address());
-    println!("Public Key: {}", kp.public);
+    println!("Crypto:     Post-Quantum (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
     println!("Saved to:   {}", path.display());
-    println!("\nKeep this file safe. Your secret key cannot be recovered.");
+    println!("\nQuantum computers cannot break this wallet.");
+    println!("Keep this file safe. Your keys cannot be recovered.");
     Ok(())
 }
 
@@ -285,10 +330,11 @@ async fn main() -> anyhow::Result<()> {
         return generate_and_save_keypair(&args.keypair);
     }
 
-    // Load keypair
-    let keypair = load_keypair(&args.keypair)?;
-    let address = keypair.address();
+    // Load PQ wallet
+    let loaded = load_wallet(&args.keypair)?;
+    let address = loaded.address();
     let address_hex = hex::encode(address.0);
+    info!(%address, "Post-quantum wallet loaded (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
     info!(%address, "Miner wallet loaded");
 
     let client = reqwest::Client::builder()
@@ -399,64 +445,28 @@ async fn main() -> anyhow::Result<()> {
         };
 
         // Calculate position and effective batch size.
-        // Cap batch size to the available gap to avoid overlap with existing ranges
-        // (e.g., browser miners may have submitted small non-aligned ranges).
+        //
+        // FRONTIER-FIRST MINING: Always mine at or very near the server's
+        // next_position (first gap from frontier). Local tracking prevents
+        // re-mining the same gap within a round, but is capped to prevent
+        // racing far ahead of the frontier.
+        let max_local_ahead = effective_min_batch as u64 * batch_count as u64 * 5;
+
         let (position, effective_batch_size) = if let Some(start) = args.start_at {
             // Manual override: mine sequentially from a fixed starting point
             let pos = start.saturating_add(loop_count.saturating_mul(effective_min_batch as u64));
             (pos, effective_min_batch)
-        } else if let Some(local_pos) = local_position {
-            // Local position tracking: use the position we advanced to after
-            // the last successful round. Take the max of local and server to
-            // handle cases where another miner advanced past us.
-            let pos = local_pos.max(mining_status.next_position);
-            (pos, effective_min_batch)
         } else {
-            // First round or after error: query the slot assignment endpoint
-            // for a server-assigned position based on active miner registry.
-            let slot_position = match client
-                .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, hex::encode(address.0)))
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.json::<SlotResponse>().await {
-                    Ok(slot) => {
-                        info!(
-                            slot_index = slot.slot_index,
-                            recommended_position = slot.recommended_position,
-                            active_miners = slot.active_miners,
-                            "Assigned mining slot"
-                        );
-                        Some(slot.recommended_position)
-                    }
-                    Err(e) => {
-                        warn!("Failed to parse slot response: {e}, falling back to offset");
-                        None
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to query slot endpoint: {e}, falling back to offset");
-                    None
-                }
-            };
-
-            let pos = if let Some(slot_pos) = slot_position {
-                slot_pos
+            // Always start from server's next_position (first unmined gap from frontier).
+            // Use local_position only to avoid re-mining the same gap within a round
+            // (server won't update until proof is in a block), but cap how far ahead.
+            let server_pos = mining_status.next_position;
+            let pos = if let Some(local_pos) = local_position {
+                // Use local tracking but never go too far ahead of frontier
+                let capped = local_pos.min(server_pos.saturating_add(max_local_ahead));
+                capped.max(server_pos) // Never go behind server
             } else {
-                // Fallback: old-style offset from address
-                let stride = effective_min_batch as u64 * batch_count as u64;
-                let offset = if args.position_offset > 0 {
-                    (args.position_offset as u64).saturating_mul(effective_min_batch as u64)
-                } else if stride > 0 {
-                    let addr_seed = u32::from_le_bytes([
-                        address.0[0], address.0[1], address.0[2], address.0[3],
-                    ]);
-                    let slot = (addr_seed as u64) % 8;
-                    slot.saturating_mul(stride)
-                } else {
-                    0
-                };
-                mining_status.next_position.saturating_add(offset)
+                server_pos
             };
 
             // Enforce max_allowed_position from frontier distance limit
@@ -466,30 +476,34 @@ async fn main() -> anyhow::Result<()> {
                 pos
             };
 
-            // Cap batch size to available gap
+            // If we've hit the cap (too far ahead of frontier), wait for
+            // frontier to catch up instead of wasting compute on positions
+            // that may never advance the frontier.
+            if local_position.is_some() && pos >= server_pos.saturating_add(max_local_ahead) {
+                info!(
+                    local_pos = ?local_position,
+                    frontier = mining_status.frontier_position,
+                    server_next = server_pos,
+                    max_ahead = max_local_ahead,
+                    "Waiting for frontier to catch up (proofs pending in blocks)..."
+                );
+                local_position = None; // Reset to re-query next round
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                continue;
+            }
+
+            // Cap batch size to available gap at this position
             let max_gap = mining_status.max_batch_at_position;
             let min_required = mining_status.min_batch_size.max(10) as u64;
             let effective = if max_gap < min_required {
-                // Gap too small for minimum proof size — use server's next_position
-                // which should point to a minable gap
-                if pos != mining_status.next_position && mining_status.max_batch_at_position >= min_required {
-                    info!(
-                        local_pos = pos,
-                        server_pos = mining_status.next_position,
-                        "Local position has small gap, jumping to server position"
-                    );
-                    local_position = Some(mining_status.next_position);
-                    continue;
-                }
                 warn!(
                     gap = max_gap,
                     min_required = min_required,
                     position = pos,
                     "Gap too small for minimum batch size, waiting..."
                 );
-                // Reset local position to force server re-query next round
                 local_position = None;
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 continue;
             } else if max_gap < effective_min_batch as u64 {
                 // Gap is smaller than configured batch but >= min_required — use gap size
@@ -688,7 +702,7 @@ async fn main() -> anyhow::Result<()> {
                 chain_id: args.chain_id,
             };
 
-            let signed = Transaction::sign(tx_data, &keypair);
+            let signed = Transaction::sign_pq(tx_data, &loaded.pq_keypair);
             let tx_hex = hex::encode(serde_json::to_vec(&signed)?);
 
             let submit_body = serde_json::json!({
@@ -793,23 +807,38 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn generate_and_load_keypair() {
+    fn legacy_wallet_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wallet.json");
+        let path = dir.path().join("legacy.json");
 
-        // Generate
+        // Create a legacy Ed25519 wallet file
         let kp = Keypair::generate();
-        let wallet = WalletFile {
-            secret_key: hex::encode(kp.secret.to_bytes()),
-            address: Some(kp.address().to_string()),
-        };
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(serde_json::to_string_pretty(&wallet).unwrap().as_bytes())
-            .unwrap();
+        let legacy = serde_json::json!({
+            "secret_key": hex::encode(kp.secret.to_bytes()),
+            "address": kp.address().to_string()
+        });
+        std::fs::write(&path, serde_json::to_string(&legacy).unwrap()).unwrap();
 
-        // Load
-        let loaded = load_keypair(&path).unwrap();
-        assert_eq!(loaded.address(), kp.address());
+        // Loading should FAIL — legacy wallets are rejected
+        let result = load_wallet(&path);
+        assert!(result.is_err(), "legacy wallet should be rejected");
+        let err = result.err().unwrap().to_string();
+        assert!(err.contains("no longer supported"), "expected rejection message, got: {err}");
+    }
+
+    #[test]
+    fn generate_and_load_pq_keypair() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pq-wallet.json");
+
+        // Generate PQ wallet
+        let (_kp, export) = pichain_crypto::generate_pq_wallet();
+        let json = serde_json::to_string_pretty(&export).unwrap();
+        std::fs::write(&path, &json).unwrap();
+
+        // Load PQ wallet
+        let loaded = load_wallet(&path).unwrap();
+        assert_eq!(format!("{}", loaded.address()), export.address);
     }
 
     #[test]

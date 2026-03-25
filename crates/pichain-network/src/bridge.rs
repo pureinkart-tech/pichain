@@ -450,6 +450,12 @@ impl BridgeManager {
             });
         }
 
+        // Auto-expire stale pending transfers before checking capacity.
+        // Transfers pending for more than 1 hour are marked as failed and
+        // their locked value is released. Without this, an attacker can fill
+        // the pending queue with dead transfers and permanently lock the bridge.
+        self.expire_stale_transfers(BLOCKS_PER_HOUR);
+
         // Reject new transfers when pending count is at capacity (Fix NET-226).
         // This prevents unbounded memory growth from sustained transfer spam.
         if self.pending_count() >= self.max_pending_transfers {

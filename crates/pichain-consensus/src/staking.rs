@@ -11,8 +11,29 @@ use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Minimum stake to become a validator (10,000 PI in base units).
+/// Minimum stake to become a validator at maturity (10,000 PI in base units).
+/// During bootstrap (< 10 validators), `effective_min_validator_stake()` returns
+/// a lower value (100 PI) to make validator participation accessible at launch.
 pub const MIN_VALIDATOR_STAKE: u64 = 10_000 * 1_000_000_000;
+
+/// Bootstrap minimum stake (100 PI) — accessible for early adopters.
+pub const BOOTSTRAP_MIN_VALIDATOR_STAKE: u64 = 100 * 1_000_000_000;
+
+/// Number of validators before minimum stake tightens to full MIN_VALIDATOR_STAKE.
+pub const MIN_VALIDATORS_FOR_FULL_STAKE: usize = 10;
+
+/// Calculate the effective minimum validator stake based on current validator count.
+///
+/// Progressive strengthening:
+/// - < 10 validators: 100 PI (accessible for early adopters)
+/// - 10+ validators: 10,000 PI (full security requirement)
+pub fn effective_min_validator_stake(validator_count: usize) -> u64 {
+    if validator_count < MIN_VALIDATORS_FOR_FULL_STAKE {
+        BOOTSTRAP_MIN_VALIDATOR_STAKE
+    } else {
+        MIN_VALIDATOR_STAKE
+    }
+}
 
 /// Minimum stake for delegation (1 PI in base units).
 pub const MIN_DELEGATION: u64 = 1_000_000_000;
@@ -320,10 +341,15 @@ impl StakingManager {
         address: &Address,
         additional_stake: u64,
     ) -> Result<(), StakingError> {
+        // SECURITY: Per-address cap is always 10% in mature networks and 20% during
+        // bootstrap (< 4 validators). The bootstrap relaxation is smaller than the
+        // per-validator cap (41.3%) to prevent two addresses from controlling >40%.
+        // With 3 validators at equal stake (~33% each), a 20% per-address cap allows
+        // small additions but prevents any single address from dominating.
         let cap_bps = if self.validators.len() < MIN_VALIDATORS_FOR_STAKE_CAP {
-            BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS as u32
+            2000u32 // 20% — tighter than old 41.3%, still allows bootstrap
         } else {
-            MAX_ADDRESS_STAKE_PCT_BPS as u32
+            MAX_ADDRESS_STAKE_PCT_BPS as u32 // 10%
         };
 
         let new_total_staked = self.total_staked.saturating_add(additional_stake);
@@ -409,9 +435,11 @@ impl StakingManager {
         if self.validators.contains_key(&address) {
             return Err(StakingError::AlreadyRegistered(address));
         }
-        if self_stake < MIN_VALIDATOR_STAKE {
+        // Progressive: lower stake requirement during bootstrap to attract early validators
+        let min_stake = effective_min_validator_stake(self.validators.len());
+        if self_stake < min_stake {
             return Err(StakingError::InsufficientStake {
-                required: MIN_VALIDATOR_STAKE,
+                required: min_stake,
                 provided: self_stake,
             });
         }
@@ -602,10 +630,9 @@ impl StakingManager {
         // Reject future-epoch evidence: saturating_sub(future) returns 0 which
         // would bypass the staleness check. An attacker could forge evidence_epoch.
         if evidence_epoch > self.current_epoch {
-            return Err(StakingError::EvidenceTooOld {
+            return Err(StakingError::EvidenceFromFuture {
                 evidence_epoch,
                 current_epoch: self.current_epoch,
-                max_age: MAX_EVIDENCE_AGE_EPOCHS,
             });
         }
         // Reject stale evidence: if the misbehavior epoch is too old, the validator's
@@ -782,10 +809,15 @@ impl StakingManager {
         entry.jailed = true;
         entry.active = false;
         entry.jailed_until = Some(self.current_epoch.saturating_add(JAIL_DURATION_EPOCHS));
-        // Update epoch_start_stake to reflect post-slash state, preventing
-        // a slash-then-restake velocity bypass (attacker re-staking up to
-        // old epoch_start_stake without velocity cost).
-        entry.epoch_start_stake = entry.total_stake();
+        // SECURITY: Do NOT reset epoch_start_stake on slash. The velocity check
+        // uses epoch_start_stake as the growth baseline, and resetting it on slash
+        // allows a slash-then-restake loop where each slash creates a lower baseline,
+        // enabling repeated 50% growth compounds within a single epoch.
+        //
+        // Instead, keep epoch_start_stake as the high-water mark from epoch start.
+        // Only set_epoch() (called at epoch boundaries) can reset it.
+        // This means post-slash restaking is measured against the ORIGINAL epoch
+        // baseline, not the post-slash balance.
 
         self.total_staked = self.total_staked.saturating_sub(amount_slashed);
         self.total_slashed = self.total_slashed.saturating_add(amount_slashed);
@@ -839,7 +871,7 @@ impl StakingManager {
 
             if !entry.meets_minimum() {
                 return Err(StakingError::InsufficientStake {
-                    required: MIN_VALIDATOR_STAKE,
+                    required: effective_min_validator_stake(self.validators.len()),
                     provided: entry.self_stake,
                 });
             }
@@ -1085,6 +1117,8 @@ pub enum StakingError {
     DelegationNotFound(Address, Address),
     #[error("evidence too old: epoch {evidence_epoch}, current {current_epoch}, max age {max_age}")]
     EvidenceTooOld { evidence_epoch: u64, current_epoch: u64, max_age: u64 },
+    #[error("evidence from future: epoch {evidence_epoch} > current {current_epoch}")]
+    EvidenceFromFuture { evidence_epoch: u64, current_epoch: u64 },
     #[error("stake concentration exceeded: validator {validator} would hold {would_hold_bps} bps of total (max {max_bps} bps)")]
     StakeConcentrationExceeded { validator: Address, would_hold_bps: u16, max_bps: u16 },
     #[error("address concentration exceeded: {address} would control {would_hold_bps} bps of total staked (max {max_bps} bps)")]
@@ -1473,14 +1507,18 @@ mod tests {
 
     #[test]
     fn concentration_cap_bootstrap_small_add_ok() {
-        // Small add_stake during bootstrap that stays under 41.3% should succeed
+        // SECURITY: Per-address bootstrap cap is now 20% (down from 41.3%).
+        // With 3 validators at equal stake (~33% each), adding to any single validator
+        // would keep them above 20%, so add_stake is correctly rejected.
+        // This test verifies a DELEGATION from a NEW address stays under 20%.
         let mut mgr = StakingManager::new();
         mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).unwrap();
         mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000).unwrap();
         mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        // Adding a small amount to addr(1): (stake + tiny) / (3*stake + tiny) ≈ 33.4% < 41.3%
+        // Delegation from a NEW address (addr(10)) — its share starts at 0%
+        // tiny / (3*10K + tiny) ≈ 0.003% — well under 20% cap
         let tiny = MIN_DELEGATION;
-        assert!(mgr.add_stake(addr(1), tiny).is_ok());
+        assert!(mgr.delegate(addr(10), addr(1), tiny).is_ok());
     }
 
     #[test]

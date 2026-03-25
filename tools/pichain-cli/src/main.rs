@@ -13,11 +13,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate a new wallet (Ed25519 keypair).
+    /// Generate a new post-quantum wallet (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+    /// All PIChain wallets use dual post-quantum signatures for quantum resistance.
     Wallet {
-        /// Display the secret key (DANGEROUS — keep it safe!).
-        #[arg(long)]
-        show_secret: bool,
+        /// Save wallet to this file path.
+        #[arg(long, default_value = "wallet.json")]
+        output: String,
+    },
+
+    /// Verify a wallet file is valid and keys are consistent.
+    VerifyWallet {
+        /// Path to the wallet JSON file.
+        path: String,
     },
 
     /// Compute PI hex digits (for testing the mining algorithm).
@@ -44,18 +51,58 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Wallet { show_secret } => {
-            let kp = pichain_crypto::Keypair::generate();
-            println!("=== New PIChain Wallet ===");
-            println!("Address:    {}", kp.address());
-            println!("Public Key: {}", kp.public);
-            if show_secret {
-                println!("WARNING: Keep this secret key safe. Never share it.");
-                println!("Secret Key: {}", hex::encode(kp.secret.to_bytes()));
-            } else {
-                println!("Secret Key: [hidden — use --show-secret to display]");
+        Commands::Wallet { output } => {
+            use std::path::Path;
+
+            let path = Path::new(&output);
+            if path.exists() {
+                eprintln!("ERROR: File '{}' already exists. Remove it or choose a different path.", output);
+                std::process::exit(1);
             }
-            println!("\nStore your secret key safely. It cannot be recovered.");
+
+            println!("Generating post-quantum keypair (ML-DSA-65 + SLH-DSA-SHAKE-128f)...");
+            println!("This may take a moment (SLH-DSA key generation is compute-intensive).\n");
+
+            let (kp, export) = pichain_crypto::generate_pq_wallet();
+            let json = serde_json::to_string_pretty(&export).expect("serialization failed");
+            std::fs::write(path, &json).expect("failed to write wallet file");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            }
+
+            println!("=== New PIChain Wallet ===");
+            println!("Address:         {}", kp.address());
+            println!("Crypto:          Post-Quantum (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
+            println!("ML-DSA PK:       {} bytes (lattice-based)", pichain_crypto::pq::ML_DSA_PK_BYTES);
+            println!("SLH-DSA PK:      {} bytes (hash-based)", pichain_crypto::pq::SLH_DSA_PK_BYTES);
+            println!("Saved to:        {}", output);
+            println!("\nBoth signatures must verify for every transaction.");
+            println!("Quantum computers cannot break this wallet.\n");
+            println!("IMPORTANT: Keep '{}' safe. Your keys cannot be recovered.", output);
+        }
+
+        Commands::VerifyWallet { path } => {
+            let contents = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| { eprintln!("Failed to read '{}': {}", path, e); std::process::exit(1); });
+            let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
+                .unwrap_or_else(|e| { eprintln!("Invalid wallet JSON: {}", e); std::process::exit(1); });
+
+            print!("Verifying wallet... ");
+            match pichain_crypto::verify_pq_wallet(&export) {
+                Ok(()) => {
+                    println!("VALID");
+                    println!("Address:     {}", export.address);
+                    println!("ML-DSA key:  {} bytes", hex::decode(&export.ml_dsa_public_key).map(|b| b.len()).unwrap_or(0));
+                    println!("SLH-DSA key: {} bytes", hex::decode(&export.slh_dsa_public_key).map(|b| b.len()).unwrap_or(0));
+                }
+                Err(e) => {
+                    println!("INVALID — {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
         Commands::ComputePi { position, count } => {
@@ -85,21 +132,21 @@ fn main() {
             println!("Total Supply:     3,141,592,653 PI (FIXED, NON-MINTABLE)");
             println!("Base Unit:        1 PI = 1,000,000,000 base units\n");
             println!("Distribution:");
-            println!("  40% Community & Mining Pool:    1,256,637,061 PI");
-            println!("  20% Validator Rewards Reserve:    628,318,530 PI");
-            println!("  15% Foundation & Development:    471,238,897 PI");
-            println!("  10% Ecosystem Grants Fund:       314,159,265 PI");
-            println!("   8% Team & Early Contributors:   251,327,412 PI");
-            println!("   5% Public Sale / IDO:           157,079,632 PI");
-            println!("   2% Strategic Partners:           62,831,853 PI\n");
+            println!("  85% Mining Pool (Proof of Useful Work): 2,670,353,755 PI");
+            println!("  10% Staking Rewards:                      314,159,265 PI");
+            println!("   5% Initial Liquidity:                    157,079,632 PI\n");
             println!("Fee Structure (EIP-1559 + Burn):");
             println!("  25% of base fee → BURNED PERMANENTLY");
-            println!("  65% of base fee → Distributed to stakers");
-            println!("  10% of base fee → Protocol treasury");
+            println!("  25% of base fee → Mining pool replenishment");
+            println!("  50% of base fee → Stakers / block proposer");
             println!("  100% of priority fee → Block producer\n");
+            println!("Quantum Resistance:");
+            println!("  Signatures: ML-DSA-65 + SLH-DSA-SHAKE-128f (dual PQ)");
+            println!("  Addresses:  Blake3 XOR SHA3-256 quantum-safe hash");
+            println!("  Mining:     VDF + sqrt scaling + progressive strengthening\n");
 
             let calc = pichain_mining::RewardCalculator::new();
-            println!("Mining Emission Schedule:");
+            println!("Mining Emission Schedule (2pi% geometric decay):");
             for year in 1..=7 {
                 let emission = calc.annual_emission(year);
                 let pi = emission / 1_000_000_000;

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="white" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="white" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="badge-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+
+  <!-- Subtle shine overlay -->
+  <rect width="128" height="128" rx="28" fill="url(#shine)"/>
+
+  <!-- Inner subtle border -->
+  <rect x="2" y="2" width="124" height="124" rx="26" fill="none" stroke="white" stroke-opacity="0.1" stroke-width="1"/>
+
+  <!-- Pi symbol with glow -->
+  <g filter="url(#glow)">
+    <text x="60" y="88" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="80" font-weight="bold" fill="white" opacity="0.95">π</text>
+  </g>
+
+  <!-- PQ Badge (top-right) -->
+  <g filter="url(#shadow)">
+    <rect x="82" y="6" width="40" height="20" rx="10" fill="url(#badge-bg)"/>
+    <text x="102" y="20" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Arial, sans-serif" font-size="12" font-weight="800" fill="white" letter-spacing="0.5">PQ</text>
+  </g>
+
+  <!-- Subtle bottom accent line -->
+  <rect x="24" y="112" width="80" height="2" rx="1" fill="#22d3ee" opacity="0.4"/>
+</svg>

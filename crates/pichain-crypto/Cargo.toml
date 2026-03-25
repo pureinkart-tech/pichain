@@ -2,7 +2,7 @@
 name = "pichain-crypto"
 version.workspace = true
 edition.workspace = true
-description = "Cryptographic primitives for PIChain: Ed25519, BLS12-381, Blake3, Poseidon"
+description = "Cryptographic primitives for PIChain: Ed25519, BLS12-381, Blake3, Poseidon, ML-DSA, SLH-DSA"
 
 [dependencies]
 ed25519-dalek.workspace = true
@@ -13,3 +13,12 @@ serde.workspace = true
 hex.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
+
+# Post-quantum cryptography (NIST FIPS 204 + FIPS 205)
+pqcrypto-dilithium.workspace = true
+pqcrypto-sphincsplus.workspace = true
+pqcrypto-traits.workspace = true
+sha3.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

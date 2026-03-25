@@ -150,6 +150,9 @@ pub struct DagMempool {
     /// `None` means no round has been committed yet, distinguishing from
     /// the valid case of having committed round 0.
     committed_round: Option<u64>,
+    /// Round at which DAG was resumed from storage. Certificates at this round
+    /// are exempt from parent requirements since the DAG is empty after restart.
+    resume_round: Option<u64>,
     /// Number of validators.
     committee_size: usize,
     /// Collected equivocation evidence for slashing.
@@ -190,6 +193,7 @@ impl DagMempool {
             validator_stakes: HashMap::new(),
             total_stake: 0,
             quorum_stake: 0,
+            resume_round: None,
         }
     }
 
@@ -253,6 +257,13 @@ impl DagMempool {
         self.committed_round
     }
 
+    /// Set the committed round directly (used on restart to skip already-persisted rounds).
+    /// Also marks this as the resume point so the first certificate skips parent validation.
+    pub fn set_committed_round(&mut self, round: u64) {
+        self.committed_round = Some(round);
+        self.resume_round = Some(round + 1);
+    }
+
     /// Insert a certificate into the DAG.
     ///
     /// If `validator_keys` is provided, the BLS aggregate signature is verified
@@ -287,7 +298,17 @@ impl DagMempool {
         }
 
         // Verify it has enough unique parent references (2f+1)
-        if round > 0 {
+        // Skip parent validation for the first certificate after a restart —
+        // the DAG is empty so there are no parent certs to reference.
+        let is_resume_round = self.resume_round.map_or(false, |r| round == r);
+        // SECURITY: Clear resume exemption immediately when a cert at the resume round
+        // is processed, regardless of whether it passes validation. Without this, a
+        // rejected cert (e.g., bad signature) leaves the exemption active, allowing
+        // subsequent certs at the same round to also skip parent validation.
+        if is_resume_round {
+            self.resume_round = None;
+        }
+        if round > 0 && !is_resume_round {
             let required_parents = self.quorum_threshold();
             let unique_parents: std::collections::HashSet<_> =
                 cert.header.parents.iter().collect();
@@ -463,9 +484,16 @@ impl DagMempool {
         let dag_round = self.rounds.entry(round).or_default();
         if let Err(existing) = dag_round.insert(cert.clone()) {
             // Collect equivocation evidence for slashing (two different certs from same author in same round)
-            // R32-FIX: Cap evidence vec to prevent unbounded memory growth from
-            // an attacker flooding the network with equivocating certificates.
-            if existing.digest != cert.digest && self.equivocation_evidence.len() < 1024 {
+            // R32-FIX: Cap evidence vec to prevent unbounded memory growth.
+            // SECURITY: Use FIFO eviction instead of hard-reject. A hard cap allows
+            // an attacker to flood low-stakes equivocations to fill the buffer, then
+            // perform real double-signing without evidence being recorded. FIFO ensures
+            // the most recent (highest-severity) evidence is always retained.
+            if existing.digest != cert.digest {
+                if self.equivocation_evidence.len() >= 1024 {
+                    // Evict oldest evidence to make room for new
+                    self.equivocation_evidence.remove(0);
+                }
                 self.equivocation_evidence.push(EquivocationEvidence {
                     author,
                     round,

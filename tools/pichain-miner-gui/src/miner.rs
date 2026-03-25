@@ -1,4 +1,4 @@
-use pichain_crypto::Keypair;
+use pichain_crypto::PqKeypair;
 use pichain_mining::bbp::BbpComputer;
 use pichain_types::transaction::{Transaction, TransactionData, TransactionKind};
 use serde::{Deserialize, Serialize};
@@ -157,10 +157,10 @@ fn emit_log(app: &AppHandle, message: &str, level: &str) {
 pub async fn mining_loop(
     app: AppHandle,
     config: MiningConfig,
-    keypair: Keypair,
+    pq_keypair: PqKeypair,
     running: Arc<AtomicBool>,
 ) {
-    let address = keypair.address();
+    let address = pq_keypair.address();
     let address_hex = hex::encode(address.0);
 
     let client = reqwest::Client::builder()
@@ -276,11 +276,20 @@ pub async fn mining_loop(
             config.digits_per_batch
         };
 
-        // Calculate position with collision avoidance:
-        // - If we have a local_position from last round, use it (prevents self-collision)
-        // - Otherwise, query slot endpoint for server-assigned position
+        // FRONTIER-FIRST MINING: Always mine at or near the server's
+        // next_position. Local tracking prevents re-mining the same gap
+        // within a round, but is capped to prevent racing far ahead.
+        let max_local_ahead = effective_min_batch as u64 * config.concurrent_batches as u64 * 5;
         let (position, effective_batch_size) = if let Some(local_pos) = local_position {
-            let pos = local_pos.max(mining_status.next_position);
+            let capped = local_pos.min(mining_status.next_position.saturating_add(max_local_ahead));
+            let pos = capped.max(mining_status.next_position);
+            // If we've hit the cap, wait for frontier to catch up
+            if local_pos >= mining_status.next_position.saturating_add(max_local_ahead) {
+                emit_log(&app, "Waiting for frontier to catch up...", "info");
+                local_position = None;
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                continue;
+            }
             (pos, effective_min_batch)
         } else {
             // Query slot endpoint for server-assigned position
@@ -399,22 +408,9 @@ pub async fn mining_loop(
             {
                 Ok(resp) => match resp.json::<AccountResponse>().await {
                     Ok(acct) if acct.found => {
-                        let gas = 200_000u64 + effective_batch_size as u64 * 100;
-                        let cost = gas * 1_100;
                         let effective_balance = acct.balance + acct.locked_balance.unwrap_or(0);
-                        if effective_balance < cost {
-                            emit_log(
-                                &app,
-                                &format!(
-                                    "Low balance: {} PI — need {} for gas",
-                                    effective_balance as f64 / 1e9,
-                                    cost as f64 / 1e9
-                                ),
-                                "warn",
-                            );
-                            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                            continue;
-                        }
+                        // Mining proofs are gas-exempt on the node (gas advanced from
+                        // future reward), so don't block on low balance.
                         (acct.nonce, effective_balance)
                     }
                     _ => (0, 0),
@@ -555,7 +551,7 @@ pub async fn mining_loop(
                 chain_id: config.chain_id,
             };
 
-            let signed = Transaction::sign(tx_data, &keypair);
+            let signed = Transaction::sign_pq(tx_data, &pq_keypair);
             let tx_hex = match serde_json::to_vec(&signed) {
                 Ok(v) => hex::encode(v),
                 Err(e) => {
@@ -578,8 +574,12 @@ pub async fn mining_loop(
                         if result.status == "pending" {
                             proofs_confirmed += 1;
                             total_digits += batch_digit_count as u64;
+                            let frontier_bonus: f64 = mining_status.frontier_bonus_at_next
+                                .trim_end_matches('x')
+                                .parse()
+                                .unwrap_or(1.0);
                             let reward =
-                                (mining_status.reward_per_digit as f64 * batch_digit_count as f64) / 1e9;
+                                (mining_status.reward_per_digit as f64 * batch_digit_count as f64 * frontier_bonus) / 1e9;
                             let tx_short = &result.tx_hash[..result.tx_hash.len().min(12)];
                             emit_log(
                                 &app,

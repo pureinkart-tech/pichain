@@ -261,6 +261,7 @@ section { padding: 100px 24px; position: relative; }
 .spec-val.cyan { color: var(--cyan); }
 .spec-val.green { color: var(--green); }
 .spec-val.gold { color: var(--gold); }
+.spec-val.rose { color: var(--rose); }
 .spec-label { font-size: 13px; color: var(--text-muted); }
 
 /* ===== CTA ===== */
@@ -330,15 +331,14 @@ section { padding: 100px 24px; position: relative; }
     </a>
     <div class="nav-links" id="navLinks">
       <a href="/" class="active">Home</a>
-      <a href="/dex">DEX</a>
-      <a href="/trade">Swap</a>
-      <a href="/launch">Launch</a>
       <a href="/explorer">Explorer</a>
+      <a href="/trade">Swap</a>
+      <a href="/dex">DEX</a>
+      <a href="/launch">Launch</a>
       <a href="/mine">Mine</a>
-      <a href="/staking">Staking</a>
-      <a href="/nft">NFTs</a>
       <a href="/games">Games</a>
-      <a href="/download">Download</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -422,11 +422,11 @@ section { padding: 100px 24px; position: relative; }
       </div>
       <div class="feature-card">
         <div class="feature-icon gold">&#128274;</div>
-        <h3>ZK-Ready State</h3>
+        <h3>Quantum Resistant</h3>
         <p>
-          Poseidon-hashed Jellyfish Merkle Tree state commitments are 80x cheaper
-          in ZK circuits than SHA-256. Future-proofed for ZK-rollup verification
-          from day one.
+          Dual post-quantum signatures (NIST ML-DSA-65 + SLH-DSA) protect every wallet
+          and transaction. Quantum-safe hash combiner (Blake3 &oplus; SHA-3) for addresses.
+          VDF mining with progressive strengthening. Built for 50+ years.
         </p>
       </div>
       <div class="feature-card">
@@ -467,7 +467,7 @@ section { padding: 100px 24px; position: relative; }
       <div class="how-step">
         <div class="how-num">2</div>
         <h3>Create a Wallet</h3>
-        <p>Generate an Ed25519 keypair. Your mining rewards go directly to this address.</p>
+        <p>Generate a quantum-resistant keypair (ML-DSA + SLH-DSA). Rewards go directly to your address.</p>
       </div>
       <div class="how-step">
         <div class="how-num">3</div>
@@ -532,9 +532,10 @@ section { padding: 100px 24px; position: relative; }
 <section id="specs" style="background: var(--bg-2);">
   <div class="section-inner center">
     <div class="section-label">Technical Specifications</div>
-    <h2 class="section-title">Production-Grade Architecture</h2>
+    <h2 class="section-title">Quantum-Resistant Architecture</h2>
     <p class="section-desc center">
-      Built in Rust with 570+ tests. Every component designed for security, performance, and correctness.
+      Built in Rust with 660+ tests. Dual post-quantum cryptography, progressive security strengthening,
+      and defense-in-depth across every layer. Designed for 50+ years of security.
     </p>
     <div class="specs-grid">
       <div class="spec-card">
@@ -542,7 +543,7 @@ section { padding: 100px 24px; position: relative; }
         <div class="spec-label">Target Block Time</div>
       </div>
       <div class="spec-card">
-        <div class="spec-val cyan">100M</div>
+        <div class="spec-val cyan">500M</div>
         <div class="spec-label">Gas Limit per Block</div>
       </div>
       <div class="spec-card">
@@ -554,12 +555,85 @@ section { padding: 100px 24px; position: relative; }
         <div class="spec-label">Adaptive Fee Market</div>
       </div>
       <div class="spec-card">
-        <div class="spec-val purple">Ed25519</div>
-        <div class="spec-label">Signature Scheme</div>
+        <div class="spec-val purple">ML-DSA + SLH-DSA</div>
+        <div class="spec-label">Dual PQ Signatures (NIST FIPS 204+205)</div>
       </div>
       <div class="spec-card">
-        <div class="spec-val cyan">Blake3</div>
-        <div class="spec-label">Cryptographic Hash</div>
+        <div class="spec-val cyan">Blake3 &oplus; SHA-3</div>
+        <div class="spec-label">Quantum-Safe Hash Combiner</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val green">VDF</div>
+        <div class="spec-label">Verifiable Delay Function (Anti-Quantum Mining)</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val gold">Block-STM</div>
+        <div class="spec-label">Parallel Transaction Execution</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-val rose">2&pi;%</div>
+        <div class="spec-label">Annual Emission Decay</div>
+      </div>
+    </div>
+
+    <!-- Quantum Resistance Details -->
+    <div style="margin-top: 48px;">
+      <h3 class="section-title" style="font-size: 1.5rem;">Quantum Resistance Stack</h3>
+      <p class="section-desc center" style="max-width: 700px; margin: 0 auto 32px;">
+        PIChain is the first L1 blockchain with comprehensive quantum resistance across
+        signatures, addresses, mining, consensus, and network transport.
+      </p>
+      <div class="specs-grid">
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val purple" style="font-size: 1rem; margin-bottom: 8px;">Signatures</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>ML-DSA-65</strong> (NIST FIPS 204, lattice-based) + <strong>SLH-DSA-SHAKE-128f</strong>
+            (NIST FIPS 205, hash-based). Both must verify. Redundant quantum safety &mdash;
+            two independent mathematical families.
+          </div>
+        </div>
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val cyan" style="font-size: 1rem; margin-bottom: 8px;">Addresses</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            Quantum-safe hash combiner: <strong>Blake3 XOR SHA-3-256</strong>. If either hash function
+            is preimage-resistant, addresses are safe. Two completely different constructions
+            (ChaCha-based vs Keccak sponge).
+          </div>
+        </div>
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val green" style="font-size: 1rem; margin-bottom: 8px;">Mining</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>VDF hash chain</strong> gates proof submission rate &mdash; inherently sequential,
+            no quantum speedup possible. <strong>Progressive strengthening</strong>: starts accessible
+            (100K iterations), hardens over time (4M+ at maturity). Sqrt reward scaling caps
+            hardware advantages to &le;1.5x.
+          </div>
+        </div>
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val gold" style="font-size: 1rem; margin-bottom: 8px;">Future-Proof</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>Crypto version field</strong> enables scheme upgrades without hard forks.
+            STARK aggregation framework ready for block-level proof compression.
+            Progressive strengthening auto-hardens VDF, mining caps, and reward scaling
+            as the chain matures.
+          </div>
+        </div>
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val rose" style="font-size: 1rem; margin-bottom: 8px;">Consensus</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>ML-DSA-65 validator signatures</strong> replace BLS12-381 for quantum-safe consensus.
+            Per-validator signing with domain separation and chain ID binding prevents cross-chain replay.
+            Bullshark DAG + Avalanche fast-path for sub-second finality.
+          </div>
+        </div>
+        <div class="spec-card" style="text-align: left; padding: 24px;">
+          <div class="spec-val purple" style="font-size: 1rem; margin-bottom: 8px;">Network</div>
+          <div class="spec-label" style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>Hybrid key exchange</strong> (ML-KEM + X25519) protects P2P traffic against
+            harvest-now-decrypt-later attacks. PQ validator announcements with SLH-DSA key commitments.
+            Eclipse-resistant peer scoring with minimum peer diversity enforcement.
+          </div>
+        </div>
       </div>
     </div>
   </div>

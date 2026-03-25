@@ -78,12 +78,12 @@ a:hover{text-decoration:underline;}
       <a href="/explorer">Explorer</a>
       <a href="/trade">Swap</a>
       <a href="/dex">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
       <a href="/mine">Mine</a>
-      <a href="/staking">Staking</a>
       <a href="/nft" class="active">NFTs</a>
-      <a href="/download">Download</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -144,8 +144,8 @@ a:hover{text-decoration:underline;}
   </div>
 </div>
 
-<!-- TweetNaCl for Ed25519 signing -->
-<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+
+<script src="/pichain-wallet.js"></script>
 
 <script>
 const API = window.location.origin;
@@ -223,12 +223,17 @@ function connectWallet() {
   }
 }
 
+const WALLET_PAGE_ID='nft';
 function initWallet(seed) {
-  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
+  // PQ: keypair managed by signing proxy
+  walletKeypair = {publicKey:walletAddress}; // shim for compatibility checks
   walletAddress = deriveAddress(walletKeypair.publicKey);
   walletAddressHex = hexEncode(walletAddress);
   localStorage.setItem('pichain_wallet_seed', hexEncode(seed));
   localStorage.setItem('pichain_seed', hexEncode(seed));
+  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
   updateWalletUI();
   updateBalance();
   // Auto-fill My NFTs address input
@@ -236,8 +241,7 @@ function initWallet(seed) {
 }
 
 function disconnectWallet() {
-  localStorage.removeItem('pichain_wallet_seed');
-  localStorage.removeItem('pichain_seed');
+  localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0;
   updateWalletUI();
@@ -360,11 +364,14 @@ async function loadMyNfts() {
   } catch(e) { console.error(e); }
 }
 
-// Auto-connect wallet on page load
-(function() {
-  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
-  if (saved && saved.length === 64) initWallet(hexDecode(saved));
-})();
+// Auto-connect wallet on page load (wait for async nacl)
+const _naclPoll=setInterval(()=>{
+  if(typeof nacl==='undefined')return;
+  clearInterval(_naclPoll);
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  const saved=localStorage.getItem('pichain_wallet_seed')||localStorage.getItem('pichain_seed');
+  if(saved&&saved.length===64)initWallet(hexDecode(saved));
+},50);
 
 loadCollections();
 </script>

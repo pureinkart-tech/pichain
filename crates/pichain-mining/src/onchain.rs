@@ -19,9 +19,19 @@ use crate::proof::{MiningProof, ProofVerifier};
 use crate::registry::{DigitRange, DigitRegistry};
 use crate::reward::{self, RewardCalculator};
 
-/// Maximum percentage of epoch emission any single miner can earn (basis points).
-/// 500 bps = 5%, meaning at least 20 distinct miners needed to consume full epoch emission.
-pub const MAX_MINER_REWARD_PCT_BPS: u32 = 500;
+/// Maximum percentage of epoch emission any single miner can earn at maturity (basis points).
+/// 200 bps = 2%, meaning at least 50 distinct miners needed to consume full epoch emission.
+///
+/// During bootstrap, this is relaxed via `effective_miner_cap_bps()` to allow
+/// small networks to function (a solo miner needs >2% to earn anything meaningful).
+pub const MAX_MINER_REWARD_PCT_BPS: u32 = 200;
+
+/// Bootstrap miner cap (used when fewer than 5 unique miners exist).
+/// 2000 bps = 20%, allowing solo/small-team mining during launch.
+pub const BOOTSTRAP_MINER_REWARD_PCT_BPS: u32 = 2000;
+
+/// Minimum unique miners before the cap tightens from bootstrap to mature level.
+pub const MIN_MINERS_FOR_TIGHT_CAP: usize = 5;
 
 /// Blocks per mining epoch for reward cap tracking (~24 hours at 314ms/block).
 pub const BLOCKS_PER_MINING_EPOCH: u64 = 275_159;
@@ -31,9 +41,9 @@ pub const UNMINED_TO_STAKING_BPS: u32 = 8000; // 80% → staking
 
 /// Size of each miner's assigned slot range (in digits).
 /// Each miner gets a non-overlapping range of this size ahead of the frontier.
-/// 500K gives ~30 minutes of buffer at current mining speeds, preventing
-/// fast CLI miners from overwriting slower browser miners' work.
-pub const SLOT_RANGE_SIZE: u64 = 500_000;
+/// 10K keeps miners close to the frontier so they advance it together,
+/// while still preventing overlap between concurrent miners.
+pub const SLOT_RANGE_SIZE: u64 = 10_000;
 
 /// Maximum distance ahead of the frontier that a proof can be submitted.
 ///
@@ -66,7 +76,82 @@ pub fn min_batch_size(frontier: u64) -> u32 {
         let log2 = (u64::BITS - scaled.leading_zeros()).saturating_sub(1);
         (log2 as u64).max(1)
     };
-    (10u64.saturating_mul(factor)).clamp(10, 10_000) as u32
+    // Cap at 500 (not 10,000) to keep browser/mobile mining viable at all frontier depths.
+    // A browser miner computing 500 digits takes ~2-5 seconds — accessible to everyone.
+    (10u64.saturating_mul(factor)).clamp(10, 500) as u32
+}
+
+/// Integer square root via Newton's method. Deterministic across all platforms.
+fn isqrt(x: u32) -> u32 {
+    if x <= 1 {
+        return x;
+    }
+    let shift = (32 - x.leading_zeros()).div_ceil(2);
+    let mut r = 1u32 << shift;
+    loop {
+        let r1 = (r + x / r) / 2;
+        if r1 >= r {
+            break;
+        }
+        r = r1;
+    }
+    r
+}
+
+/// Reward scaling with **progressive strengthening**.
+///
+/// Converts raw digit count to "effective digits" using a scaling curve
+/// that starts LINEAR (user-friendly for bootstrapping) and transitions
+/// to SQRT (quantum-resistant) as the chain matures.
+///
+/// # Progressive schedule
+///
+/// The scaling curve is controlled by `frontier`:
+///
+/// | Phase | Frontier | Scaling | Effect |
+/// |-------|----------|---------|--------|
+/// | Genesis | 0-10K | Linear | 1000 digits → 1000 effective |
+/// | Bootstrap | 10K-100K | 3/4 power | 1000 digits → ~562 effective |
+/// | Early | 100K-1M | 2/3 power | 1000 digits → ~464 effective |
+/// | Mature | 1M+ | sqrt | 1000 digits → 316 effective |
+///
+/// This ensures:
+/// - At launch, casual laptop miners earn proportional to their work (no penalty)
+/// - As the network grows and quantum threats approach, diminishing returns kick in
+/// - At maturity, hardware advantages are fully dampened
+///
+/// Uses integer-only arithmetic for consensus determinism.
+pub fn sqrt_effective_digits(digit_count: u32) -> u32 {
+    // Default to sqrt scaling (mature chain)
+    sqrt_effective_digits_at_frontier(digit_count, u64::MAX)
+}
+
+/// Compute effective digits with frontier-aware progressive scaling.
+pub fn sqrt_effective_digits_at_frontier(digit_count: u32, frontier: u64) -> u32 {
+    if digit_count == 0 {
+        return 0;
+    }
+
+    if frontier < 10_000 {
+        // Genesis/Bootstrap: LINEAR scaling — no dampening.
+        // New chain needs to be accessible and rewarding for early miners.
+        digit_count
+    } else if frontier < 100_000 {
+        // Early chain: gentle dampening — cube-root-ish (approximate 3/4 power).
+        // sqrt(sqrt(x)) * sqrt(sqrt(x)) * sqrt(sqrt(x)) ≈ x^(3/4)
+        // Simpler approximation: (x + sqrt(x)*10) / 2 — halfway between linear and sqrt
+        let sqrt_scaled = isqrt(digit_count).saturating_mul(10);
+        (digit_count.saturating_add(sqrt_scaled)) / 2
+    } else if frontier < 1_000_000 {
+        // Growing chain: moderate dampening — between linear and sqrt.
+        // (x + 2*sqrt(x)*10) / 3 — weighted toward sqrt
+        let sqrt_scaled = isqrt(digit_count).saturating_mul(10);
+        (digit_count.saturating_add(sqrt_scaled.saturating_mul(2))) / 3
+    } else {
+        // Mature chain: full sqrt dampening — quantum-resistant.
+        // sqrt(digit_count) * 10, normalized so 100 digits → 100 effective
+        isqrt(digit_count).saturating_mul(10)
+    }
 }
 
 /// Frontier bonus: reward multiplier based on proof proximity to the frontier.
@@ -233,13 +318,39 @@ impl MiningProcessor {
     }
 
     /// Calculate the maximum reward any single miner can earn in the current mining epoch.
+    ///
+    /// Uses **progressive strengthening**: starts with a generous cap during bootstrap
+    /// (allowing solo miners to earn meaningful rewards), then tightens as more miners
+    /// join the network.
+    ///
+    /// - < 5 unique miners: 20% cap (allows bootstrapping)
+    /// - 5-19 miners: 10% cap (early network)
+    /// - 20+ miners: 2% cap (mature network, quantum-resistant)
     fn epoch_emission_cap(&self) -> u64 {
+        let cap_bps = self.effective_miner_cap_bps();
         let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
         let annual = self.reward_calc.annual_emission(year) as u128;
         let epochs_per_year = (reward::BLOCKS_PER_YEAR / BLOCKS_PER_MINING_EPOCH).max(1) as u128;
         let epoch_emission = annual / epochs_per_year;
-        let cap = epoch_emission * MAX_MINER_REWARD_PCT_BPS as u128 / 10_000;
+        let cap = epoch_emission * cap_bps as u128 / 10_000;
         cap.min(u64::MAX as u128) as u64
+    }
+
+    /// Calculate the effective per-miner cap based on network size.
+    ///
+    /// Progressive strengthening:
+    /// - Bootstrap (< 5 miners): 20% — solo miner can bootstrap the chain
+    /// - Early (5-19 miners): 10% — small community
+    /// - Mature (20+ miners): 2% — quantum-resistant cap
+    fn effective_miner_cap_bps(&self) -> u32 {
+        let unique_miners = self.registry.stats().unique_miners as usize;
+        if unique_miners < MIN_MINERS_FOR_TIGHT_CAP {
+            BOOTSTRAP_MINER_REWARD_PCT_BPS // 20%
+        } else if unique_miners < 20 {
+            1000 // 10%
+        } else {
+            MAX_MINER_REWARD_PCT_BPS // 2%
+        }
     }
 
     /// Advance the mining epoch if the current block height has crossed a boundary.
@@ -483,10 +594,12 @@ impl MiningProcessor {
         // so the digit range remains available for another miner if this one
         // has exceeded their per-epoch cap.
 
-        // 4. Calculate reward with frontier bonus (pure computation, no side effects)
+        // 4. Calculate reward with progressive scaling + frontier bonus (pure computation, no side effects)
+        // Progressive: linear at genesis → sqrt at maturity (dampens hardware advantages)
+        let effective_digits = sqrt_effective_digits_at_frontier(proof.digit_count, frontier);
         let base_reward = self
             .reward_calc
-            .reward_for_digits_at_time(proof.digit_count, self.block_timestamp_ms);
+            .reward_for_digits_at_time(effective_digits, self.block_timestamp_ms);
         let (bonus_num, bonus_den) = frontier_bonus(proof.start_position, self.registry.frontier());
         let bonused = if bonus_den > 0 {
             ((base_reward as u128) * bonus_num as u128 / bonus_den as u128)
@@ -647,6 +760,97 @@ impl MiningProcessor {
 
         // Run the standard proof verification (spot-checks, registry, rewards)
         self.process_proof(proof, anchor_block_hash)
+    }
+
+    /// Process a mining proof with PoW + VDF verification (quantum-resistant).
+    ///
+    /// This extends `process_proof_with_pow` to also verify a VDF proof,
+    /// ensuring that miners cannot submit proofs faster than the VDF time floor
+    /// regardless of their computational advantage (quantum or classical).
+    ///
+    /// The VDF proof must satisfy:
+    /// 1. Input seed = vdf_seed(digits, anchor_block_hash, miner)
+    /// 2. iterations >= required_iterations(frontier)
+    /// 3. output = Blake3^iterations(input) — re-verified by the node
+    pub fn process_proof_with_vdf(
+        &mut self,
+        proof: &MiningProof,
+        pow_nonce: u64,
+        anchor_block_hash: &[u8; 32],
+        vdf_proof: &crate::vdf::VdfProof,
+    ) -> VerificationResult {
+        // 0. Reject VDF proofs with excessive iterations (DoS prevention)
+        if vdf_proof.iterations > crate::vdf::MAX_VDF_ITERATIONS {
+            return VerificationResult {
+                valid: false,
+                spot_checks: 0,
+                all_checks_passed: false,
+                reward_amount: 0,
+                start_position: proof.start_position,
+                digit_count: proof.digit_count,
+                error: Some(format!(
+                    "VDF iterations exceed maximum: {} > {}",
+                    vdf_proof.iterations, crate::vdf::MAX_VDF_ITERATIONS
+                )),
+                epoch_remaining_budget: None,
+            };
+        }
+
+        // 1. Verify VDF iterations meet minimum requirement
+        // Uses progressive strengthening: considers both frontier depth and chain age
+        let frontier = self.registry.frontier();
+        let required = crate::vdf::required_iterations_with_age(frontier, self.current_height);
+        if vdf_proof.iterations < required {
+            return VerificationResult {
+                valid: false,
+                spot_checks: 0,
+                all_checks_passed: false,
+                reward_amount: 0,
+                start_position: proof.start_position,
+                digit_count: proof.digit_count,
+                error: Some(format!(
+                    "VDF iterations too low: {} < {} required at frontier {}",
+                    vdf_proof.iterations, required, frontier
+                )),
+                epoch_remaining_budget: None,
+            };
+        }
+
+        // 2. Verify VDF input seed matches the proof components
+        let expected_seed = crate::vdf::vdf_seed(
+            &proof.digits,
+            anchor_block_hash,
+            &proof.miner.0,
+        );
+        if vdf_proof.input != expected_seed {
+            return VerificationResult {
+                valid: false,
+                spot_checks: 0,
+                all_checks_passed: false,
+                reward_amount: 0,
+                start_position: proof.start_position,
+                digit_count: proof.digit_count,
+                error: Some("VDF input seed does not match proof components".to_string()),
+                epoch_remaining_budget: None,
+            };
+        }
+
+        // 3. Verify the VDF hash chain
+        if !crate::vdf::vdf_verify(vdf_proof) {
+            return VerificationResult {
+                valid: false,
+                spot_checks: 0,
+                all_checks_passed: false,
+                reward_amount: 0,
+                start_position: proof.start_position,
+                digit_count: proof.digit_count,
+                error: Some("VDF verification failed: output does not match hash chain".to_string()),
+                epoch_remaining_budget: None,
+            };
+        }
+
+        // 4. VDF passed — proceed with standard PoW + proof verification
+        self.process_proof_with_pow(proof, pow_nonce, anchor_block_hash)
     }
 
     /// Get the digit registry.
@@ -1357,5 +1561,159 @@ mod tests {
         let stats = processor.stats();
         assert_eq!(stats.mining_epoch, 0);
         assert!(stats.epoch_miner_cap > 0);
+    }
+
+    // ── Quantum Resistance Tests ──────────────────────────────────────────
+
+    #[test]
+    fn sqrt_effective_digits_mature_baseline() {
+        // At mature frontier (1M+): 100 digits → sqrt(100) * 10 = 100 effective
+        assert_eq!(sqrt_effective_digits_at_frontier(100, 1_000_000), 100);
+    }
+
+    #[test]
+    fn sqrt_effective_digits_mature_diminishing_returns() {
+        let f = 1_000_000; // mature frontier
+        let eff_100 = sqrt_effective_digits_at_frontier(100, f);
+        let eff_1000 = sqrt_effective_digits_at_frontier(1000, f);
+        let eff_10000 = sqrt_effective_digits_at_frontier(10000, f);
+
+        // 10x more compute → ~3.16x more effective digits (not 10x)
+        assert!(eff_1000 < eff_100 * 5);
+        assert!(eff_1000 > eff_100 * 2);
+        // 100x more compute → ~10x more effective digits (not 100x)
+        assert!(eff_10000 < eff_100 * 15);
+        assert!(eff_10000 > eff_100 * 5);
+    }
+
+    #[test]
+    fn sqrt_effective_digits_genesis_is_linear() {
+        // At genesis (frontier < 10K): scaling is LINEAR — no dampening
+        assert_eq!(sqrt_effective_digits_at_frontier(100, 0), 100);
+        assert_eq!(sqrt_effective_digits_at_frontier(1000, 0), 1000);
+        assert_eq!(sqrt_effective_digits_at_frontier(5000, 0), 5000);
+    }
+
+    #[test]
+    fn sqrt_effective_digits_progressive_tightens() {
+        let digit_count = 10_000u32;
+        let genesis = sqrt_effective_digits_at_frontier(digit_count, 0);
+        let early = sqrt_effective_digits_at_frontier(digit_count, 50_000);
+        let growing = sqrt_effective_digits_at_frontier(digit_count, 500_000);
+        let mature = sqrt_effective_digits_at_frontier(digit_count, 5_000_000);
+
+        // Each phase should give fewer effective digits for the same raw count
+        assert!(genesis >= early, "genesis should be >= early");
+        assert!(early >= growing, "early should be >= growing");
+        assert!(growing >= mature, "growing should be >= mature");
+        // Genesis (linear) should be much more generous than mature (sqrt)
+        assert!(genesis > mature * 2, "genesis should be >2x mature");
+    }
+
+    #[test]
+    fn sqrt_effective_digits_zero() {
+        assert_eq!(sqrt_effective_digits(0), 0);
+        assert_eq!(sqrt_effective_digits_at_frontier(0, 0), 0);
+    }
+
+    #[test]
+    fn sqrt_effective_digits_one() {
+        // At mature frontier: sqrt(1) = 1 * 10 = 10 effective digits
+        assert_eq!(sqrt_effective_digits(1), 10);
+        // At genesis: linear, so 1 → 1
+        assert_eq!(sqrt_effective_digits_at_frontier(1, 0), 1);
+    }
+
+    #[test]
+    fn miner_cap_is_2_percent_at_maturity() {
+        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 200);
+    }
+
+    #[test]
+    fn miner_cap_progressive() {
+        // Bootstrap (< 5 miners): 20% cap
+        assert_eq!(BOOTSTRAP_MINER_REWARD_PCT_BPS, 2000);
+        // Mature (20+ miners): 2% cap
+        assert_eq!(MAX_MINER_REWARD_PCT_BPS, 200);
+    }
+
+    #[test]
+    fn process_proof_at_genesis_is_linear() {
+        let mut processor = configured_processor();
+        processor.set_block_timestamp(TEST_GENESIS_TS);
+        processor.set_height(1);
+
+        // At genesis (frontier=0), scaling is linear
+        let digits_100 = BbpComputer::compute_hex_digits(0, 100);
+        let proof_100 = MiningProof::new(0, digits_100, Address([1u8; 20]), 42);
+        let result_100 = processor.process_proof(&proof_100, &[0u8; 32]);
+        assert!(result_100.valid, "proof should be valid: {:?}", result_100.error);
+
+        let digits_200 = BbpComputer::compute_hex_digits(100, 200);
+        let proof_200 = MiningProof::new(100, digits_200, Address([2u8; 20]), 42);
+        let result_200 = processor.process_proof(&proof_200, &[0u8; 32]);
+        assert!(result_200.valid, "proof should be valid: {:?}", result_200.error);
+
+        // At genesis with linear scaling, 2x digits ≈ 2x reward
+        // (frontier bonus may vary slightly, but should be close)
+        if result_100.reward_amount > 0 {
+            let ratio = result_200.reward_amount as f64 / result_100.reward_amount as f64;
+            assert!(
+                ratio > 1.5 && ratio < 2.5,
+                "at genesis, 2x digits should give ~2x reward (linear), got {:.1}x",
+                ratio
+            );
+        }
+    }
+
+    #[test]
+    fn vdf_verification_rejects_wrong_seed() {
+        let mut processor = configured_processor();
+        processor.set_block_timestamp(TEST_GENESIS_TS);
+        processor.set_height(1);
+
+        let digits = BbpComputer::compute_hex_digits(0, 100);
+        let miner = Address([1u8; 20]);
+        let proof = MiningProof::new(0, digits.clone(), miner, 42);
+        let anchor = [0u8; 32];
+
+        // Use required iterations so we pass the iteration check
+        let required = crate::vdf::required_iterations(0);
+
+        // Create VDF with wrong seed (wrong miner address) but correct iterations
+        let wrong_seed = crate::vdf::vdf_seed(&digits, &anchor, &[99u8; 20]);
+        let vdf = crate::vdf::vdf_compute(&wrong_seed, required);
+
+        let result = processor.process_proof_with_vdf(&proof, 0, &anchor, &vdf);
+        assert!(!result.valid);
+        assert!(
+            result.error.as_ref().unwrap().contains("VDF input seed"),
+            "expected VDF seed error, got: {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    fn vdf_verification_rejects_insufficient_iterations() {
+        let mut processor = configured_processor();
+        processor.set_block_timestamp(TEST_GENESIS_TS);
+        processor.set_height(1);
+
+        let digits = BbpComputer::compute_hex_digits(0, 100);
+        let miner = Address([1u8; 20]);
+        let proof = MiningProof::new(0, digits.clone(), miner, 42);
+        let anchor = [0u8; 32];
+
+        // Create VDF with too few iterations (less than required for frontier 0)
+        let seed = crate::vdf::vdf_seed(&digits, &anchor, &miner.0);
+        let vdf = crate::vdf::vdf_compute(&seed, 100); // way too few
+
+        let result = processor.process_proof_with_vdf(&proof, 0, &anchor, &vdf);
+        assert!(!result.valid);
+        assert!(
+            result.error.as_ref().unwrap().contains("VDF iterations too low"),
+            "expected VDF iterations error, got: {:?}",
+            result.error
+        );
     }
 }

@@ -126,6 +126,14 @@ impl TokenExecutor {
             return Ok(());
         }
 
+        // SECURITY: Verify the mint actually exists before creating token accounts.
+        // Without this check, apply_delta could create ghost accounts for non-existent
+        // mints, inflating balances without corresponding supply tracking.
+        // Native PI (MintId::ZERO) is always valid.
+        if !mint.is_native_pi() && !self.mints.contains_key(&mint) {
+            return Err(format!("cannot apply delta: mint {:?} does not exist", mint));
+        }
+
         let key = token_account_key(&owner, &mint);
         let mut entry = self.accounts.entry(key).or_insert_with(|| TokenAccount::new(owner, mint));
         let account = entry.value_mut();

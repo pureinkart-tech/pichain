@@ -5861,8 +5861,13 @@ dependencies = [
  "blst",
  "ed25519-dalek",
  "hex",
+ "pqcrypto-dilithium",
+ "pqcrypto-sphincsplus",
+ "pqcrypto-traits",
  "rand 0.8.5",
  "serde",
+ "serde_json",
+ "sha3",
  "thiserror 2.0.18",
  "zeroize",
 ]
@@ -6019,6 +6024,7 @@ dependencies = [
  "pichain-mining",
  "pichain-storage",
  "pichain-types",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "sha2",
@@ -6028,6 +6034,29 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+]
+
+[[package]]
+name = "pichain-signer"
+version = "0.6.4"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "axum",
+ "blake3",
+ "clap",
+ "dirs 6.0.0",
+ "hex",
+ "pichain-crypto",
+ "pichain-types",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]
@@ -6058,6 +6087,7 @@ dependencies = [
  "pichain-crypto",
  "serde",
  "serde_json",
+ "sha3",
  "thiserror 2.0.18",
 ]
 
@@ -6218,6 +6248,50 @@ checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
 ]
+
+[[package]]
+name = "pqcrypto-dilithium"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "685de0fa68c6786559d5fcdaa414f0cd68ef3f5d162f61823bd7424cd276726f"
+dependencies = [
+ "cc",
+ "glob",
+ "libc",
+ "pqcrypto-internals",
+ "pqcrypto-traits",
+]
+
+[[package]]
+name = "pqcrypto-internals"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4a326caf27cbf2ac291ca7fd56300497ba9e76a8cc6a7d95b7a18b57f22b61d"
+dependencies = [
+ "cc",
+ "dunce",
+ "getrandom 0.3.4",
+ "libc",
+]
+
+[[package]]
+name = "pqcrypto-sphincsplus"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f6ff8925443869aab1332bb8b0fe3b75cf113516bccf05da4dc71bc33162252"
+dependencies = [
+ "cc",
+ "glob",
+ "libc",
+ "pqcrypto-internals",
+ "pqcrypto-traits",
+]
+
+[[package]]
+name = "pqcrypto-traits"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e851c7654eed9e68d7d27164c454961a616cf8c203d500607ef22c737b51bb"
 
 [[package]]
 name = "precomputed-hash"

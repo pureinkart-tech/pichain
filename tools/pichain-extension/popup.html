@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PIChain Wallet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 340px; min-height: 300px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f0f1a; color: #e2e8f0;
+  }
+  .header {
+    padding: 20px; text-align: center;
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(34,211,238,0.1));
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .header h1 { font-size: 18px; color: #a78bfa; }
+  .header .pi { font-size: 28px; color: #a78bfa; }
+  .header .subtitle { font-size: 11px; color: #64748b; margin-top: 4px; }
+  .content { padding: 20px; }
+  .status-card {
+    background: rgba(255,255,255,0.04); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .status-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+  .status-label { color: #64748b; }
+  .status-val { color: #e2e8f0; }
+  .status-val.connected { color: #22c55e; }
+  .status-val.disconnected { color: #ef4444; }
+  .address-box {
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px;
+    font-family: monospace; font-size: 11px; color: #22d3ee;
+    word-break: break-all; margin: 12px 0; line-height: 1.6;
+  }
+  .btn {
+    width: 100%; padding: 12px; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: #6366f1; color: white; }
+  .btn-secondary { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .badge-pq { background: rgba(34,197,94,0.15); color: #22c55e; }
+  .error-text {
+    font-size: 12px; color: #94a3b8; line-height: 1.8;
+    white-space: pre-line; margin-bottom: 16px;
+  }
+  .footer { padding: 12px 20px; text-align: center; font-size: 10px; color: #475569; }
+  #wallet-section, #error-section { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="pi">&pi;</div>
+  <h1>PIChain Wallet</h1>
+  <div class="subtitle">Post-Quantum Secure &mdash; ML-DSA + SLH-DSA</div>
+</div>
+
+<div class="content">
+  <!-- Not Connected -->
+  <div id="connect-section">
+    <div class="status-card">
+      <div class="status-row">
+        <span class="status-label">Status</span>
+        <span class="status-val disconnected" id="conn-status">Not Connected</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Crypto</span>
+        <span class="status-val">Dual PQ <span class="badge badge-pq">QUANTUM SAFE</span></span>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-connect">Connect to Signer</button>
+    <p style="font-size:11px; color:#64748b; text-align:center; margin-top:8px;">
+      Requires <a href="https://pichain.net/download" style="color:#22d3ee;" target="_blank">pichain-signer</a> running on your computer
+    </p>
+  </div>
+
+  <!-- Connected -->
+  <div id="wallet-section">
+    <div class="status-card">
+      <div class="status-row">
+        <span class="status-label">Status</span>
+        <span class="status-val connected">Connected <span class="badge badge-pq">PQ</span></span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Provider</span>
+        <span class="status-val" id="provider-name">--</span>
+      </div>
+    </div>
+    <div class="address-box" id="wallet-address">--</div>
+    <button class="btn btn-secondary" id="btn-copy">Copy Address</button>
+    <button class="btn btn-secondary" id="btn-disconnect">Disconnect</button>
+  </div>
+
+  <!-- Error -->
+  <div id="error-section">
+    <div class="status-card">
+      <p class="error-text" id="error-msg">Connection failed</p>
+      <button class="btn btn-secondary" id="btn-back">Back</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">PIChain &mdash; Quantum-Resistant Blockchain</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

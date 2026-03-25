@@ -52,6 +52,19 @@ const MAX_SWAP_PRICE_IMPACT_BPS: u64 = 9999; // 99.99% — slippage tolerance is
 /// ~10 minutes at 314ms block time ≈ 1,911 blocks.
 const LP_LOCK_BLOCKS: u64 = 1_911;
 
+/// Anti-snipe cooldown: number of blocks after pool creation during which
+/// per-address cumulative swap volume is capped.
+/// ~30 seconds at 314ms block time ≈ 96 blocks.
+/// Prevents bots from front-running newly graduated tokens with oversized buys.
+const SNIPE_COOLDOWN_BLOCKS: u64 = 96;
+
+/// Maximum cumulative swap volume PER ADDRESS during cooldown period,
+/// as basis points of the pool's initial input reserve.
+/// 1000 bps = 10% of the pool's input reserve per address during the entire cooldown.
+/// This is generous for normal users (10% of an 80 PI pool = 8 PI) while preventing
+/// any single address from cornering >10% of supply in the first 30 seconds.
+const MAX_SNIPE_VOLUME_BPS: u64 = 1000;
+
 /// DEX executor — manages liquidity pools and swaps.
 pub struct DexExecutor {
     /// In-memory pool cache.
@@ -71,6 +84,14 @@ pub struct DexExecutor {
     /// When true, new pools created mid-block will have their reserves captured on first
     /// swap access rather than using stale/mutated live data.
     snapshot_taken: AtomicBool,
+    /// Accumulated holder dividend fees per token (mint_id → total PI accumulated).
+    /// These are accumulated during swap execution and persisted by the main executor.
+    dividend_fees: DashMap<MintId, u64>,
+    /// Anti-snipe: cumulative swap volume per (pool, address) during cooldown.
+    /// Tracks how much each address has swapped on each pool since its creation.
+    /// Only populated for pools still within their cooldown window.
+    /// Cleared when the pool exits cooldown (checked lazily).
+    snipe_volume: DashMap<(PoolId, Address), u64>,
 }
 
 impl DexExecutor {
@@ -83,6 +104,8 @@ impl DexExecutor {
             block_height: AtomicU64::new(0),
             block_start_reserves: DashMap::new(),
             snapshot_taken: AtomicBool::new(false),
+            dividend_fees: DashMap::new(),
+            snipe_volume: DashMap::new(),
         }
     }
 
@@ -94,6 +117,8 @@ impl DexExecutor {
         self.lp_deposit_height.clear();
         self.block_start_reserves.clear();
         self.snapshot_taken.store(false, Ordering::Release);
+        self.dividend_fees.clear();
+        self.snipe_volume.clear();
     }
 
     /// Set the block timestamp for deterministic state creation.
@@ -192,6 +217,14 @@ impl DexExecutor {
         self.lp_balances.iter().map(|e| (*e.key(), *e.value())).collect()
     }
 
+    /// Set creator fee on a pool (called after launch graduation).
+    pub fn set_creator_fee(&self, pool_id: &PoolId, recipient: Address, fee_bps: u16) {
+        if let Some(mut pool) = self.pools.get_mut(pool_id) {
+            pool.creator_fee_recipient = Some(recipient);
+            pool.creator_fee_bps = fee_bps;
+        }
+    }
+
     /// Create a new liquidity pool.
     pub fn create_pool(
         &self,
@@ -206,7 +239,9 @@ impl DexExecutor {
 
         let pool_id = PoolId::derive(&mint_a, &mint_b);
 
-        let pool = LiquidityPool::new(mint_a, mint_b, sender, self.block_timestamp());
+        let mut pool = LiquidityPool::new(mint_a, mint_b, sender, self.block_timestamp());
+        // Set creation height for anti-snipe cooldown tracking
+        pool.created_at_height = self.current_block_height();
 
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
         match self.pools.entry(pool_id) {
@@ -308,10 +343,12 @@ impl DexExecutor {
                 Some(v) => v,
                 None => return dex_error("LP balance overflow"),
             };
+            // SECURITY: Update deposit height while still holding the LP balance lock
+            // to prevent a race where another tx reads stale height between the
+            // balance update and height insert.
+            self.lp_deposit_height.insert((pool_id, sender), self.current_block_height());
             *lp_entry
         };
-        // Track deposit height for LP lock period enforcement
-        self.lp_deposit_height.insert((pool_id, sender), self.current_block_height());
 
         // Clone pool state for changes map, then release shard lock
         let pool_snapshot = pool.clone();
@@ -542,6 +579,36 @@ impl DexExecutor {
         };
         let pool = pool_ref.value_mut();
 
+        // Anti-snipe: during cooldown period after pool creation, limit cumulative
+        // swap volume PER ADDRESS. This prevents any single address from cornering
+        // a large position in newly graduated tokens, while allowing normal-sized
+        // purchases. The limit is based on the pool's initial reserves at creation.
+        if pool.created_at_height > 0 {
+            let blocks_since_creation = self.current_block_height().saturating_sub(pool.created_at_height);
+            if blocks_since_creation < SNIPE_COOLDOWN_BLOCKS {
+                let is_a_to_b_check = pool.mint_a == mint_in;
+                let input_reserve = if is_a_to_b_check { pool.reserve_a } else { pool.reserve_b };
+                // Use initial reserve estimate: for a pool that just graduated, the current
+                // reserve is close to the initial reserve. As swaps happen, reserve grows
+                // (for buy side), making the cap slightly more generous over time — this is fine.
+                let max_volume = (input_reserve as u128 * MAX_SNIPE_VOLUME_BPS as u128 / 10_000) as u64;
+                if max_volume > 0 {
+                    let key = (pool_id, sender);
+                    let current_volume = self.snipe_volume.get(&key).map(|v| *v).unwrap_or(0);
+                    let new_volume = current_volume.saturating_add(amount_in);
+                    if new_volume > max_volume {
+                        let remaining = max_volume.saturating_sub(current_volume);
+                        return dex_error(&format!(
+                            "anti-snipe: address volume cap reached during cooldown ({} blocks remaining). \
+                             Used {}/{} of per-address limit. Max additional: {}.",
+                            SNIPE_COOLDOWN_BLOCKS.saturating_sub(blocks_since_creation),
+                            current_volume, max_volume, remaining
+                        ));
+                    }
+                }
+            }
+        }
+
         if !pool.active {
             return dex_error("pool is not active");
         }
@@ -595,15 +662,24 @@ impl DexExecutor {
                 // impact = 1 - (price_after / price_before)
                 //        = 1 - (new_out * in) / (new_in * out)
                 let new_in = input_reserve as u128 + amount_in as u128;
-                let new_out = output_reserve as u128 * input_reserve as u128 / new_in;
-                let numer = new_out * input_reserve as u128; // price_after * in^2
-                let denom = new_in * output_reserve as u128; // price_before * in * new_in
-                if denom == 0 {
-                    10_000
-                } else if numer >= denom {
-                    0
-                } else {
-                    (((denom - numer) * 10_000) / denom) as u64
+                let new_out = (output_reserve as u128)
+                    .saturating_mul(input_reserve as u128)
+                    .checked_div(new_in)
+                    .unwrap_or(0);
+                // SECURITY: Use checked_mul to prevent u128 overflow on extreme reserves.
+                // If overflow occurs, treat as 100% impact (safest default → swap rejected).
+                let numer = new_out.checked_mul(input_reserve as u128);
+                let denom = new_in.checked_mul(output_reserve as u128);
+                match (numer, denom) {
+                    (_, None) | (None, _) => 10_000, // u128 overflow → max impact
+                    (_, Some(0)) => 10_000,
+                    (Some(n), Some(d)) if n >= d => 0,
+                    (Some(n), Some(d)) => {
+                        let diff = d - n;
+                        diff.checked_mul(10_000)
+                            .map(|v| (v / d) as u64)
+                            .unwrap_or(10_000)
+                    }
                 }
             }
         };
@@ -650,12 +726,89 @@ impl DexExecutor {
             return dex_error("AMM invariant violated: k decreased after swap");
         }
 
+        // Creator royalty: route a portion of the fee to the token creator.
+        // The fee is already absorbed into reserves (constant-product), so we
+        // debit the creator's share from reserves and credit it to the creator.
+        let (creator_fee, creator_recipient) = {
+            let (cf, _remaining) = pool.split_creator_fee(fee);
+            (cf, pool.creator_fee_recipient)
+        };
+
+        // Holder dividend fee: 50% of the remaining fee (after creator royalty) goes to
+        // token holders. Only applies to pools with a creator fee (i.e., launched tokens).
+        let holder_dividend_fee = if pool.creator_fee_recipient.is_some() {
+            let (_cf, remaining) = pool.split_creator_fee(fee);
+            // 50% of remaining fee goes to holder dividends.
+            // Integer division rounds down — the 1-satoshi dust on odd values
+            // stays in pool reserves, benefiting LP holders (conservation of PI).
+            remaining / 2
+        } else {
+            0
+        };
+
+        // Deduct creator fee from the input-side reserve (where the fee was absorbed)
+        if creator_fee > 0 {
+            if is_a_to_b {
+                pool.reserve_a = pool.reserve_a.saturating_sub(creator_fee);
+            } else {
+                pool.reserve_b = pool.reserve_b.saturating_sub(creator_fee);
+            }
+        }
+
+        // Deduct holder dividend fee from input-side reserve.
+        // Only when mint_in is native PI — we track dividends in PI only.
+        if holder_dividend_fee > 0 && mint_in.is_native_pi() {
+            if is_a_to_b {
+                pool.reserve_a = pool.reserve_a.saturating_sub(holder_dividend_fee);
+            } else {
+                pool.reserve_b = pool.reserve_b.saturating_sub(holder_dividend_fee);
+            }
+            let launched_mint = if pool.mint_a.is_native_pi() { pool.mint_b } else { pool.mint_a };
+            let mut entry = self.dividend_fees.entry(launched_mint).or_insert(0);
+            *entry = entry.saturating_add(holder_dividend_fee);
+        }
+
+        // Track anti-snipe volume for this address (only during cooldown)
+        let pool_created_at = pool.created_at_height;
+
         // Clone pool state for changes map, then release shard lock
         let pool_snapshot = pool.clone();
         drop(pool_ref);
 
+        // Record cumulative swap volume per address (only for cooldown-active pools)
+        if pool_created_at > 0 {
+            let blocks_since = self.current_block_height().saturating_sub(pool_created_at);
+            if blocks_since < SNIPE_COOLDOWN_BLOCKS {
+                *self.snipe_volume.entry((pool_id, sender)).or_insert(0) += amount_in;
+            }
+        }
+
         let mut pool_changes = HashMap::new();
         pool_changes.insert(pool_id, pool_snapshot);
+
+        let mut token_deltas = vec![
+            TokenDelta {
+                owner: sender,
+                mint: mint_in,
+                amount: -(amount_in as i128),
+            },
+            TokenDelta {
+                owner: sender,
+                mint: mint_out,
+                amount: amount_out as i128,
+            },
+        ];
+
+        // Add creator royalty delta
+        if creator_fee > 0 {
+            if let Some(recipient) = creator_recipient {
+                token_deltas.push(TokenDelta {
+                    owner: recipient,
+                    mint: mint_in,
+                    amount: creator_fee as i128,
+                });
+            }
+        }
 
         DexExecutionResult {
             status: TransactionStatus::Success,
@@ -669,24 +822,27 @@ impl DexExecutor {
                     "amount_in": amount_in,
                     "amount_out": amount_out,
                     "fee": fee,
+                    "creator_fee": creator_fee,
+                    "holder_dividend_fee": holder_dividend_fee,
                 }))
                 .unwrap_or_default(),
             }],
             pool_changes,
             lp_changes: HashMap::new(),
-            token_deltas: vec![
-                TokenDelta {
-                    owner: sender,
-                    mint: mint_in,
-                    amount: -(amount_in as i128),
-                },
-                TokenDelta {
-                    owner: sender,
-                    mint: mint_out,
-                    amount: amount_out as i128,
-                },
-            ],
+            token_deltas,
         }
+    }
+
+    /// Get accumulated dividend fees for all tokens.
+    pub fn get_dividend_fees(&self) -> Vec<(MintId, u64)> {
+        self.dividend_fees.iter().map(|e| (*e.key(), *e.value())).collect()
+    }
+
+    /// Drain accumulated dividend fees (called after persisting to storage).
+    pub fn drain_dividend_fees(&self) -> Vec<(MintId, u64)> {
+        let fees: Vec<_> = self.dividend_fees.iter().map(|e| (*e.key(), *e.value())).collect();
+        self.dividend_fees.clear();
+        fees
     }
 }
 

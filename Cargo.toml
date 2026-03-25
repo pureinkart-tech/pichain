@@ -14,10 +14,15 @@ members = [
     "tools/pichain-miner",
     "tools/pichain-miner-gui",
     "tools/pichain-bridge",
+    "tools/pichain-signer",
+]
+exclude = [
+    "explorer/games/mk48-src",
+    "tools/pichain-wasm-signer",
 ]
 
 [workspace.package]
-version = "0.6.4"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/pureinkart-tech/pichain"
@@ -38,6 +43,12 @@ ed25519-dalek = { version = "2", features = ["serde", "batch", "rand_core"] }
 blst = "0.3"
 blake3 = "1"
 rand = "0.8"
+
+# Post-quantum cryptography (NIST FIPS 204 + FIPS 205)
+pqcrypto-dilithium = "0.5"     # ML-DSA (Dilithium) — lattice-based signatures
+pqcrypto-sphincsplus = "0.7"   # SLH-DSA (SPHINCS+) — hash-based signatures
+pqcrypto-traits = "0.3"        # Traits for PQ signature operations
+sha3 = "0.10"                  # SHA-3/Keccak for quantum-safe hash combiner
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

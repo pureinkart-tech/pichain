@@ -269,7 +269,7 @@ mod tests {
             1_000_000,
             1,
         );
-        Transaction::sign(data, sender)
+        Transaction::sign_ed25519_for_tests_only(data, sender)
     }
 
     #[test]

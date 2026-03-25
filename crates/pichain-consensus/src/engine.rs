@@ -798,6 +798,26 @@ impl ConsensusEngine {
         self.commit_queue.pop_front()
     }
 
+    /// Resume from a persisted height on restart.
+    ///
+    /// After a node restart, the DAG and commit state are lost (in-memory only).
+    /// Without this, the engine starts at round 0 and tries to re-commit blocks
+    /// that already exist in storage. This method advances the round counter
+    /// past all previously produced blocks so new proposals start fresh.
+    pub fn set_starting_round(&mut self, height: u64) {
+        if height > 0 {
+            self.current_round = height;
+            self.metrics.current_round = height;
+            // Mark all prior rounds as committed so try_advance() doesn't
+            // iterate through hundreds of thousands of empty DAG rounds.
+            self.dag.set_committed_round(height.saturating_sub(1));
+            info!(
+                round = height,
+                "consensus engine resuming from persisted height"
+            );
+        }
+    }
+
     /// Get the current DAG round.
     pub fn current_round(&self) -> u64 {
         self.current_round

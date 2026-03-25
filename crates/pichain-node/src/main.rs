@@ -328,7 +328,15 @@ async fn main() -> anyhow::Result<()> {
 
             // --- 1. Initialize Storage ---
             info!("Opening database at {data_dir}");
-            let db = pichain_storage::PiChainDB::open(&data_dir)?;
+            let db = match pichain_storage::PiChainDB::open(&data_dir) {
+                Ok(db) => db,
+                Err(e) => {
+                    warn!("Database open failed ({e}), attempting repair...");
+                    pichain_storage::PiChainDB::repair(&data_dir)?;
+                    info!("Repair complete, retrying open...");
+                    pichain_storage::PiChainDB::open(&data_dir)?
+                }
+            };
             pichain_storage::migration::migrate_to_latest(&db)?;
             let state_store = pichain_storage::StateStore::new(db);
 
@@ -337,10 +345,13 @@ async fn main() -> anyhow::Result<()> {
             info!("Execution engine initialized (Block-STM parallel, chain_id={chain_id})");
 
             // --- 3. Initialize Transaction Pool (Mempool) ---
+            // PQ signature enforcement: ALWAYS enabled.
+            // Ed25519 transactions are rejected on ALL chains (mainnet + devnet).
+            // Browser-based signing uses the PQ wallet connector.
             let mempool_config = pichain_execution::MempoolConfig {
                 max_transactions: cfg.max_mempool_size,
                 chain_id,
-                ..Default::default()
+                ..Default::default() // require_pq: true (default)
             };
             let mempool = Arc::new(pichain_execution::TransactionPool::with_config(mempool_config));
             info!("Transaction mempool initialized (capacity: {})", cfg.max_mempool_size);
@@ -568,6 +579,10 @@ async fn main() -> anyhow::Result<()> {
                     )
                 )
             );
+            // Resume consensus from persisted height so the engine doesn't
+            // try to re-commit blocks that already exist in storage.
+            consensus_engine.lock().set_starting_round(current_height);
+
             // Inject BLS secret key for certificate signing (validators only)
             if !is_rpc_only {
                 let bls_sk = pichain_crypto::bls::BlsSecretKey::from_bytes(
@@ -1490,7 +1505,12 @@ async fn main() -> anyhow::Result<()> {
             let db = pichain_storage::PiChainDB::open(&data_dir)?;
             let state_store = pichain_storage::StateStore::new(db);
             let executor = Arc::new(pichain_execution::TransactionExecutor::new(chain_id));
-            let mempool = Arc::new(pichain_execution::TransactionPool::new());
+            let mempool = Arc::new(pichain_execution::TransactionPool::with_config(
+                pichain_execution::MempoolConfig {
+                    chain_id,
+                    ..Default::default()
+                },
+            ));
 
             let node_state = Arc::new(NodeState::new(state_store, executor, mempool, chain_id));
 
@@ -1780,7 +1800,12 @@ async fn main() -> anyhow::Result<()> {
                 let db = pichain_storage::PiChainDB::open(dir)?;
                 let state_store = pichain_storage::StateStore::new(db);
                 let executor = Arc::new(pichain_execution::TransactionExecutor::new(genesis.chain_id));
-                let mempool = Arc::new(pichain_execution::TransactionPool::new());
+                let mempool = Arc::new(pichain_execution::TransactionPool::with_config(
+                    pichain_execution::MempoolConfig {
+                        chain_id: genesis.chain_id,
+                        ..Default::default()
+                    },
+                ));
 
                 let node_state = Arc::new(NodeState::new(state_store, executor, mempool, genesis.chain_id));
                 node_state.apply_genesis(&genesis)?;

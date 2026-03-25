@@ -335,6 +335,96 @@ pub fn migrate_wallet(path: &str, password: &str) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- PQ Wallet operations ----------
+
+/// Create a new post-quantum wallet (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+/// The PQ key material is encrypted with AES-256-GCM using Argon2-derived key.
+pub fn create_pq_wallet(save_path: &str, password: &str) -> Result<CreateWalletResult, String> {
+    let path = PathBuf::from(save_path);
+    if path.exists() {
+        return Err(format!("Wallet already exists at '{}'.", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
+    }
+
+    let (kp, export) = pichain_crypto::generate_pq_wallet();
+    let address = format!("{}", kp.address());
+
+    // Serialize the PQ export as JSON, then encrypt the entire JSON blob
+    let export_json = serde_json::to_vec(&export)
+        .map_err(|e| format!("Serialization error: {e}"))?;
+    let (salt, nonce, ciphertext) = encrypt_secret(&export_json, password);
+
+    let wallet = WalletFile {
+        version: 3, // Version 3 = encrypted PQ wallet
+        secret_key: None,
+        encrypted_key: Some(hex::encode(&ciphertext)),
+        salt: Some(hex::encode(&salt)),
+        nonce: Some(hex::encode(&nonce)),
+        address: Some(address.clone()),
+    };
+
+    let json = serde_json::to_string_pretty(&wallet)
+        .map_err(|e| format!("Serialization error: {e}"))?;
+    std::fs::write(&path, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
+    restrict_file_permissions(&path);
+
+    Ok(CreateWalletResult {
+        address,
+        path: path.display().to_string(),
+        secret_key: String::new(), // PQ wallets don't expose raw secret
+    })
+}
+
+/// Load a PQ wallet. Returns the PQ key material for caching.
+pub fn load_pq_wallet(
+    path: &str,
+    password: Option<&str>,
+) -> Result<(pichain_crypto::pq_wallet::PqWalletExport, WalletLoadResult), String> {
+    let path = PathBuf::from(path);
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read wallet: {e}"))?;
+    let wallet: WalletFile = serde_json::from_str(&contents)
+        .map_err(|e| format!("Invalid wallet JSON: {e}"))?;
+
+    if wallet.version == 3 {
+        // Encrypted PQ wallet (v3)
+        let password = password.ok_or("Password required for encrypted PQ wallet")?;
+        let salt = hex::decode(wallet.salt.as_deref().ok_or("Missing salt")?)
+            .map_err(|e| format!("Invalid salt: {e}"))?;
+        let nonce = hex::decode(wallet.nonce.as_deref().ok_or("Missing nonce")?)
+            .map_err(|e| format!("Invalid nonce: {e}"))?;
+        let ct = hex::decode(wallet.encrypted_key.as_deref().ok_or("Missing encrypted_key")?)
+            .map_err(|e| format!("Invalid ciphertext: {e}"))?;
+        let decrypted = decrypt_secret(&salt, &nonce, &ct, password)?;
+        let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_slice(&decrypted)
+            .map_err(|e| format!("Invalid PQ wallet data: {e}"))?;
+        let address = export.address.clone();
+        Ok((
+            export,
+            WalletLoadResult {
+                address,
+                path: path.display().to_string(),
+                encrypted: true,
+            },
+        ))
+    } else {
+        // Try loading as unencrypted PQ wallet export
+        let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
+            .map_err(|_| "Not a PQ wallet — legacy Ed25519 wallets are no longer supported. Create a new PQ wallet.".to_string())?;
+        let address = export.address.clone();
+        Ok((
+            export,
+            WalletLoadResult {
+                address,
+                path: path.display().to_string(),
+                encrypted: false,
+            },
+        ))
+    }
+}
+
 /// Restrict file permissions so only the current user can read it.
 fn restrict_file_permissions(path: &std::path::Path) {
     #[cfg(unix)]

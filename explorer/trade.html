@@ -180,12 +180,11 @@ a:hover { text-decoration: underline; }
       <a href="/explorer">Explorer</a>
       <a href="/trade" class="active">Swap</a>
       <a href="/dex">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
       <a href="/mine">Mine</a>
-      <a href="/staking">Staking</a>
-      <a href="/nft">NFTs</a>
-      <a href="/download">Download</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -263,9 +262,19 @@ a:hover { text-decoration: underline; }
 <div class="container">
   <div class="header-row">
     <h1 class="page-title"><span>Trade</span></h1>
-    <div class="wallet-bar" id="walletBar">
-      <span id="walletStatus">No wallet</span>
-      <button class="btn btn-sm" id="walletBtn" onclick="showWalletModal()">Connect</button>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <a href="https://t.me/PiChainTradeBot" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:12px;padding:6px 14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.95 7.47l-1.94 9.15c-.15.67-.54.83-1.1.52l-3.03-2.23-1.46 1.4c-.16.16-.3.3-.61.3l.22-3.06 5.57-5.03c.24-.22-.05-.33-.38-.13L8.15 13.4l-2.96-.93c-.64-.2-.66-.64.14-.95l11.57-4.46c.53-.2 1 .13.83.95l-.78-.54z"/></svg>
+        PiBot on Telegram
+      </a>
+      <button onclick="var msg='Trade PI and Solana meme coins with PiBot on Telegram:\nhttps://t.me/PiChainTradeBot';if(navigator.share){navigator.share({title:'PiBot',text:msg,url:'https://t.me/PiChainTradeBot'})}else{navigator.clipboard.writeText(msg);this.textContent='Copied!';setTimeout(()=>{this.innerHTML='<svg width=&quot;14&quot; height=&quot;14&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><path d=&quot;M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13&quot;/></svg> Share'},2000)}" class="btn btn-sm btn-outline" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:12px;padding:6px 14px;cursor:pointer;border:1px solid var(--border-light);background:transparent;color:var(--text);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+        Share
+      </button>
+      <div class="wallet-bar" id="walletBar">
+        <span id="walletStatus">No wallet</span>
+        <button class="btn btn-sm" id="walletBtn" onclick="showWalletModal()">Connect</button>
+      </div>
     </div>
   </div>
 
@@ -275,6 +284,8 @@ a:hover { text-decoration: underline; }
     <button class="tab" onclick="switchTab('pools')">Pools</button>
     <button class="tab" onclick="switchTab('bridge')">Bridge</button>
     <button class="tab" onclick="switchTab('send')">Send</button>
+    <button class="tab" onclick="switchTab('staking')">Staking</button>
+    <button class="tab" onclick="switchTab('nfts')">NFTs</button>
   </div>
 
   <!-- SWAP TAB -->
@@ -461,10 +472,51 @@ a:hover { text-decoration: underline; }
   </div>
 </div>
 
+  <!-- STAKING TAB -->
+  <div class="tab-content" id="tab-staking">
+    <div class="swap-card">
+      <h3>Staking <span style="font-size:12px;color:var(--dim);font-weight:400;">Earn rewards by staking PI</span></h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+          <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Your Staked</div>
+          <div style="font-size:22px;font-weight:800;" id="stakedAmount">0 PI</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+          <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Est. APY</div>
+          <div style="font-size:22px;font-weight:800;color:var(--green);">8.2%</div>
+        </div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Amount to Stake</label>
+        <input type="number" placeholder="0.00" style="width:100%;background:transparent;border:none;color:var(--text);font-size:24px;font-weight:700;outline:none;" id="stakeAmountInput">
+        <div style="font-size:12px;color:var(--dim);margin-top:6px;">Available: <span id="stakeAvailable">0</span> PI</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-green" style="flex:1;padding:14px;font-size:15px;" onclick="showToast('Staking coming soon!','info')">Stake</button>
+        <button class="btn btn-outline" style="flex:1;padding:14px;font-size:15px;" onclick="showToast('Unstaking coming soon!','info')">Unstake</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);line-height:1.6;">
+        <strong style="color:var(--muted);">How it works:</strong> Stake PI to help secure the network and earn rewards. Minimum stake: 100 PI. Unstaking takes 7 days.
+      </div>
+    </div>
+  </div>
+
+  <!-- NFTS TAB -->
+  <div class="tab-content" id="tab-nfts">
+    <div class="swap-card">
+      <h3>NFTs <span style="font-size:12px;color:var(--dim);font-weight:400;">Your digital collectibles</span></h3>
+      <div style="text-align:center;padding:40px 20px;">
+        <div style="font-size:48px;margin-bottom:12px;">🖼️</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px;">NFT Marketplace Coming Soon</div>
+        <div style="font-size:13px;color:var(--muted);max-width:300px;margin:0 auto;">Mint, trade, and showcase NFTs on PiChain. Low fees, instant transfers.</div>
+      </div>
+    </div>
+  </div>
+
 <div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
-<!-- TweetNaCl for Ed25519 signing -->
-<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<!-- PQ Wallet Connector (replaces TweetNaCl Ed25519) -->
+<script src="/pichain-wallet.js"></script>
 
 <script>
 // =====================================================================
@@ -541,7 +593,7 @@ const NATIVE_PI_MINT = '0'.repeat(64);
 // =====================================================================
 // WALLET
 // =====================================================================
-let walletKeypair = null;
+let walletKeypair = null; // kept for compatibility checks (null = not connected)
 let walletAddress = null;
 let walletAddressHex = '';
 let walletSeedHex = '';
@@ -550,49 +602,67 @@ let piBalance = 0;
 let currentBaseFee = 1000;
 let pendingNewSeed = null;
 
-function initWallet(seed, skipModalClose) {
-  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
-  walletAddress = deriveAddress(walletKeypair.publicKey);
-  walletAddressHex = hexEncode(walletAddress);
-  walletSeedHex = hexEncode(seed);
-  localStorage.setItem('pichain_seed', walletSeedHex);
-  localStorage.setItem('pichain_wallet_seed', walletSeedHex);
-  updateWalletUI();
-  updateBalance();
-  if(!skipModalClose){
-    document.getElementById('walletModal').classList.remove('show');
-    resetWalletModal();
+const WALLET_PAGE_ID='swap';
+
+// PQ wallet: connect to signing proxy or extension
+async function initWalletPQ() {
+  const result = await connectPQProxy();
+  if (result.connected) {
+    walletAddressHex = result.address;
+    walletAddress = hexDecode(result.address);
+    walletKeypair = { publicKey: walletAddress }; // compatibility shim (signing is via proxy)
+    localStorage.setItem('pichain_pq_address', walletAddressHex);
+    localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+    updateWalletUI();
+    updateBalance();
+    updateSwapBtn();
+    loadTokenBalances();
+    updatePQBadge();
+    return true;
   }
-  updateSwapBtn();
-  loadTokenBalances();
+  return false;
+}
+
+function initWallet(seed, skipModalClose) {
+  // Legacy Ed25519 wallets no longer supported.
+  // Redirect to PQ connection.
+  showToast('Ed25519 wallets are no longer supported. Please use pichain-signer for quantum-safe transactions.', 'error');
+  showWalletModal();
 }
 
 function createWalletStep1() {
-  pendingNewSeed = nacl.randomBytes(32);
-  const seedHex = hexEncode(pendingNewSeed);
-  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
-  const addr = deriveAddress(kp.publicKey);
-  document.getElementById('newWalletSeed').value = seedHex;
-  document.getElementById('newWalletAddr').value = hexEncode(addr);
-  document.getElementById('savedKeyCheck').checked = false;
-  document.getElementById('confirmWalletBtn').disabled = true;
-  document.getElementById('walletStep1').style.display = 'none';
-  document.getElementById('walletStep2').style.display = 'block';
+  // Show instructions to download pichain-signer instead of creating in-browser
+  const step1 = document.getElementById('walletStep1');
+  const step2 = document.getElementById('walletStep2');
+  if (step1) step1.style.display = 'none';
+  if (step2) {
+    step2.style.display = 'block';
+    step2.innerHTML = '<div style="padding:20px;text-align:center;">' +
+      '<h3 style="color:var(--accent-light);margin-bottom:16px;">Post-Quantum Wallet</h3>' +
+      '<p style="color:var(--muted);margin-bottom:16px;">PIChain uses quantum-resistant signatures (ML-DSA + SLH-DSA). Wallet keys are managed by the PIChain Signer app.</p>' +
+      '<p style="margin-bottom:20px;"><strong>1.</strong> Download <a href="/download" style="color:var(--cyan);">pichain-signer</a></p>' +
+      '<p style="margin-bottom:20px;"><strong>2.</strong> Run: <code style="color:var(--cyan);">pichain-signer --wallet wallet.json --generate</code></p>' +
+      '<p style="margin-bottom:20px;"><strong>3.</strong> Click "Connect Wallet" on this page</p>' +
+      '<button class="btn" onclick="tryConnectPQ()" style="margin-top:8px;">Connect to Signer</button> ' +
+      '<button class="btn btn-dim" onclick="cancelNewWallet()" style="margin-top:8px;">Cancel</button>' +
+      '</div>';
+  }
 }
 
-function confirmNewWallet() {
-  if (!pendingNewSeed) return;
-  initWallet(pendingNewSeed, true);
-  pendingNewSeed = null;
-  showCaptchaStep();
+async function tryConnectPQ() {
+  const ok = await initWalletPQ();
+  if (ok) {
+    document.getElementById('walletModal').classList.remove('show');
+    showToast('PQ wallet connected!', 'success');
+  } else {
+    showToast('Could not connect to pichain-signer. Make sure it is running on port 8315.', 'error');
+  }
 }
+
+function confirmNewWallet() { createWalletStep1(); }
 
 function showCaptchaStep() {
-  document.getElementById('walletStep1').style.display = 'none';
-  document.getElementById('walletStep2').style.display = 'none';
-  document.getElementById('walletStep3').style.display = 'block';
-  document.getElementById('walletModal').classList.add('show');
-  activateWallet();
+  // No captcha needed for PQ wallets — activation is handled by the signer
 }
 
 function cancelNewWallet() {
@@ -602,13 +672,8 @@ function cancelNewWallet() {
 
 function resetWalletModal() {
   document.getElementById('walletStep1').style.display = 'block';
-  document.getElementById('walletStep2').style.display = 'none';
-  document.getElementById('walletStep3').style.display = 'none';
-  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
-  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
-  document.getElementById('newWalletSeed').value = '';
-  document.getElementById('newWalletAddr').value = '';
-  document.getElementById('savedKeyCheck').checked = false;
+  const s2 = document.getElementById('walletStep2'); if(s2) s2.style.display = 'none';
+  const s3 = document.getElementById('walletStep3'); if(s3) s3.style.display = 'none';
 }
 
 function copyNewKey() {
@@ -697,8 +762,17 @@ async function solveActivationPoW(challenge,diffBits){
 }
 
 function loadWallet() {
-  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
-  if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Try PQ proxy connection first (replaces old Ed25519 seed from localStorage)
+  initWalletPQ().catch(() => {
+    // If proxy not available, check if we have a saved PQ address for display
+    const savedAddr = localStorage.getItem('pichain_pq_address');
+    if (savedAddr) {
+      walletAddressHex = savedAddr;
+      walletAddress = hexDecode(savedAddr);
+      updateWalletUI();
+    }
+  });
 }
 
 function showWalletModal() {
@@ -708,11 +782,11 @@ function showWalletModal() {
 
 function updateWalletUI() {
   const bar = document.getElementById('walletBar');
-  if(walletKeypair) {
+  if(walletAddressHex) {
+    const pqLabel = pqProxyConnected ? '<span class="pq-badge" style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;background:rgba(34,197,94,0.15);color:#22c55e;">PQ</span>' : '';
     bar.innerHTML = `
-      <span class="addr">${shortAddr(walletAddressHex)}</span>
+      <span class="addr">${shortAddr(walletAddressHex)}${pqLabel}</span>
       <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
-      <button class="btn btn-sm btn-outline" onclick="showPrivateKey()">Key</button>
       <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
     `;
   } else {
@@ -759,8 +833,7 @@ function showPrivateKey() {
 }
 
 function disconnectWallet() {
-  localStorage.removeItem('pichain_seed');
-  localStorage.removeItem('pichain_wallet_seed');
+  localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   tokenBalances = {};
@@ -800,7 +873,7 @@ function showToast(msg, type) {
 // TAB SWITCHING
 // =====================================================================
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['swap','pools','bridge','send'][i]===name));
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['swap','pools','bridge','send','staking','nfts'][i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   if(name==='pools') loadPools();
@@ -1245,14 +1318,13 @@ async function doSwap() {
     const minOut = Math.floor(q.amount_out * (1 - slippage/100));
 
     await updateBalance();
-    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
-    const hex = buildSignedTxJson('Swap', {
+    // PQ signing via proxy — no local Ed25519 keys needed
+    const hex = await signAndBuildPQ('Swap', {
       mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
       amount_in: amountBase, min_amount_out: minOut
-    }, accountNonce, sig, 50000);
+    }, accountNonce, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       accountNonce++;
       showToast('Swap submitted! Tx: ' + result.tx_hash.slice(0,16) + '...', 'success');
@@ -1319,15 +1391,14 @@ async function doSend() {
 
   try {
     await updateBalance();
-    const canonical = buildTransferCanonical(walletAddress, accountNonce, recipientAddr, amountBase);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
-    const hex = buildSignedTxJson('Transfer', {
+    const hex = await signAndBuildPQ('Transfer', {
       recipient: Array.from(recipientAddr),
       amount: amountBase
-    }, accountNonce, sig, 21000);
+    }, accountNonce, 21000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
+      accountNonce++;
       showToast('Transfer submitted! TX: ' + (result.tx_hash||'').slice(0,16) + '...', 'success');
       document.getElementById('sendAmount').value = '';
       document.getElementById('sendRecipient').value = '';
@@ -1541,6 +1612,8 @@ async function fetchBridgeTransfers() {
 // =====================================================================
 // INIT
 // =====================================================================
+// Wait for async nacl library before loading wallet
+// Load wallet on startup (PQ proxy connection — no NaCl dependency)
 loadWallet();
 // Parallel initial load for faster page render
 Promise.all([loadTokens(), loadPools()]);

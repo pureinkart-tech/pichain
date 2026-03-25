@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "PIChain Wallet",
+  "version": "0.1.0",
+  "description": "Post-quantum wallet for PIChain — sign transactions with ML-DSA-65 + SLH-DSA-SHAKE-128f dual signatures",
+  "permissions": ["nativeMessaging", "storage", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pichain.net/*",
+        "https://*.pichain.net/*",
+        "https://pichain.io/*",
+        "https://*.pichain.io/*",
+        "http://localhost:8314/*", "http://localhost:3000/*",
+        "http://127.0.0.1:8314/*", "http://127.0.0.1:3000/*"
+      ],
+      "js": ["page-api.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://pichain.net/*",
+        "https://*.pichain.net/*",
+        "https://pichain.io/*",
+        "https://*.pichain.io/*",
+        "http://localhost:8314/*", "http://localhost:3000/*",
+        "http://127.0.0.1:8314/*", "http://127.0.0.1:3000/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

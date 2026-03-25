@@ -17,6 +17,14 @@ use pichain_types::{PiAmount, BASE_UNITS_PER_PI, TOTAL_SUPPLY};
 /// via 2π% geometric decay, supplemented by transaction fee income.
 const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 85 / 100;
 
+/// Compile-time assertion: MINING_POOL_BASE must fit in u64.
+/// Multiple hot paths cast this to u64 for arithmetic with u64 fields.
+/// If TOTAL_SUPPLY ever grows beyond ~21.7B PI, this assertion will fail at compile time.
+const _: () = assert!(MINING_POOL_BASE <= u64::MAX as u128, "MINING_POOL_BASE exceeds u64::MAX");
+
+/// MINING_POOL_BASE as u64 — safe because of the compile-time assertion above.
+const MINING_POOL_U64: u64 = MINING_POOL_BASE as u64;
+
 /// Total mining pool in whole PI (for display / documentation only).
 /// 85% of 3,141,592,653 PI ≈ 2,670,353,755 PI.
 #[allow(dead_code)]
@@ -124,6 +132,10 @@ impl RewardCalculator {
     ///
     /// The reward is proportional to the number of digits computed,
     /// capped by the annual emission for that year.
+    ///
+    /// NOTE: This uses a fixed assumption of 1000 digits/block. For quantum-safe
+    /// proportional rewards, use [`calculate_proportional_reward`] instead, which
+    /// divides fixed epoch emission among all miners proportionally.
     pub fn reward_per_digit(&self, year: u32) -> PiAmount {
         let annual_emission = self.annual_emission(year);
         // Assume ~1000 digits computed per block on average across all miners
@@ -184,7 +196,7 @@ impl RewardCalculator {
     /// Record a reward distribution. Call this after a proof is accepted.
     /// Returns Err if the reward would exceed the effective pool cap (base + fee income).
     pub fn record_reward(&mut self, amount: u64) -> Result<(), String> {
-        let effective_cap = (MINING_POOL_BASE as u64).saturating_add(self.fee_income);
+        let effective_cap = MINING_POOL_U64.saturating_add(self.fee_income);
         let new_total = (self.total_mined as u128) + (amount as u128);
         if new_total > effective_cap as u128 {
             return Err(format!(
@@ -199,7 +211,7 @@ impl RewardCalculator {
     /// Get the total remaining mining pool based on actual distributions.
     /// Includes fee income that has been added back to the pool.
     pub fn remaining_pool(&self) -> PiAmount {
-        let effective_pool = (MINING_POOL_BASE as u64).saturating_add(self.fee_income);
+        let effective_pool = MINING_POOL_U64.saturating_add(self.fee_income);
         effective_pool.saturating_sub(self.total_mined)
     }
 
@@ -247,6 +259,16 @@ impl RewardCalculator {
             return 0;
         }
         reward.min(remaining)
+    }
+
+    /// Calculate the epoch emission for the given year and epoch duration.
+    ///
+    /// This is the FIXED amount of PI available for mining in one epoch,
+    /// regardless of how many digits are computed. Used for proportional rewards.
+    pub fn epoch_emission(&self, year: u32, blocks_per_epoch: u64) -> PiAmount {
+        let annual = self.annual_emission(year) as u128;
+        let epochs_per_year = (self.blocks_per_year / blocks_per_epoch.max(1)).max(1) as u128;
+        (annual / epochs_per_year).min(u64::MAX as u128) as PiAmount
     }
 }
 
@@ -318,7 +340,7 @@ mod tests {
     #[test]
     fn supply_cap_enforced() {
         let mut calc = RewardCalculator::new();
-        let cap = MINING_POOL_BASE as u64;
+        let cap = MINING_POOL_U64;
         calc.set_total_mined(cap - 100);
 
         let reward = calc.reward_for_digits(1000);
@@ -366,7 +388,7 @@ mod tests {
     #[test]
     fn record_reward_rejects_overflow() {
         let mut calc = RewardCalculator::new();
-        let cap = MINING_POOL_BASE as u64;
+        let cap = MINING_POOL_U64;
         calc.set_total_mined(cap);
 
         let result = calc.record_reward(1);
@@ -475,7 +497,7 @@ mod tests {
         assert_eq!(pool_after, pool_before + 1_000_000_000);
 
         // Can mine more than base pool thanks to fee income
-        let cap = MINING_POOL_BASE as u64;
+        let cap = MINING_POOL_U64;
         calc.set_total_mined(cap);
         // Without fee income, pool would be exhausted. But fee income extends it.
         assert_eq!(calc.remaining_pool(), 1_000_000_000);

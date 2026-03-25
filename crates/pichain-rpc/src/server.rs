@@ -407,6 +407,16 @@ pub trait StateProvider: Send + Sync + 'static {
         None
     }
 
+    /// Get top miners for leaderboard. Returns (Vec<(address, digits)>, total_digits).
+    fn get_mining_leaderboard(&self) -> Option<(Vec<(pichain_crypto::ed25519::Address, u64)>, u64)> {
+        None
+    }
+
+    /// Get recent proofs for a specific miner. Returns Vec<(start, count, committed_at_height)>.
+    fn get_miner_recent_proofs(&self, _address: &pichain_crypto::ed25519::Address, _limit: usize) -> Vec<(u64, u32, u64)> {
+        vec![]
+    }
+
     // --- Wallet activation ---
 
     /// Get total number of activated wallets.
@@ -448,6 +458,28 @@ pub trait StateProvider: Send + Sync + 'static {
     fn scan_all_token_accounts(&self) -> Vec<pichain_types::TokenAccount> { vec![] }
     /// Scan all LP balances.
     fn scan_all_lp_balances(&self) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> { vec![] }
+
+    // --- Comment queries ---
+
+    /// Post a comment on a token launch.
+    fn post_comment(&self, _comment: pichain_storage::Comment) -> Result<(), String> {
+        Err("comments not available".to_string())
+    }
+    /// Get comments for a token launch.
+    fn get_comments(&self, _mint_id: &pichain_types::MintId, _limit: usize) -> Vec<pichain_storage::Comment> { vec![] }
+    /// Get comment count for a token launch.
+    fn get_comment_count(&self, _mint_id: &pichain_types::MintId) -> u64 { 0 }
+
+    // --- Dividend queries ---
+
+    /// Get claimable dividends for a holder on a specific token.
+    fn get_claimable_dividends(&self, _mint_id: &pichain_types::MintId, _holder: &pichain_crypto::ed25519::Address) -> u64 { 0 }
+    /// Get dividend pool info for a token.
+    fn get_dividend_pool(&self, _mint_id: &pichain_types::MintId) -> Option<pichain_storage::DividendPool> { None }
+    /// Claim dividends for a holder on a specific token. Returns PI amount claimed.
+    fn claim_dividends(&self, _mint_id: &pichain_types::MintId, _holder: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
+        Err("dividends not available".to_string())
+    }
 
     /// Bridge operator: mint wrapped tokens to a recipient address.
     /// Only callable from localhost by the bridge operator.
@@ -719,6 +751,10 @@ struct QuakeSessionStartRequest {
     match_id: String,
     #[serde(default)]
     max_players: Option<u8>,
+    #[serde(default)]
+    player_name: Option<String>,
+    #[serde(default)]
+    player_addr: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -738,12 +774,31 @@ struct QuakeSessionInfo {
     status: String,
     pid: Option<u32>,
     error: Option<String>,
+    #[serde(default)]
+    players: HashMap<String, String>, // Q3 player name -> wallet address
+    #[serde(default)]
+    registration_order: Vec<String>, // wallet addresses in order of /session/start calls
 }
 
 static QUAKE_SESSIONS: OnceLock<Mutex<HashMap<String, QuakeSessionInfo>>> = OnceLock::new();
 
 fn quake_sessions() -> &'static Mutex<HashMap<String, QuakeSessionInfo>> {
     QUAKE_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Stdin handles for Q3 dedicated servers (for sending console commands like clientkick).
+/// Separate from QuakeSessionInfo because ChildStdin is not Clone.
+static QUAKE_STDIN: OnceLock<Mutex<HashMap<String, std::process::ChildStdin>>> = OnceLock::new();
+
+fn quake_stdin_handles() -> &'static Mutex<HashMap<String, std::process::ChildStdin>> {
+    QUAKE_STDIN.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Track which client slots have been kicked per session (to avoid duplicate kicks).
+static QUAKE_KICKED: OnceLock<Mutex<HashMap<String, std::collections::HashSet<String>>>> = OnceLock::new();
+
+fn quake_kicked() -> &'static Mutex<HashMap<String, std::collections::HashSet<String>>> {
+    QUAKE_KICKED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Check whether an origin string is allowed for CORS (Fix RPC-237).
@@ -753,8 +808,13 @@ fn quake_sessions() -> &'static Mutex<HashMap<String, QuakeSessionInfo>> {
 ///
 /// Origin format: `scheme://host[:port]`
 fn is_allowed_origin(origin: &str) -> bool {
+    // SECURITY: Normalize to lowercase before matching.
+    // HTTP Origin headers are case-insensitive per RFC 6454.
+    // Without this, "PICHAIN.NET" bypasses the allowlist.
+    let origin_lower = origin.to_ascii_lowercase();
+
     // Split off the scheme (e.g., "http" or "https")
-    let Some((scheme, rest)) = origin.split_once("://") else {
+    let Some((scheme, rest)) = origin_lower.split_once("://") else {
         return false;
     };
 
@@ -858,6 +918,8 @@ impl RpcServer {
             .route("/api/v1/account/:address", get(get_account))
             .route("/api/v1/mining/status", get(get_mining_status))
             .route("/api/v1/mining/slot/:address", get(get_mining_slot))
+            .route("/api/v1/mining/leaderboard", get(get_mining_leaderboard))
+            .route("/api/v1/mining/miner/:address", get(get_mining_miner_detail))
             .route("/api/v1/receipt/:hash", get(get_receipt))
             .route("/api/v1/blocks", get(get_block_range))
             .route("/api/v1/wallet/challenge", post(get_activation_challenge))
@@ -877,12 +939,19 @@ impl RpcServer {
             // Launchpad / listing endpoints
             .route("/api/v1/launches", get(get_all_launches))
             .route("/api/v1/launch/:mint_id", get(get_launch_detail))
+            .route("/api/v1/launch/:mint_id/comments", get(get_launch_comments))
+            .route("/api/v1/launch/:mint_id/comment", post(post_launch_comment))
+            .route("/api/v1/launches/activity", get(get_launch_activity))
+            .route("/api/v1/launch/:mint_id/dividends", get(get_launch_dividends))
+            .route("/api/v1/launch/:mint_id/claim-dividends", post(claim_launch_dividends))
             .route("/api/v1/tokens", get(get_all_tokens))
             .route("/api/v1/pools", get(get_all_pools))
             .route("/api/v1/mint-nonce/:address", get(get_mint_nonce))
             .route("/api/v1/portfolio/:address", get(get_portfolio))
             .route("/launch", get(serve_launch_page))
             .route("/trade", get(serve_trade_page))
+            .route("/terminal", get(serve_terminal_page))
+            .route("/pibot-logo", get(serve_pibot_logo))
             .route("/bridge", get(redirect_bridge_to_home))
             .route("/staking", get(serve_staking_page))
             .route("/blocks", get(serve_blocks_page))
@@ -936,12 +1005,27 @@ impl RpcServer {
             .route("/api/v1/fps/quake/session/start", post(start_quake_session))
             .route("/api/v1/fps/quake/session/:match_id", get(get_quake_session))
             .route("/api/v1/fps/quake/session/:match_id/stop", post(stop_quake_session))
+            .route("/api/v1/fps/quake/session/:match_id/command", post(quake_send_command))
+            .route("/api/v1/fps/quake/session/:match_id/bots", post(quake_add_bots).delete(quake_remove_bots))
             .route("/api/v1/fps/quake/ws", get(quake_ws_upgrade))
             // DEX page
             .route("/dex", get(serve_dex_page))
             // Games page (kept /betting for backwards compat)
             .route("/games", get(serve_betting_page))
             .route("/betting", get(serve_betting_page))
+            // Crypto Bros page
+            .route("/crypto-bros", get(serve_crypto_bros_page))
+            // Music Studio page
+            .route("/music", get(serve_music_page))
+            .route("/music/song/:song_id", get(serve_music_page))
+            .route("/music/app.apk", get(serve_music_apk))
+            .route("/music/privacy", get(serve_music_privacy))
+            .route("/player", get(serve_player_page))
+            .route("/player/app.apk", get(serve_player_apk))
+            .route("/player/sw.js", get(serve_player_sw))
+            .route("/player/manifest.json", get(serve_player_manifest))
+            // Dating page (Egotistic)
+            .route("/dating", get(serve_dating_page))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -988,6 +1072,8 @@ impl RpcServer {
                         // cache images/audio/other assets for 1 hour
                         let cache_val = if uri.ends_with(".js") || uri.ends_with(".html") {
                             "no-store, no-cache, must-revalidate"
+                        } else if uri.ends_with(".wasm") || uri.ends_with(".data") {
+                            "public, max-age=86400" // WASM/data files: 24hr cache
                         } else {
                             "public, max-age=3600"
                         };
@@ -995,6 +1081,34 @@ impl RpcServer {
                             header::CACHE_CONTROL,
                             header::HeaderValue::from_static(cache_val),
                         );
+                        // Set correct MIME type for WASM files
+                        if uri.ends_with(".wasm") {
+                            resp.headers_mut().insert(
+                                header::CONTENT_TYPE,
+                                header::HeaderValue::from_static("application/wasm"),
+                            );
+                        }
+                        // Hypersomnia needs crossOriginIsolated for SharedArrayBuffer/WASM threads.
+                        // COEP + COOP + CORP headers enable cross-origin isolation in the
+                        // same-origin iframe without needing the credentialless attribute.
+                        if uri.contains("/hypersomnia/") {
+                            resp.headers_mut().insert(
+                                header::HeaderName::from_static("cross-origin-resource-policy"),
+                                header::HeaderValue::from_static("cross-origin"),
+                            );
+                            resp.headers_mut().insert(
+                                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                                header::HeaderValue::from_static("*"),
+                            );
+                            resp.headers_mut().insert(
+                                header::HeaderName::from_static("cross-origin-embedder-policy"),
+                                header::HeaderValue::from_static("credentialless"),
+                            );
+                            resp.headers_mut().insert(
+                                header::HeaderName::from_static("cross-origin-opener-policy"),
+                                header::HeaderValue::from_static("same-origin"),
+                            );
+                        }
                         resp
                     }))
                     .layer(CompressionLayer::new());
@@ -1065,7 +1179,7 @@ fn serve_html(html: &'static str) -> impl IntoResponse {
         StatusCode::OK,
         [
             ("content-type", "text/html; charset=utf-8"),
-            ("cache-control", "public, max-age=60, stale-while-revalidate=300"),
+            ("cache-control", "no-cache, must-revalidate"),
             ("vary", "Accept-Encoding"),
         ],
         html,
@@ -1543,6 +1657,7 @@ async fn get_transaction(
                         pichain_types::TransactionKind::StartMatch { .. } => "StartMatch",
                         pichain_types::TransactionKind::ResolveMatch { .. } => "ResolveMatch",
                         pichain_types::TransactionKind::CancelMatch { .. } => "CancelMatch",
+                        pichain_types::TransactionKind::RemoveParticipant { .. } => "RemoveParticipant",
                     };
 
                     let receipt_status = receipt.as_ref().map(|r| {
@@ -1763,6 +1878,138 @@ async fn get_mining_slot(
     ))
 }
 
+// --- Mining leaderboard ---
+
+#[derive(Serialize)]
+struct LeaderboardEntry {
+    address: String,
+    digits_computed: u64,
+    percentage: f64,
+    rank: u32,
+}
+
+#[derive(Serialize)]
+struct NetworkMiningStats {
+    frontier_position: u64,
+    total_digits_verified: u64,
+    unique_miners: u64,
+    total_ranges: u64,
+    total_mined_pi: f64,
+    remaining_pool_pi: f64,
+    reward_per_digit: u64,
+    emission_year: u32,
+}
+
+#[derive(Serialize)]
+struct LeaderboardResponse {
+    miners: Vec<LeaderboardEntry>,
+    network: NetworkMiningStats,
+}
+
+async fn get_mining_leaderboard(State(state): State<Arc<RpcState>>) -> Result<Json<LeaderboardResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let provider = state.state_provider.as_ref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "state not available"})))
+    })?;
+
+    let (top_miners, total_digits) = provider.get_mining_leaderboard().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "mining data not available"})))
+    })?;
+
+    let miners: Vec<LeaderboardEntry> = top_miners.iter().enumerate().map(|(i, (addr, digits))| {
+        let pct = if total_digits > 0 { (*digits as f64 / total_digits as f64) * 100.0 } else { 0.0 };
+        LeaderboardEntry {
+            address: hex::encode(addr.0),
+            digits_computed: *digits,
+            percentage: (pct * 100.0).round() / 100.0,
+            rank: (i + 1) as u32,
+        }
+    }).collect();
+
+    let network = if let Some(stats) = provider.get_mining_stats() {
+        NetworkMiningStats {
+            frontier_position: stats.frontier_position,
+            total_digits_verified: stats.total_digits_verified,
+            unique_miners: stats.unique_miners,
+            total_ranges: stats.total_ranges,
+            total_mined_pi: stats.total_mined as f64 / 1_000_000_000.0,
+            remaining_pool_pi: stats.remaining_pool as f64 / 1_000_000_000.0,
+            reward_per_digit: stats.reward_per_digit,
+            emission_year: stats.emission_year,
+        }
+    } else {
+        NetworkMiningStats {
+            frontier_position: 0,
+            total_digits_verified: total_digits,
+            unique_miners: top_miners.len() as u64,
+            total_ranges: 0,
+            total_mined_pi: 0.0,
+            remaining_pool_pi: 0.0,
+            reward_per_digit: 0,
+            emission_year: 1,
+        }
+    };
+
+    Ok(Json(LeaderboardResponse { miners, network }))
+}
+
+// --- Mining miner detail ---
+
+#[derive(Serialize)]
+struct RecentProof {
+    start: u64,
+    count: u32,
+    committed_at_height: u64,
+}
+
+#[derive(Serialize)]
+struct MinerDetailResponse {
+    address: String,
+    digits_computed: u64,
+    percentage: f64,
+    rank: u32,
+    recent_proofs: Vec<RecentProof>,
+}
+
+async fn get_mining_miner_detail(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(address_hex): axum::extract::Path<String>,
+) -> Result<Json<MinerDetailResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let clean = strip_0x(&address_hex);
+    let addr_bytes = hex::decode(clean).map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid hex address"})))
+    })?;
+    if addr_bytes.len() != 20 {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "address must be 20 bytes"}))));
+    }
+    let mut addr = pichain_crypto::ed25519::Address([0u8; 20]);
+    addr.0.copy_from_slice(&addr_bytes);
+
+    let provider = state.state_provider.as_ref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "state not available"})))
+    })?;
+
+    let (top_miners, total_digits) = provider.get_mining_leaderboard().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "mining data not available"})))
+    })?;
+
+    let miner_digits = top_miners.iter().find(|(a, _)| a == &addr).map(|(_, d)| *d).unwrap_or(0);
+    let rank = top_miners.iter().position(|(a, _)| a == &addr).map(|i| (i + 1) as u32).unwrap_or(0);
+    let pct = if total_digits > 0 { (miner_digits as f64 / total_digits as f64) * 100.0 } else { 0.0 };
+
+    let proofs = provider.get_miner_recent_proofs(&addr, 20);
+    let recent_proofs: Vec<RecentProof> = proofs.into_iter().map(|(start, count, height)| {
+        RecentProof { start, count, committed_at_height: height }
+    }).collect();
+
+    Ok(Json(MinerDetailResponse {
+        address: hex::encode(addr.0),
+        digits_computed: miner_digits,
+        percentage: (pct * 100.0).round() / 100.0,
+        rank,
+        recent_proofs,
+    }))
+}
+
 // --- Wallet activation (PoW challenge + verification) ---
 
 /// PoW difficulty: 20 leading zero bits (~1M hashes, ~1 second on modern CPU).
@@ -1822,17 +2069,43 @@ async fn get_activation_challenge(
         return fail(StatusCode::FORBIDDEN, "wallet activation cap reached (3,140,000)".to_string());
     }
 
-    // Generate unique 32-byte challenge from timestamp + counter + address
+    // SECURITY: Cap total pending challenges to prevent memory exhaustion.
+    // An attacker spamming challenge requests creates one DashMap entry each.
+    // With 10K cap × ~100 bytes/entry = ~1MB — bounded.
+    const MAX_PENDING_CHALLENGES: usize = 10_000;
+    if state.activation_challenges.len() >= MAX_PENDING_CHALLENGES {
+        return fail(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many pending challenges — try again later".to_string(),
+        );
+    }
+
+    // SECURITY: Only allow one pending challenge per address.
+    // Prevents an attacker from generating thousands of challenges for the same address.
+    let addr_has_pending = state.activation_challenges.iter().any(|e| e.value().address == address);
+    if addr_has_pending {
+        return fail(
+            StatusCode::TOO_MANY_REQUESTS,
+            "a challenge is already pending for this address".to_string(),
+        );
+    }
+
+    // Generate unique 32-byte challenge from timestamp + counter + address + random
     static CHALLENGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let cnt = CHALLENGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Include random bytes so the challenge isn't predictable from (ts, cnt, addr)
+    let mut random_salt = [0u8; 16];
+    use rand::RngCore;
+    rand::thread_rng().fill_bytes(&mut random_salt);
     let challenge = *pichain_crypto::hash_concat(&[
         &ts.to_le_bytes(),
         &cnt.to_le_bytes(),
         &addr_bytes,
+        &random_salt,
     ]).as_bytes();
 
     let now_secs = std::time::SystemTime::now()
@@ -2075,7 +2348,9 @@ struct BlockRangeQuery {
 fn default_limit() -> u64 { 20 }
 
 /// Maximum blocks returned in a range query.
-const MAX_BLOCK_RANGE: u64 = 50;
+/// Max blocks per range query. Capped at 25 to limit DoS via expensive scans.
+/// Clients needing more should paginate.
+const MAX_BLOCK_RANGE: u64 = 25;
 
 /// Maximum transaction hashes included in a single block response.
 const MAX_TX_HASHES_PER_BLOCK: usize = 1000;
@@ -2406,6 +2681,16 @@ async fn serve_trade_page() -> impl IntoResponse {
     serve_html(include_str!("../../../explorer/trade.html"))
 }
 
+/// PiBot logo page — for BotFather profile picture.
+async fn serve_pibot_logo() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/pibot-logo.html"))
+}
+
+/// PiBot web terminal — browser-based trading dashboard.
+async fn serve_terminal_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/terminal.html"))
+}
+
 /// Bridge page removed — redirect to home.
 async fn redirect_bridge_to_home() -> impl IntoResponse {
     (StatusCode::MOVED_PERMANENTLY, [("location", "/")], "")
@@ -2575,6 +2860,22 @@ async fn bridge_mint_tokens(
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "amount must be > 0" })),
+        );
+    }
+
+    // SECURITY: Cap bridge mint amount to prevent unlimited token creation.
+    // 1 million PI per mint (1e15 base units) is the maximum single bridge deposit.
+    // Larger deposits must be split into multiple mints for safety.
+    const MAX_BRIDGE_MINT_AMOUNT: u64 = 1_000_000 * 1_000_000_000; // 1M PI in base units
+    if req.amount > MAX_BRIDGE_MINT_AMOUNT {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!(
+                    "bridge mint amount {} exceeds maximum {} per mint",
+                    req.amount, MAX_BRIDGE_MINT_AMOUNT
+                )
+            })),
         );
     }
 
@@ -2831,6 +3132,8 @@ struct LaunchListItem {
     base_price: u64,
     slope: u64,
     price_scale: u64,
+    // Social
+    comment_count: u64,
 }
 
 async fn get_all_launches(
@@ -2880,6 +3183,7 @@ async fn get_all_launches(
                     base_price: bp,
                     slope: sl,
                     price_scale: ps,
+                    comment_count: provider.get_comment_count(&l.mint),
                 }
             }).collect();
             items.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
@@ -2904,10 +3208,18 @@ async fn get_launch_detail(
                     arr.copy_from_slice(&bytes);
                     let mint = pichain_types::MintId(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
-                    if let Ok(Some((launch, token))) = tokio::task::spawn_blocking(move || {
+                    let native_mint = pichain_types::MintId([0u8; 32]);
+                    if let Ok(Some((launch, token, pool_id, comment_count, dividend_pool))) = tokio::task::spawn_blocking(move || {
                         let launch = provider.get_launch_by_mint(&mint)?;
                         let token = provider.get_token_mint(&mint);
-                        Some((launch, token))
+                        let pool_id = if launch.state == pichain_types::launchpad::LaunchState::Finalized {
+                            provider.get_pool_by_mints(&native_mint, &mint)
+                                .or_else(|| provider.get_pool_by_mints(&mint, &native_mint))
+                                .map(|p| hex::encode(p.id.0))
+                        } else { None };
+                        let comment_count = provider.get_comment_count(&mint);
+                        let dividend_pool = provider.get_dividend_pool(&mint);
+                        Some((launch, token, pool_id, comment_count, dividend_pool))
                     }).await {
                             let (lt_name, bp, sl, ps) = match &launch.launch_type {
                                 pichain_types::launchpad::LaunchType::FairLaunch { price_per_token } =>
@@ -2946,6 +3258,10 @@ async fn get_launch_detail(
                                 "symbol": token.as_ref().map(|t| t.symbol.as_str()).unwrap_or(""),
                                 "metadata_uri": token.as_ref().map(|t| t.metadata_uri.as_str()).unwrap_or(""),
                                 "decimals": token.as_ref().map(|t| t.decimals).unwrap_or(9),
+                                "pool_id": pool_id.unwrap_or_default(),
+                                "comment_count": comment_count,
+                                "dividend_total_accumulated": dividend_pool.as_ref().map(|p| p.total_accumulated).unwrap_or(0),
+                                "dividend_total_claimed": dividend_pool.as_ref().map(|p| p.total_claimed).unwrap_or(0),
                             })));
                     }
                 }
@@ -2953,6 +3269,210 @@ async fn get_launch_detail(
         }
     }
     (StatusCode::NOT_FOUND, Json(serde_json::json!({ "found": false })))
+}
+
+/// Get comments for a token launch.
+async fn get_launch_comments(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let stripped = strip_0x(&mint_id_hex);
+        if stripped.len() == 64 {
+            if let Ok(bytes) = hex::decode(stripped) {
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    let mint = pichain_types::MintId(arr);
+                    let _permit = state.blocking_semaphore.acquire().await;
+                    if let Ok(comments) = tokio::task::spawn_blocking(move || {
+                        provider.get_comments(&mint, 100)
+                    }).await {
+                        let items: Vec<serde_json::Value> = comments.iter().map(|c| {
+                            serde_json::json!({
+                                "author": hex::encode(c.author.0),
+                                "text": c.text,
+                                "timestamp_ms": c.timestamp_ms,
+                            })
+                        }).collect();
+                        return (StatusCode::OK, Json(serde_json::json!({ "comments": items })));
+                    }
+                }
+            }
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "comments": [] })))
+}
+
+/// Post a comment on a token launch.
+async fn post_launch_comment(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let provider = match state.state_provider.clone() {
+        Some(p) => p,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "not available"}))),
+    };
+
+    let text = match body.get("text").and_then(|v| v.as_str()) {
+        Some(t) if !t.trim().is_empty() && t.len() <= 500 => t.trim().to_string(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "text required (max 500 chars)"}))),
+    };
+
+    let author_hex = match body.get("author").and_then(|v| v.as_str()) {
+        Some(a) if a.len() == 40 => a.to_string(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "author address required (40 hex chars)"}))),
+    };
+
+    let stripped = strip_0x(&mint_id_hex);
+    if stripped.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+    }
+
+    let mint_bytes = match hex::decode(stripped) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+    };
+    let author_bytes = match hex::decode(&author_hex) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid author hex"}))),
+    };
+
+    let mut mint_arr = [0u8; 32];
+    mint_arr.copy_from_slice(&mint_bytes);
+    let mut author_arr = [0u8; 20];
+    author_arr.copy_from_slice(&author_bytes);
+
+    let comment = pichain_storage::Comment {
+        author: pichain_crypto::ed25519::Address(author_arr),
+        text,
+        timestamp_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+        mint_id: pichain_types::MintId(mint_arr),
+    };
+
+    let _permit = state.blocking_semaphore.acquire().await;
+    match tokio::task::spawn_blocking(move || provider.post_comment(comment)).await {
+        Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+/// Get recent launch activity (buys/sells across all launches) for the activity feed.
+async fn get_launch_activity(
+    State(state): State<Arc<RpcState>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(trades) = tokio::task::spawn_blocking(move || {
+            provider.get_recent_trades(20)
+        }).await {
+            let items: Vec<serde_json::Value> = trades.iter().map(|t| {
+                serde_json::json!({
+                    "pool_id": hex::encode(t.pool_id.0),
+                    "sender": hex::encode(t.sender.0),
+                    "mint_in": hex::encode(t.mint_in.0),
+                    "mint_out": hex::encode(t.mint_out.0),
+                    "amount_in": t.amount_in,
+                    "amount_out": t.amount_out,
+                    "fee": t.fee,
+                    "timestamp_ms": t.timestamp_ms,
+                    "block_height": t.block_height,
+                })
+            }).collect();
+            return (StatusCode::OK, Json(serde_json::json!({ "activity": items })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "activity": [] })))
+}
+
+
+async fn get_launch_dividends(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if mint_id_hex.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+    }
+    let mint_bytes = match hex::decode(&mint_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&mint_bytes);
+    let mint_id = pichain_types::MintId(arr);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let holder_hex = params.get("holder").cloned().unwrap_or_default();
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(result) = tokio::task::spawn_blocking(move || {
+            let pool = provider.get_dividend_pool(&mint_id);
+            let claimable = if holder_hex.len() == 40 {
+                if let Ok(hb) = hex::decode(&holder_hex) {
+                    let mut ha = [0u8; 20];
+                    ha.copy_from_slice(&hb);
+                    provider.get_claimable_dividends(&mint_id, &pichain_crypto::ed25519::Address(ha))
+                } else { 0 }
+            } else { 0 };
+            (pool, claimable)
+        }).await {
+            let (pool, claimable) = result;
+            return (StatusCode::OK, Json(serde_json::json!({
+                "total_accumulated": pool.as_ref().map(|p| p.total_accumulated).unwrap_or(0),
+                "total_claimed": pool.as_ref().map(|p| p.total_claimed).unwrap_or(0),
+                "reward_per_share": pool.as_ref().map(|p| p.reward_per_share_x1e12.to_string()).unwrap_or("0".to_string()),
+                "claimable": claimable,
+            })));
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({"total_accumulated": 0, "total_claimed": 0, "claimable": 0})))
+}
+
+async fn claim_launch_dividends(
+    State(state): State<Arc<RpcState>>,
+    axum::extract::Path(mint_id_hex): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if mint_id_hex.len() != 64 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id"})));
+    }
+    let mint_bytes = match hex::decode(&mint_id_hex) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid mint_id hex"}))),
+    };
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&mint_bytes);
+    let mint_id = pichain_types::MintId(arr);
+
+    let holder_hex = body.get("holder").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if holder_hex.len() != 40 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid holder address"})));
+    }
+    let holder_bytes = match hex::decode(&holder_hex) {
+        Ok(b) if b.len() == 20 => b,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid holder hex"}))),
+    };
+    let mut ha = [0u8; 20];
+    ha.copy_from_slice(&holder_bytes);
+    let holder = pichain_crypto::ed25519::Address(ha);
+
+    if let Some(provider) = state.state_provider.clone() {
+        let _permit = state.blocking_semaphore.acquire().await;
+        if let Ok(result) = tokio::task::spawn_blocking(move || {
+            provider.claim_dividends(&mint_id, &holder)
+        }).await {
+            match result {
+                Ok(amount) => return (StatusCode::OK, Json(serde_json::json!({"claimed": amount}))),
+                Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+            }
+        }
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "not available"})))
 }
 
 async fn get_all_tokens(
@@ -3389,21 +3909,85 @@ async fn serve_betting_page() -> impl IntoResponse {
     serve_html(include_str!("../../../explorer/betting.html"))
 }
 
+async fn serve_crypto_bros_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/crypto-bros.html"))
+}
+
+async fn serve_music_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/music.html"))
+}
+
+async fn serve_music_apk() -> impl IntoResponse {
+    let apk_bytes: &[u8] = include_bytes!("../../../explorer/ai-music-studio.apk");
+    (
+        axum::http::StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/vnd.android.package-archive"),
+            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"AI-Music-Studio.apk\""),
+        ],
+        apk_bytes,
+    )
+}
+
+async fn serve_music_privacy() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/music-privacy.html"))
+}
+
+async fn serve_player_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/player.html"))
+}
+
+async fn serve_player_sw() -> impl IntoResponse {
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../../../explorer/player-sw.js"),
+    )
+}
+
+async fn serve_player_manifest() -> impl IntoResponse {
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/manifest+json")],
+        include_str!("../../../explorer/player-manifest.json"),
+    )
+}
+
+async fn serve_player_apk() -> impl IntoResponse {
+    let apk_bytes = include_bytes!("../../../explorer/pichain-player.apk");
+    (
+        axum::http::StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/vnd.android.package-archive"),
+            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"pichain-player.apk\""),
+        ],
+        apk_bytes.as_slice(),
+    )
+}
+
+async fn serve_dating_page() -> impl IntoResponse {
+    serve_html(include_str!("../../../explorer/dating.html"))
+}
+
 /// GET /api/v1/dex/pairs — All trading pairs with stats (price, volume, TVL, 24h change).
+/// Only shows graduated tokens (from launchpad). Free to use.
 async fn get_dex_pairs(
     State(state): State<Arc<RpcState>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(data) = tokio::task::spawn_blocking(move || {
+        if let Ok(pairs) = tokio::task::spawn_blocking(move || {
             let pools = provider.scan_all_pools();
             let mints = provider.scan_all_mints();
             let launches = provider.scan_all_launches();
-            (pools, mints, launches)
-        }).await {
-            let (pools, mints, launches) = data;
             let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
                 mints.iter().map(|m| (m.id.0, m)).collect();
+
+            // Graduated mints = have Finalized launch (all DEX pairs are graduated)
+            let finalized_mints: std::collections::HashSet<[u8; 32]> = launches.iter()
+                .filter(|l| l.state == pichain_types::launchpad::LaunchState::Finalized)
+                .map(|l| l.mint.0)
+                .collect();
 
             // Build set of ungraduated mints to filter out
             let ungraduated: std::collections::HashSet<[u8; 32]> = launches.iter()
@@ -3411,8 +3995,13 @@ async fn get_dex_pairs(
                 .map(|l| l.mint.0)
                 .collect();
 
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
+
             let pairs: Vec<serde_json::Value> = pools.iter().filter(|p| {
-                // Filter out pools involving ungraduated tokens
                 !ungraduated.contains(&p.mint_a.0) && !ungraduated.contains(&p.mint_b.0)
             }).map(|pool| {
                 let symbol_a = mint_map.get(&pool.mint_a.0)
@@ -3427,12 +4016,71 @@ async fn get_dex_pairs(
                 } else { 0.0 };
                 let tvl_a = pool.reserve_a as f64 / 10f64.powi(decimals_a as i32);
                 let tvl_b = pool.reserve_b as f64 / 10f64.powi(decimals_b as i32);
+
+                // Token mint (non-PI) for graduated badge and launch link
+                let token_mint = if pool.mint_a.0 == [0u8; 32] { pool.mint_b.0 } else { pool.mint_a.0 };
+                let graduated_from_launch = finalized_mints.contains(&token_mint);
+                let token_mint_info = mint_map.get(&token_mint);
+                let name = token_mint_info.map(|m| m.name.as_str()).unwrap_or("");
+                let metadata_uri = token_mint_info.map(|m| m.metadata_uri.as_str()).unwrap_or("");
+                let total_supply = token_mint_info.map(|m| m.total_supply).unwrap_or(0);
+                let market_cap = if price > 0.0 && total_supply > 0 {
+                    let supply_f = total_supply as f64 / 10f64.powi(decimals_b as i32);
+                    price * supply_f
+                } else { 0.0 };
+
+                // 24h stats from trades
+                let mut volume_24h = 0.0f64;
+                let mut volume_buy_24h = 0.0f64;
+                let mut volume_sell_24h = 0.0f64;
+                let mut price_change_24h_pct: Option<f64> = None;
+                let trades = provider.get_pool_trades_in_range(&pool.id, from_24h_ms, now_ms);
+                let tx_count_24h = trades.len() as u64;
+                if !trades.is_empty() {
+                    let dec_a = decimals_a as i32;
+                    let dec_b = decimals_b as i32;
+                    for t in &trades {
+                        // Volume in PI terms; buy = mint_in==PI, sell = mint_out==PI
+                        if t.mint_in.0 == pool.mint_a.0 {
+                            let v = t.amount_in as f64 / 10f64.powi(dec_a);
+                            volume_24h += v;
+                            volume_buy_24h += v;
+                        } else {
+                            let v = t.amount_out as f64 / 10f64.powi(dec_a);
+                            volume_24h += v;
+                            volume_sell_24h += v;
+                        }
+                    }
+                    // Price from first and last trade (tokens per PI; mint_a=PI, mint_b=token)
+                    let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
+                        if t.mint_in.0 == pool.mint_a.0 {
+                            let denom = t.amount_in as f64 / 10f64.powi(dec_a);
+                            if denom <= 0.0 { return None; }
+                            Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
+                        } else {
+                            let denom = t.amount_out as f64 / 10f64.powi(dec_a);
+                            if denom <= 0.0 { return None; }
+                            Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
+                        }
+                    };
+                    if let (Some(first), Some(last)) = (
+                        trades.first().and_then(price_from_trade),
+                        trades.last().and_then(price_from_trade),
+                    ) {
+                        if first > 0.0 {
+                            price_change_24h_pct = Some((last - first) / first * 100.0);
+                        }
+                    }
+                }
+
                 serde_json::json!({
                     "pool_id": hex::encode(pool.id.0),
                     "mint_a": hex::encode(pool.mint_a.0),
                     "mint_b": hex::encode(pool.mint_b.0),
                     "symbol_a": symbol_a,
                     "symbol_b": symbol_b,
+                    "name": name,
+                    "metadata_uri": metadata_uri,
                     "decimals_a": decimals_a,
                     "decimals_b": decimals_b,
                     "reserve_a": pool.reserve_a,
@@ -3440,14 +4088,25 @@ async fn get_dex_pairs(
                     "price": price,
                     "tvl_a": tvl_a,
                     "tvl_b": tvl_b,
+                    "market_cap": market_cap,
+                    "volume_24h": volume_24h,
+                    "volume_buy_24h": volume_buy_24h,
+                    "volume_sell_24h": volume_sell_24h,
+                    "tx_count_24h": tx_count_24h,
+                    "price_change_24h_pct": price_change_24h_pct,
                     "cumulative_volume_a": pool.cumulative_volume_a.to_string(),
                     "cumulative_volume_b": pool.cumulative_volume_b.to_string(),
                     "fee_bps": pool.fee_bps,
                     "lp_supply": pool.lp_supply,
                     "active": pool.active,
                     "created_at_ms": pool.created_at_ms,
+                    "graduated_from_launch": graduated_from_launch,
+                    "graduated_at_ms": if graduated_from_launch { pool.created_at_ms } else { 0u64 },
+                    "launch_mint": if graduated_from_launch { hex::encode(token_mint) } else { String::new() },
                 })
             }).collect();
+            pairs
+        }).await {
             return (StatusCode::OK, Json(serde_json::json!({ "pairs": pairs })));
         }
     }
@@ -3634,9 +4293,63 @@ async fn get_pair_info(
             let pool = pools.into_iter().find(|p| p.id == pool_id);
             let mints = provider.scan_all_mints();
             let lp_balances = provider.scan_all_lp_balances();
-            (pool, mints, lp_balances)
+            let launches = provider.scan_all_launches();
+            let (volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct) = if let Some(ref p) = pool {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
+                let trades = provider.get_pool_trades_in_range(&p.id, from_24h_ms, now_ms);
+                let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
+                    mints.iter().map(|m| (m.id.0, m)).collect();
+                let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
+                let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
+                let mut vol = 0.0f64;
+                let mut vol_buy = 0.0f64;
+                let mut vol_sell = 0.0f64;
+                let mut pct: Option<f64> = None;
+                if !trades.is_empty() {
+                    let dec_a = decimals_a as i32;
+                    let dec_b = decimals_b as i32;
+                    for t in &trades {
+                        if t.mint_in.0 == p.mint_a.0 {
+                            let v = t.amount_in as f64 / 10f64.powi(dec_a);
+                            vol += v;
+                            vol_buy += v;
+                        } else {
+                            let v = t.amount_out as f64 / 10f64.powi(dec_a);
+                            vol += v;
+                            vol_sell += v;
+                        }
+                    }
+                    let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
+                        if t.mint_in.0 == p.mint_a.0 {
+                            let denom = t.amount_in as f64 / 10f64.powi(dec_a);
+                            if denom <= 0.0 { return None; }
+                            Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
+                        } else {
+                            let denom = t.amount_out as f64 / 10f64.powi(dec_a);
+                            if denom <= 0.0 { return None; }
+                            Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
+                        }
+                    };
+                    if let (Some(pf), Some(pl)) = (
+                        trades.first().and_then(price_from_trade),
+                        trades.last().and_then(price_from_trade),
+                    ) {
+                        if pf > 0.0 {
+                            pct = Some((pl - pf) / pf * 100.0);
+                        }
+                    }
+                }
+                (vol, vol_buy, vol_sell, trades.len() as u64, pct)
+            } else {
+                (0.0f64, 0.0f64, 0.0f64, 0u64, None)
+            };
+            (pool, mints, lp_balances, launches, volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct)
         }).await {
-            let (pool, mints, lp_balances) = data;
+            let (pool, mints, lp_balances, launches, volume_24h, volume_buy_24h, volume_sell_24h, tx_count_24h, price_change_24h_pct) = data;
             if let Some(p) = pool {
                 let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
                     mints.iter().map(|m| (m.id.0, m)).collect();
@@ -3644,6 +4357,24 @@ async fn get_pair_info(
                     .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
                 let symbol_b = mint_map.get(&p.mint_b.0)
                     .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_b.0 == [0u8; 32] { "PI" } else { "???" });
+                let decimals_a = mint_map.get(&p.mint_a.0).map(|m| m.decimals).unwrap_or(9);
+                let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
+                let price = if p.reserve_a > 0 {
+                    (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
+                    (p.reserve_a as f64 / 10f64.powi(decimals_a as i32))
+                } else { 0.0 };
+
+                let token_mint = if p.mint_a.0 == [0u8; 32] { p.mint_b.0 } else { p.mint_a.0 };
+                let graduated_from_launch = launches.iter()
+                    .any(|l| l.mint.0 == token_mint && l.state == pichain_types::launchpad::LaunchState::Finalized);
+                let token_info = mint_map.get(&token_mint);
+                let name = token_info.map(|m| m.name.as_str()).unwrap_or("");
+                let metadata_uri = token_info.map(|m| m.metadata_uri.as_str()).unwrap_or("");
+                let total_supply = token_info.map(|m| m.total_supply).unwrap_or(0);
+                let market_cap = if price > 0.0 && total_supply > 0 {
+                    let supply_f = total_supply as f64 / 10f64.powi(decimals_b as i32);
+                    price * supply_f
+                } else { 0.0 };
 
                 // LP holders for this pool
                 let lp_holders: Vec<serde_json::Value> = lp_balances.iter()
@@ -3662,8 +4393,17 @@ async fn get_pair_info(
                     "mint_b": hex::encode(p.mint_b.0),
                     "symbol_a": symbol_a,
                     "symbol_b": symbol_b,
+                    "name": name,
+                    "metadata_uri": metadata_uri,
                     "reserve_a": p.reserve_a,
                     "reserve_b": p.reserve_b,
+                    "price": price,
+                    "market_cap": market_cap,
+                    "volume_24h": volume_24h,
+                    "volume_buy_24h": volume_buy_24h,
+                    "volume_sell_24h": volume_sell_24h,
+                    "tx_count_24h": tx_count_24h,
+                    "price_change_24h_pct": price_change_24h_pct,
                     "fee_bps": p.fee_bps,
                     "lp_supply": p.lp_supply,
                     "active": p.active,
@@ -3672,6 +4412,8 @@ async fn get_pair_info(
                     "cumulative_volume_b": p.cumulative_volume_b.to_string(),
                     "creator": hex::encode(p.creator.0),
                     "lp_holders": lp_holders,
+                    "graduated_from_launch": graduated_from_launch,
+                    "launch_mint": if graduated_from_launch { hex::encode(token_mint) } else { String::new() },
                 })));
             }
         }
@@ -3711,23 +4453,32 @@ async fn get_dex_recent_trades(
     (StatusCode::OK, Json(serde_json::json!({ "trades": [] })))
 }
 
-/// GET /api/v1/dex/top-movers — Top pairs by price change / volume.
+/// GET /api/v1/dex/top-movers — Top graduated pairs by 24h price change / volume.
 async fn get_top_movers(
     State(state): State<Arc<RpcState>>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
-        if let Ok(data) = tokio::task::spawn_blocking(move || {
+        if let Ok(movers) = tokio::task::spawn_blocking(move || {
             let pools = provider.scan_all_pools();
             let mints = provider.scan_all_mints();
-            (pools, mints)
-        }).await {
-            let (pools, mints) = data;
+            let launches = provider.scan_all_launches();
+            let ungraduated: std::collections::HashSet<[u8; 32]> = launches.iter()
+                .filter(|l| l.state != pichain_types::launchpad::LaunchState::Finalized)
+                .map(|l| l.mint.0)
+                .collect();
             let mint_map: std::collections::HashMap<[u8; 32], &pichain_types::TokenMint> =
                 mints.iter().map(|m| (m.id.0, m)).collect();
 
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let from_24h_ms = now_ms.saturating_sub(24 * 60 * 60 * 1000);
+
             let mut movers: Vec<serde_json::Value> = pools.iter()
                 .filter(|p| p.reserve_a > 0 && p.reserve_b > 0 && p.active)
+                .filter(|p| !ungraduated.contains(&p.mint_a.0) && !ungraduated.contains(&p.mint_b.0))
                 .map(|p| {
                     let symbol_a = mint_map.get(&p.mint_a.0)
                         .map(|m| m.symbol.as_str()).unwrap_or(if p.mint_a.0 == [0u8; 32] { "PI" } else { "???" });
@@ -3737,24 +4488,64 @@ async fn get_top_movers(
                     let decimals_b = mint_map.get(&p.mint_b.0).map(|m| m.decimals).unwrap_or(9);
                     let price = (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)) /
                         (p.reserve_a as f64 / 10f64.powi(decimals_a as i32));
-                    let vol = p.cumulative_volume_a as f64 / 10f64.powi(decimals_a as i32);
+                    let tvl = (p.reserve_a as f64 / 10f64.powi(decimals_a as i32)) +
+                        (p.reserve_b as f64 / 10f64.powi(decimals_b as i32));
+
+                    let trades = provider.get_pool_trades_in_range(&p.id, from_24h_ms, now_ms);
+                    let mut volume_24h = 0.0f64;
+                    let mut price_change_24h_pct: Option<f64> = None;
+                    if !trades.is_empty() {
+                        let dec_a = decimals_a as i32;
+                        let dec_b = decimals_b as i32;
+                        for t in &trades {
+                            if t.mint_in.0 == p.mint_a.0 {
+                                volume_24h += t.amount_in as f64 / 10f64.powi(dec_a);
+                            } else {
+                                volume_24h += t.amount_out as f64 / 10f64.powi(dec_a);
+                            }
+                        }
+                        let price_from_trade = |t: &pichain_storage::TradeRecord| -> Option<f64> {
+                            if t.mint_in.0 == p.mint_a.0 {
+                                let denom = t.amount_in as f64 / 10f64.powi(dec_a);
+                                if denom <= 0.0 { return None; }
+                                Some((t.amount_out as f64 / 10f64.powi(dec_b)) / denom)
+                            } else {
+                                let denom = t.amount_out as f64 / 10f64.powi(dec_a);
+                                if denom <= 0.0 { return None; }
+                                Some((t.amount_in as f64 / 10f64.powi(dec_b)) / denom)
+                            }
+                        };
+                        if let (Some(pf), Some(pl)) = (
+                            trades.first().and_then(price_from_trade),
+                            trades.last().and_then(price_from_trade),
+                        ) {
+                            if pf > 0.0 {
+                                price_change_24h_pct = Some((pl - pf) / pf * 100.0);
+                            }
+                        }
+                    }
+
                     serde_json::json!({
                         "pool_id": hex::encode(p.id.0),
                         "pair": format!("{}/{}", symbol_a, symbol_b),
                         "symbol_a": symbol_a,
                         "symbol_b": symbol_b,
                         "price": price,
-                        "volume": vol,
-                        "tvl": (p.reserve_a as f64 / 10f64.powi(decimals_a as i32)) +
-                               (p.reserve_b as f64 / 10f64.powi(decimals_b as i32)),
+                        "volume": volume_24h,
+                        "volume_24h": volume_24h,
+                        "price_change_24h_pct": price_change_24h_pct,
+                        "tvl": tvl,
+                        "graduated_from_launch": true,
                     })
                 }).collect();
             movers.sort_by(|a, b| {
-                b["volume"].as_f64().unwrap_or(0.0)
-                    .partial_cmp(&a["volume"].as_f64().unwrap_or(0.0))
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                let va = a["volume_24h"].as_f64().unwrap_or(0.0);
+                let vb = b["volume_24h"].as_f64().unwrap_or(0.0);
+                vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
             });
             movers.truncate(20);
+            movers
+        }).await {
             return (StatusCode::OK, Json(serde_json::json!({ "movers": movers })));
         }
     }
@@ -4089,19 +4880,54 @@ async fn start_quake_session(
     if match_id.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid match_id"})));
     }
-    let max_players = req.max_players.unwrap_or(10).clamp(2, 10);
+    let max_players = req.max_players.unwrap_or(10).clamp(2, 32);
 
     let mut sessions = match quake_sessions().lock() {
         Ok(g) => g,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
     };
 
-    if let Some(existing) = sessions.get(&match_id).cloned() {
-        let alive = existing.pid.map(quake_pid_is_alive).unwrap_or(false);
-        if alive {
-            return (StatusCode::OK, Json(serde_json::json!({ "session": existing })));
+    // Sweep dead sessions and kill their zombie processes
+    let dead_keys: Vec<String> = sessions.iter()
+        .filter(|(_, s)| !s.pid.map(quake_pid_is_alive).unwrap_or(false))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for k in dead_keys {
+        sessions.remove(&k);
+    }
+
+    // Check for existing alive session — register player and return it
+    {
+        let is_alive = sessions.get(&match_id)
+            .map(|s| s.pid.map(quake_pid_is_alive).unwrap_or(false))
+            .unwrap_or(false);
+        if is_alive {
+            if let Some(existing) = sessions.get_mut(&match_id) {
+                if let (Some(name), Some(addr)) = (&req.player_name, &req.player_addr) {
+                    if !name.is_empty() && !addr.is_empty() {
+                        existing.players.insert(name.clone(), addr.clone());
+                        // Also register wallet-derived Q3 name (Q3 may use cached name instead of custom name)
+                        // shortAddr format: Pi314 + first6hex + last4hex
+                        if addr.len() >= 10 {
+                            let wallet_q3 = format!("Pi314{}{}", &addr[..6], &addr[addr.len()-4..]);
+                            existing.players.insert(wallet_q3, addr.clone());
+                        }
+                        // Track registration order (unique addrs only)
+                        if !existing.registration_order.contains(&addr) {
+                            existing.registration_order.push(addr.clone());
+                        }
+                    }
+                }
+                let session_clone = existing.clone();
+                return (StatusCode::OK, Json(serde_json::json!({ "session": session_clone })));
+            }
         }
-        sessions.remove(&match_id);
+    }
+    // Remove dead session if present
+    if let Some(dead) = sessions.remove(&match_id) {
+        if let Some(pid) = dead.pid {
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+        }
     }
 
     let quake_root = std::path::PathBuf::from("/home/dave/Crypto/pichain/explorer/games/quakejs");
@@ -4129,19 +4955,23 @@ async fn start_quake_session(
          seta sv_maxclients {}\n\
          seta g_motd \"PIChain QuakeJS Beta\"\n\
          seta g_gametype 0\n\
-         seta timelimit 12\n\
-         seta fraglimit 20\n\
-         seta g_inactivity 180\n\
-         seta g_forcerespawn 1\n\
+         seta timelimit {}\n\
+         seta fraglimit 0\n\
+         seta g_inactivity 0\n\
+         seta g_forcerespawn 5\n\
+         seta bot_enable 1\n\
+         seta bot_minplayers 0\n\
+         seta bot_nochat 1\n\
          map q3dm7\n",
-        match_id, max_players
+        match_id, max_players, if max_players > 10 { 10 } else { 5 }
     );
     if let Err(e) = std::fs::write(&server_cfg_path, server_cfg) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("write server.cfg failed: {}", e)})));
     }
 
     let log_path = work_dir.join("dedicated.log");
-    let log_file = match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+    // Truncate old log so stale game-end markers don't trigger false positives
+    let log_file = match std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path) {
         Ok(f) => f,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("open log failed: {}", e)}))),
     };
@@ -4159,17 +4989,37 @@ async fn start_quake_session(
         .arg("+set").arg("sv_maxclients").arg(max_players.to_string())
         .arg("+exec").arg(server_cfg_path.file_name().unwrap_or_default().to_string_lossy().to_string())
         .current_dir(quake_root)
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err));
 
     let (pid, status, error) = match cmd.spawn() {
-        Ok(child) => {
-            (Some(child.id()), "starting".to_string(), None)
+        Ok(mut child) => {
+            let pid = child.id();
+            // Store stdin handle for sending console commands (clientkick)
+            if let Some(stdin) = child.stdin.take() {
+                if let Ok(mut handles) = quake_stdin_handles().lock() {
+                    handles.insert(match_id.clone(), stdin);
+                }
+            }
+            (Some(pid), "starting".to_string(), None)
         }
         Err(e) => (None, "failed".to_string(), Some(e.to_string())),
     };
 
+    let mut players_map = HashMap::new();
+    let mut reg_order = Vec::new();
+    if let (Some(name), Some(addr)) = (&req.player_name, &req.player_addr) {
+        if !name.is_empty() && !addr.is_empty() {
+            players_map.insert(name.clone(), addr.clone());
+            // Also register wallet-derived Q3 name (Q3 may use cached name instead of custom name)
+            if addr.len() >= 10 {
+                let wallet_q3 = format!("Pi314{}{}", &addr[..6], &addr[addr.len()-4..]);
+                players_map.insert(wallet_q3, addr.clone());
+            }
+            reg_order.push(addr.clone());
+        }
+    }
     let session = QuakeSessionInfo {
         match_id: match_id.clone(),
         server_host: host,
@@ -4180,8 +5030,71 @@ async fn start_quake_session(
         status,
         pid,
         error,
+        players: players_map,
+        registration_order: reg_order,
     };
     sessions.insert(match_id.clone(), session.clone());
+
+    // Background task: monitor Q3 log and auto-force spectators
+    {
+        let key = sanitize_quake_match_id(&match_id);
+        let log_path = work_dir.join("dedicated.log");
+        tokio::spawn(async move {
+            // Wait for Q3 to fully start
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let mut last_size = 0usize;
+            let mut forced_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut disconnected_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            // Poll log every 2 seconds for up to 15 minutes
+            for _ in 0..450 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let Ok(content) = std::fs::read_to_string(&log_path) else { continue };
+                if content.len() <= last_size { continue }
+                let new_content = &content[last_size..];
+                last_size = content.len();
+
+                // Track slot names and teams from new content
+                let mut slots_to_force: Vec<String> = Vec::new();
+                for line in new_content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("ClientUserinfoChanged:") {
+                        let rest = trimmed["ClientUserinfoChanged:".len()..].trim_start();
+                        if let Some(sp) = rest.find(' ') {
+                            let slot = rest[..sp].to_string();
+                            let info = rest[sp..].to_lowercase();
+                            // Force slots with name "spectator" (client-side forces this name)
+                            if info.contains("n\\spectator\\") {
+                                let already_spec = info.contains("t\\3\\") || info.contains("t\\3\n") || info.ends_with("t\\3");
+                                if !already_spec && !disconnected_slots.contains(&slot) && !forced_slots.contains(&slot) {
+                                    slots_to_force.push(slot.clone());
+                                    forced_slots.insert(slot);
+                                }
+                            }
+                        }
+                    }
+                    if trimmed.starts_with("ClientDisconnect:") {
+                        let rest = trimmed["ClientDisconnect:".len()..].trim();
+                        disconnected_slots.insert(rest.to_string());
+                        forced_slots.remove(rest);
+                    }
+                }
+                // Force spectator slots
+                if !slots_to_force.is_empty() {
+                    if let Ok(mut handles) = quake_stdin_handles().lock() {
+                        if let Some(stdin) = handles.get_mut(&key) {
+                            use std::io::Write;
+                            for slot in &slots_to_force {
+                                let cmd = format!("forceteam {} spectator\n", slot);
+                                let _ = stdin.write_all(cmd.as_bytes());
+                                let _ = stdin.flush();
+                                tracing::info!("[Quake BG] Forced slot {} to spectator", slot);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     (StatusCode::OK, Json(serde_json::json!({ "session": session })))
 }
@@ -4201,7 +5114,419 @@ async fn get_quake_session(
             if !alive && s.error.is_none() {
                 s.error = Some("dedicated server process exited".to_string());
             }
-            (StatusCode::OK, Json(serde_json::json!({ "session": s })))
+            // Check dedicated server log for game-ending events
+            let log_path = std::path::PathBuf::from("/tmp/pichain-quakejs")
+                .join(&key)
+                .join("dedicated.log");
+            let mut game_ended = false;
+            let mut game_end_reason = String::new();
+            let mut winner_name = String::new();
+            // SLOT-BASED TRACKING: Use Q3 client slot IDs (not names) as unique identifiers.
+            // Names can be duplicated (IndexedDB caches stale names), but slots are always unique.
+            let mut all_players: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut eliminated: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut disconnected: std::collections::HashSet<String> = std::collections::HashSet::new();
+            // Slot-based sets for correct player counting (names may be duplicated)
+            let mut all_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut eliminated_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut disconnected_slots: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut client_begin_order: Vec<String> = Vec::new();
+            let mut slot_begin_order: Vec<String> = Vec::new(); // order of slots entering game
+            let mut slot_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut kills_per_slot: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+            if let Ok(log_content) = std::fs::read_to_string(&log_path) {
+
+                for line in log_content.lines() {
+                    let trimmed = line.trim();
+
+                    // "ClientUserinfoChanged: N n\PlayerName\t\0\..."
+                    if trimmed.starts_with("ClientUserinfoChanged:") {
+                        let rest = &trimmed["ClientUserinfoChanged:".len()..].trim_start();
+                        if let Some(sp) = rest.find(' ') {
+                            let slot = rest[..sp].to_string();
+                            let info = &rest[sp + 1..];
+                            if info.starts_with("n\\") {
+                                let name_part = &info[2..];
+                                let name = if let Some(end) = name_part.find('\\') {
+                                    name_part[..end].to_string()
+                                } else {
+                                    name_part.to_string()
+                                };
+                                if !name.is_empty() {
+                                    slot_names.insert(slot.clone(), name);
+                                }
+                            }
+                            // Track if player is on spectator team (t\3)
+                            if info.contains("\\t\\3\\") || info.ends_with("\\t\\3") {
+                                // Mark this slot as spectator
+                                slot_names.insert(slot, "Spectator".to_string());
+                            }
+                        }
+                    }
+
+                    // "ClientBegin: N" — player has fully entered the game
+                    if trimmed.starts_with("ClientBegin:") {
+                        let slot = trimmed["ClientBegin:".len()..].trim().to_string();
+                        // Skip spectators — they don't count as players
+                        let is_spectator = slot_names.get(&slot).map(|n| {
+                            let lower = n.to_lowercase();
+                            lower == "spectator" || lower.starts_with("spectator") || lower.contains("spectator")
+                        }).unwrap_or(false);
+                        if is_spectator {
+                            // Don't add to all_slots — spectators are invisible to elimination logic
+                            // Note: the background watcher task handles forceteam commands
+                            continue;
+                        }
+                        all_slots.insert(slot.clone());
+                        if !slot_begin_order.contains(&slot) {
+                            slot_begin_order.push(slot.clone());
+                        }
+                        if let Some(name) = slot_names.get(&slot) {
+                            all_players.insert(name.clone());
+                            if !client_begin_order.contains(name) {
+                                client_begin_order.push(name.clone());
+                            }
+                        }
+                    }
+
+                    // "ClientDisconnect: N" — player left
+                    if trimmed.starts_with("ClientDisconnect:") {
+                        let slot = trimmed["ClientDisconnect:".len()..].trim().to_string();
+                        if !eliminated_slots.contains(&slot) {
+                            disconnected_slots.insert(slot.clone());
+                            if let Some(name) = slot_names.get(&slot) {
+                                disconnected.insert(name.clone());
+                            }
+                        }
+                    }
+
+                    // "Kill: X Y Z: KillerName killed VictimName by MOD_XXX"
+                    // X = killer slot, Y = victim slot, Z = means of death
+                    if trimmed.starts_with("Kill:") {
+                        let nums_and_rest = &trimmed[5..].trim_start();
+                        // Parse slot numbers from "X Y Z: ..."
+                        let parts: Vec<&str> = nums_and_rest.splitn(2, ':').collect();
+                        let slot_nums: Vec<&str> = if parts.len() >= 1 {
+                            parts[0].trim().split_whitespace().collect()
+                        } else { vec![] };
+                        let killer_slot = if slot_nums.len() >= 1 { slot_nums[0].to_string() } else { String::new() };
+                        let victim_slot = if slot_nums.len() >= 2 { slot_nums[1].to_string() } else { String::new() };
+
+                        // Also parse names for the name-based sets (used for addr mapping)
+                        if let Some(colon2) = trimmed[5..].find(':') {
+                            let after = trimmed[5 + colon2 + 1..].trim();
+                            if let Some(k_pos) = after.find(" killed ") {
+                                let killer = after[..k_pos].trim().to_string();
+                                let rest_kill = &after[k_pos + 8..];
+                                let victim = if let Some(by_pos) = rest_kill.find(" by ") {
+                                    rest_kill[..by_pos].trim().to_string()
+                                } else {
+                                    rest_kill.trim().to_string()
+                                };
+                                // Skip spectator kills entirely
+                                let victim_is_spectator = victim.to_lowercase().contains("spectator");
+                                let killer_is_spectator = killer.to_lowercase().contains("spectator");
+                                if victim_is_spectator { continue; }
+
+                                if killer != "<world>" && !killer_is_spectator {
+                                    all_players.insert(killer.clone());
+                                    if !killer_slot.is_empty() {
+                                        *kills_per_slot.entry(killer_slot.clone()).or_insert(0) += 1;
+                                    }
+                                }
+                                all_players.insert(victim.clone());
+
+                                // Use SLOT-BASED elimination tracking
+                                let is_world = killer == "<world>";
+                                let is_self = killer_slot == victim_slot;
+                                if is_world || is_self || !eliminated_slots.contains(&killer_slot) {
+                                    eliminated_slots.insert(victim_slot.clone());
+                                    eliminated.insert(victim.clone());
+                                }
+                                disconnected_slots.remove(&victim_slot);
+                                disconnected.remove(&victim);
+                            }
+                        }
+                    }
+                }
+
+                // Force eliminated players into spectator mode via dedicated server console.
+                // Uses "forceteam <slot> spectator" — the Q3 server moves them to spectator team,
+                // giving them a follow-cam view of remaining players (click to cycle).
+                if !eliminated_slots.is_empty() {
+                    let mut kicked_set = quake_kicked().lock().unwrap_or_else(|e| e.into_inner());
+                    let kicked = kicked_set.entry(key.clone()).or_default();
+                    for victim_slot in &eliminated_slots {
+                        let victim_name = slot_names.get(victim_slot).cloned().unwrap_or_default();
+                        let kick_key = format!("slot_{}", victim_slot);
+                        if !kicked.contains(&kick_key) {
+                            kicked.insert(kick_key);
+                            info!("[Quake Elim] slot {} ({}) eliminated — forcing spectator via server console", victim_slot, victim_name);
+                            // Send forceteam command to Q3 dedicated server
+                            if let Ok(mut handles) = quake_stdin_handles().lock() {
+                                if let Some(stdin) = handles.get_mut(&key) {
+                                    use std::io::Write;
+                                    let cmd = format!("forceteam {} spectator\n", victim_slot);
+                                    let _ = stdin.write_all(cmd.as_bytes());
+                                    let _ = stdin.flush();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check elimination using SLOT-BASED counting (handles duplicate names correctly)
+                if all_slots.len() >= 2 {
+                    let survivor_slots: Vec<&String> = all_slots.iter()
+                        .filter(|s| !eliminated_slots.contains(*s) && !disconnected_slots.contains(*s))
+                        .collect();
+                    if survivor_slots.len() == 1 {
+                        game_ended = true;
+                        let any_killed = !eliminated_slots.is_empty();
+                        if any_killed {
+                            game_end_reason = "elimination".to_string();
+                        } else {
+                            game_end_reason = "opponent_disconnected".to_string();
+                        }
+                        // Get the winner's name from their slot
+                        winner_name = slot_names.get(survivor_slots[0])
+                            .cloned()
+                            .unwrap_or_default();
+                    } else if survivor_slots.is_empty() {
+                        // Everyone eliminated (simultaneous deaths / all died)
+                        // Winner = player with most kills (tiebreaker)
+                        game_ended = true;
+                        game_end_reason = "elimination".to_string();
+                        if let Some((best_slot, _)) = kills_per_slot.iter()
+                            .max_by_key(|(_, kills)| **kills)
+                        {
+                            winner_name = slot_names.get(best_slot)
+                                .cloned()
+                                .unwrap_or_default();
+                        }
+                    }
+                }
+
+                // Fallback: detect engine Exit (timelimit) — highest kill count wins
+                if !game_ended {
+                    let tail = if log_content.len() > 4096 {
+                        &log_content[log_content.len() - 4096..]
+                    } else {
+                        &log_content[..]
+                    };
+                    if tail.contains("Exit:") {
+                        game_ended = true;
+                        game_end_reason = "timelimit".to_string();
+                        // Winner = player with most kills (slot-based to handle duplicate names)
+                        if let Some((best_slot, _)) = kills_per_slot.iter()
+                            .max_by_key(|(_, kills)| **kills)
+                        {
+                            winner_name = slot_names.get(best_slot)
+                                .cloned()
+                                .unwrap_or_default();
+                        }
+                    }
+                }
+            }
+            // ── Q3-name-to-addr mapping ──
+            // Q3 caches player names from previous sessions, so in-game names
+            // often don't match what we registered. Correlate ClientBegin order
+            // with registration order (the order players called /session/start).
+            fn normalize_q3(name: &str) -> String {
+                let mut out = String::new();
+                let mut chars = name.chars();
+                while let Some(c) = chars.next() {
+                    if c == '^' { chars.next(); } else { out.push(c); }
+                }
+                out.trim().to_lowercase()
+            }
+
+            let mut q3_to_addr: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+            // Method 1: Direct lookup in registered players map (name match)
+            for q3_name in &all_players {
+                let norm = normalize_q3(q3_name);
+                if let Some((_, addr)) = s.players.iter().find(|(k, _)| normalize_q3(k) == norm) {
+                    q3_to_addr.insert(q3_name.clone(), addr.clone());
+                }
+            }
+
+            // Method 2: For 2-player matches ONLY, if exactly one Q3 name is mapped,
+            // assign the other registered address to the remaining unmapped Q3 name.
+            // Disabled for 3+ player matches — order correlation is unreliable when
+            // Q3 caches stale names from IndexedDB/IDBFS.
+            if s.registration_order.len() == 2 && q3_to_addr.len() == 1 {
+                let mapped_addrs: std::collections::HashSet<String> = q3_to_addr.values().cloned().collect();
+                if let Some(remaining_addr) = s.registration_order.iter()
+                    .find(|a| !mapped_addrs.contains(*a))
+                    .cloned()
+                {
+                    // Find the one unmapped Q3 name that participated in a kill or began
+                    for q3_name in &client_begin_order {
+                        if !q3_to_addr.contains_key(q3_name) {
+                            q3_to_addr.insert(q3_name.clone(), remaining_addr);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Slot-to-addr mapping: start with name-matched slots, then use process of elimination.
+            let mut slot_to_addr: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+            // Step 1: Map slots with unique names via direct name match (most reliable)
+            let mut used_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for (slot, name) in &slot_names {
+                if let Some(addr) = q3_to_addr.get(name) {
+                    // Only use if this name is unique among slots (no duplicate Q3 names)
+                    let name_count = slot_names.values().filter(|n| *n == name).count();
+                    if name_count == 1 {
+                        slot_to_addr.insert(slot.clone(), addr.clone());
+                        used_addrs.insert(addr.clone());
+                    }
+                }
+            }
+
+            // Step 2: For unmapped slots, assign remaining addresses via begin-order correlation
+            let remaining_addrs: Vec<String> = s.registration_order.iter()
+                .filter(|a| !used_addrs.contains(*a))
+                .cloned()
+                .collect();
+            let unmapped_slots: Vec<String> = slot_begin_order.iter()
+                .filter(|s| !slot_to_addr.contains_key(*s))
+                .cloned()
+                .collect();
+            for (i, slot) in unmapped_slots.iter().enumerate() {
+                if i < remaining_addrs.len() {
+                    slot_to_addr.insert(slot.clone(), remaining_addrs[i].clone());
+                }
+            }
+
+            // Also register newly discovered Q3 names in the session for future lookups
+            for (q3_name, addr) in &q3_to_addr {
+                if !s.players.contains_key(q3_name) {
+                    s.players.insert(q3_name.clone(), addr.clone());
+                }
+            }
+
+            // Resolve winner address via process of elimination:
+            // The winner's address = registered address that is NOT eliminated or disconnected.
+            let mut winner_addr = String::new();
+            if !winner_name.is_empty() {
+                // Collect all known eliminated+disconnected addresses
+                let mut loser_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for elim_slot in &eliminated_slots {
+                    if let Some(addr) = slot_to_addr.get(elim_slot) {
+                        loser_addrs.insert(addr.clone());
+                    }
+                }
+                for disc_slot in &disconnected_slots {
+                    if let Some(addr) = slot_to_addr.get(disc_slot) {
+                        loser_addrs.insert(addr.clone());
+                    }
+                }
+                // Winner = registered address not in loser set
+                if let Some(wa) = s.registration_order.iter()
+                    .find(|a| !loser_addrs.contains(*a))
+                {
+                    winner_addr = wa.clone();
+                }
+                // Fallback: slot-based or name-based lookup
+                if winner_addr.is_empty() {
+                    let winner_slot = slot_names.iter()
+                        .find(|(slot, name)| {
+                            *name == &winner_name
+                            && !eliminated_slots.contains(*slot)
+                            && !disconnected_slots.contains(*slot)
+                        })
+                        .map(|(slot, _)| slot.clone());
+                    if let Some(ref ws) = winner_slot {
+                        if let Some(addr) = slot_to_addr.get(ws) {
+                            winner_addr = addr.clone();
+                        }
+                    }
+                }
+                if winner_addr.is_empty() {
+                    winner_addr = q3_to_addr.get(&winner_name).cloned().unwrap_or_default();
+                }
+            }
+
+            // Build eliminated wallet addresses list — prefer slot-based mapping
+            let mut eliminated_addrs: Vec<String> = Vec::new();
+            for elim_slot in &eliminated_slots {
+                if let Some(addr) = slot_to_addr.get(elim_slot) {
+                    if !eliminated_addrs.contains(addr) {
+                        eliminated_addrs.push(addr.clone());
+                    }
+                } else if let Some(name) = slot_names.get(elim_slot) {
+                    if let Some(addr) = q3_to_addr.get(name) {
+                        if !eliminated_addrs.contains(addr) {
+                            eliminated_addrs.push(addr.clone());
+                        }
+                    }
+                }
+            }
+
+            // ── Process-of-elimination fix for all match sizes ──
+            // If winner_addr is known, all OTHER registered addresses are losers.
+            // If eliminated_addrs are known, the remaining address is the winner.
+            if game_ended {
+                let reg = &s.registration_order;
+                // If winner known, ensure all other addresses are in eliminated_addrs
+                if !winner_addr.is_empty() {
+                    for addr in reg {
+                        if *addr != winner_addr && !eliminated_addrs.contains(addr) {
+                            eliminated_addrs.push(addr.clone());
+                        }
+                    }
+                }
+                // If winner unknown but we know all losers, winner = remaining address
+                if winner_addr.is_empty() && !eliminated_addrs.is_empty() {
+                    if let Some(wa) = reg.iter().find(|a| !eliminated_addrs.contains(a)) {
+                        winner_addr = wa.clone();
+                    }
+                }
+            }
+
+            let eliminated_list: Vec<String> = eliminated.iter().cloned().collect();
+            let disconnected_list: Vec<String> = disconnected.iter().cloned().collect();
+            let all_players_list: Vec<String> = all_players.iter().cloned().collect();
+
+            // Build disconnected wallet addresses
+            let mut disconnected_addrs: Vec<String> = disconnected.iter()
+                .filter_map(|q3_name| q3_to_addr.get(q3_name).cloned())
+                .collect();
+
+            // For 2-player disconnect matches: process of elimination for disconnected_addrs
+            if s.registration_order.len() == 2 && game_ended && game_end_reason == "opponent_disconnected" {
+                if !winner_addr.is_empty() && disconnected_addrs.is_empty() {
+                    let reg = &s.registration_order;
+                    if let Some(da) = reg.iter().find(|a| a.as_str() != winner_addr).cloned() {
+                        disconnected_addrs.push(da);
+                    }
+                }
+            }
+
+            if !all_players.is_empty() || game_ended {
+                eprintln!("[Quake Status] match={} alive={} game_ended={} reason={} all_slots={:?} elim_slots={:?} disc_slots={:?} slot_names={:?} reg_order={:?} begin_order={:?} q3_to_addr={:?} all_q3={:?} eliminated={:?} eliminated_addrs={:?} disconnected={:?} disconnected_addrs={:?} winner_name={:?} winner_addr={:?}",
+                    key, alive, game_ended, game_end_reason, all_slots, eliminated_slots, disconnected_slots, slot_names, s.registration_order, client_begin_order, q3_to_addr, all_players_list, eliminated_list, eliminated_addrs, disconnected_list, disconnected_addrs, winner_name, winner_addr);
+            }
+            (StatusCode::OK, Json(serde_json::json!({
+                "session": s,
+                "game_ended": game_ended,
+                "game_end_reason": game_end_reason,
+                "winner_name": winner_name,
+                "winner_addr": winner_addr,
+                "eliminated": eliminated_list,
+                "eliminated_addrs": eliminated_addrs,
+                "disconnected": disconnected_list,
+                "disconnected_addrs": disconnected_addrs,
+                "all_players": all_players_list,
+                "all_slots": all_slots.len(),
+                "eliminated_slots": eliminated_slots.len(),
+                "alive_slots": all_slots.len().saturating_sub(eliminated_slots.len()).saturating_sub(disconnected_slots.len()),
+                "registration_order": s.registration_order
+            })))
         }
         None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
     }
@@ -4211,18 +5536,224 @@ async fn stop_quake_session(
     axum::extract::Path(match_id): axum::extract::Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let key = sanitize_quake_match_id(&match_id);
-    let mut sessions = match quake_sessions().lock() {
-        Ok(g) => g,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
-    };
-    let Some(session) = sessions.remove(&key) else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"})));
+    // Don't remove the session — keep it so other clients can still poll for game results.
+    // Dead sessions are swept on next session creation.
+    let pid = {
+        let sessions = match quake_sessions().lock() {
+            Ok(g) => g,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        };
+        match sessions.get(&key) {
+            Some(s) => s.pid,
+            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+        }
     };
 
-    if let Some(pid) = session.pid {
-        let _ = Command::new("kill").arg("-TERM").arg(pid.to_string()).status();
+    // Clean up stdin handle and kicked tracking
+    if let Ok(mut handles) = quake_stdin_handles().lock() {
+        handles.remove(&key);
+    }
+    if let Ok(mut kicked) = quake_kicked().lock() {
+        kicked.remove(&key);
+    }
+    if let Some(pid) = pid {
+        // Use SIGKILL — ioq3ded (Node.js) doesn't reliably handle SIGTERM
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
     }
     (StatusCode::OK, Json(serde_json::json!({ "stopped": true, "match_id": key })))
+}
+
+/// Send an arbitrary console command to a running Q3 dedicated server via its stdin pipe.
+/// POST /api/v1/fps/quake/session/:match_id/command
+/// Body: { "command": "addbot Sarge 3" }
+async fn quake_send_command(
+    axum::extract::Path(match_id): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = sanitize_quake_match_id(&match_id);
+    let cmd_str = match body.get("command").and_then(|v| v.as_str()) {
+        Some(c) => c.to_string(),
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"missing 'command' field"}))),
+    };
+    // Sanitize: no newlines in command (we append our own), max 256 chars
+    let cmd_clean: String = cmd_str.chars().filter(|c| *c != '\n' && *c != '\r').take(256).collect();
+    if cmd_clean.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"empty command"})));
+    }
+
+    // Verify session exists and is alive
+    {
+        let sessions = match quake_sessions().lock() {
+            Ok(g) => g,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        };
+        match sessions.get(&key) {
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
+            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
+            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+        }
+    }
+
+    // Write command to stdin
+    if let Ok(mut handles) = quake_stdin_handles().lock() {
+        if let Some(stdin) = handles.get_mut(&key) {
+            use std::io::Write;
+            let full_cmd = format!("{}\n", cmd_clean);
+            if let Err(e) = stdin.write_all(full_cmd.as_bytes()) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":format!("stdin write failed: {}", e)})));
+            }
+            let _ = stdin.flush();
+            info!("[Quake Cmd] match={} cmd={}", key, cmd_clean);
+            return (StatusCode::OK, Json(serde_json::json!({"sent": true, "command": cmd_clean})));
+        }
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})))
+}
+
+/// Q3 bot names that are available in the standard baseq3 pak files.
+// Only 6 bot profiles exist in pak0. Q3 allows duplicate addbot calls —
+// each gets a unique player slot, just with the same name/model.
+const Q3_BOT_NAMES: &[&str] = &[
+    "Sarge", "Visor", "Grunt", "Stripe", "Major", "Daemia",
+    "Sarge", "Visor", "Grunt", "Stripe", "Major", "Daemia",
+    "Sarge", "Visor", "Grunt", "Stripe",
+];
+
+/// Add AI bots to a running Q3 match.
+/// POST /api/v1/fps/quake/session/:match_id/bots
+/// Body: { "count": 3, "skill": 3, "names": ["Sarge", "Keel"] }
+///   - count: number of bots to add (1-8, default 1)
+///   - skill: bot difficulty 1-5 (default 3)
+///   - names: optional specific bot names (if fewer than count, rest are random)
+async fn quake_add_bots(
+    axum::extract::Path(match_id): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = sanitize_quake_match_id(&match_id);
+    let count = body.get("count").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 16) as usize;
+    let skill = body.get("skill").and_then(|v| v.as_u64()).unwrap_or(3).clamp(1, 5);
+    let requested_names: Vec<String> = body.get("names")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+
+    // Verify session exists and is alive
+    {
+        let sessions = match quake_sessions().lock() {
+            Ok(g) => g,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        };
+        match sessions.get(&key) {
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
+            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
+            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+        }
+    }
+
+    // Build bot name list: use requested names first, then fill with random picks
+    let mut bot_names = Vec::new();
+    for name in &requested_names {
+        if bot_names.len() >= count { break; }
+        // Validate against known names (case-insensitive match)
+        let matched = Q3_BOT_NAMES.iter().find(|n| n.eq_ignore_ascii_case(name));
+        bot_names.push(matched.map(|s| s.to_string()).unwrap_or_else(|| name.clone()));
+    }
+    // Fill remaining slots with random bot names (avoid duplicates)
+    let mut rng_idx = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as usize;
+    while bot_names.len() < count {
+        rng_idx = rng_idx.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let candidate = Q3_BOT_NAMES[rng_idx % Q3_BOT_NAMES.len()];
+        if !bot_names.iter().any(|n| n.eq_ignore_ascii_case(candidate)) {
+            bot_names.push(candidate.to_string());
+        }
+        // Safety: if we've tried too many times (all names used), allow duplicates
+        if bot_names.len() < count && rng_idx % 100 > 90 {
+            bot_names.push(Q3_BOT_NAMES[rng_idx % Q3_BOT_NAMES.len()].to_string());
+        }
+    }
+
+    // Send addbot commands via stdin
+    let mut added = Vec::new();
+    if let Ok(mut handles) = quake_stdin_handles().lock() {
+        if let Some(stdin) = handles.get_mut(&key) {
+            use std::io::Write;
+            for name in &bot_names {
+                let cmd = format!("addbot {} {}\n", name, skill);
+                if stdin.write_all(cmd.as_bytes()).is_ok() {
+                    added.push(name.clone());
+                    info!("[Quake Bot] match={} addbot {} skill={}", key, name, skill);
+                }
+            }
+            let _ = stdin.flush();
+        } else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})));
+        }
+    } else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin lock poisoned"})));
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "added": added,
+        "skill": skill,
+        "match_id": key,
+        "note": "Bot support requires ioq3ded.js compiled with botlib. If bots don't appear, the server binary may lack bot AI support."
+    })))
+}
+
+/// Remove bots from a running Q3 match.
+/// DELETE /api/v1/fps/quake/session/:match_id/bots
+/// Body: { "count": 1 } or { "all": true }
+async fn quake_remove_bots(
+    axum::extract::Path(match_id): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = sanitize_quake_match_id(&match_id);
+    let remove_all = body.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+    let count = if remove_all { 8 } else {
+        body.get("count").and_then(|v| v.as_u64()).unwrap_or(1).clamp(1, 8) as usize
+    };
+
+    // Verify session exists and is alive
+    {
+        let sessions = match quake_sessions().lock() {
+            Ok(g) => g,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"session lock poisoned"}))),
+        };
+        match sessions.get(&key) {
+            Some(s) if s.pid.map(quake_pid_is_alive).unwrap_or(false) => {},
+            Some(_) => return (StatusCode::GONE, Json(serde_json::json!({"error":"session not running"}))),
+            None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"session not found"}))),
+        }
+    }
+
+    // Send kick commands for bots. Q3's "kick allbots" removes all bots.
+    // Individual removal uses "kick <botname>".
+    if let Ok(mut handles) = quake_stdin_handles().lock() {
+        if let Some(stdin) = handles.get_mut(&key) {
+            use std::io::Write;
+            if remove_all {
+                let cmd = "kick allbots\n";
+                let _ = stdin.write_all(cmd.as_bytes());
+                info!("[Quake Bot] match={} kick allbots", key);
+            } else {
+                // Send multiple "kick" commands — without a name, Q3 kicks the last connected bot
+                for _ in 0..count {
+                    let _ = stdin.write_all(b"clientkick 31\n"); // slot 31 is typically last bot
+                }
+            }
+            let _ = stdin.flush();
+        } else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"stdin handle not found"})));
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "removed": if remove_all { "all".to_string() } else { format!("{}", count) },
+        "match_id": key
+    })))
 }
 
 async fn quake_ws_upgrade(
@@ -4254,17 +5785,39 @@ async fn relay_quake_ws(
     let (mut client_tx, mut client_rx) = client_socket.split();
     let (mut upstream_tx, mut upstream_rx) = upstream.split();
 
+    // Wrap client_tx in Arc<Mutex> so the keepalive task can also send pings
+    let client_tx = std::sync::Arc::new(tokio::sync::Mutex::new(client_tx));
+    let client_tx_ping = client_tx.clone();
+
+    // Keepalive: send ping to client every 30 seconds to prevent idle timeout
+    // Cloudflare kills idle WebSockets after ~100s, nginx after ~60s
+    let keepalive = async {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let mut tx = client_tx_ping.lock().await;
+            if tx.send(AxumWsMessage::Ping(vec![b'q', b'3'].into())).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    let client_tx_fwd = client_tx.clone();
+
     let to_upstream = async {
         while let Some(msg) = client_rx.next().await {
             let msg = match msg {
                 Ok(m) => m,
-                Err(_) => break,
+                Err(e) => {
+                    tracing::debug!("[Q3 Relay] client recv error: {}", e);
+                    break;
+                }
             };
             let mapped = match msg {
                 AxumWsMessage::Text(t) => TungsteniteMessage::Text(t.to_string()),
                 AxumWsMessage::Binary(b) => TungsteniteMessage::Binary(b.to_vec()),
                 AxumWsMessage::Ping(b) => TungsteniteMessage::Ping(b.to_vec()),
-                AxumWsMessage::Pong(b) => TungsteniteMessage::Pong(b.to_vec()),
+                AxumWsMessage::Pong(_) => continue, // Client responding to our keepalive ping
                 AxumWsMessage::Close(cf) => {
                     let close = cf.map(|c| tokio_tungstenite::tungstenite::protocol::CloseFrame {
                         code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(c.code),
@@ -4275,6 +5828,7 @@ async fn relay_quake_ws(
                 }
             };
             if upstream_tx.send(mapped).await.is_err() {
+                tracing::debug!("[Q3 Relay] upstream send error");
                 break;
             }
         }
@@ -4284,7 +5838,10 @@ async fn relay_quake_ws(
         while let Some(msg) = upstream_rx.next().await {
             let msg = match msg {
                 Ok(m) => m,
-                Err(_) => break,
+                Err(e) => {
+                    tracing::debug!("[Q3 Relay] upstream recv error: {}", e);
+                    break;
+                }
             };
             let mapped = match msg {
                 TungsteniteMessage::Text(t) => AxumWsMessage::Text(t.into()),
@@ -4296,12 +5853,15 @@ async fn relay_quake_ws(
                         code: c.code.into(),
                         reason: c.reason.to_string().into(),
                     });
-                    let _ = client_tx.send(AxumWsMessage::Close(close)).await;
+                    let mut tx = client_tx_fwd.lock().await;
+                    let _ = tx.send(AxumWsMessage::Close(close)).await;
                     break;
                 }
                 TungsteniteMessage::Frame(_) => continue,
             };
-            if client_tx.send(mapped).await.is_err() {
+            let mut tx = client_tx_fwd.lock().await;
+            if tx.send(mapped).await.is_err() {
+                tracing::debug!("[Q3 Relay] client send error");
                 break;
             }
         }
@@ -4310,6 +5870,7 @@ async fn relay_quake_ws(
     tokio::select! {
         _ = to_upstream => {},
         _ = to_client => {},
+        _ = keepalive => {},
     }
 
     Ok(())

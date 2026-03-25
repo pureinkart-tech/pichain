@@ -525,7 +525,7 @@ mod tests {
     fn setup() -> (BlockProducer, Keypair) {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::new());
+        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
 
         let config = BlockProducerConfig {
             validator_address: validator.address(),
@@ -550,7 +550,7 @@ mod tests {
     fn produce_block_with_transactions() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::new());
+        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
 
         // Fund a sender
         let sender = Keypair::generate();
@@ -568,7 +568,7 @@ mod tests {
             1_000_000_000, // 1 PI
             1,
         );
-        let signed = Transaction::sign(tx_data, &sender);
+        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender);
         mempool.insert(signed).unwrap();
 
         let config = BlockProducerConfig {
@@ -607,7 +607,7 @@ mod tests {
     fn base_fee_adjusts() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::new());
+        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
 
         let config = BlockProducerConfig {
             validator_address: validator.address(),
@@ -646,7 +646,7 @@ mod tests {
     fn block_gas_limit_enforced_by_trimming() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::new());
+        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
 
         // Create multiple senders with funds
         let senders: Vec<Keypair> = (0..5).map(|_| Keypair::generate()).collect();
@@ -667,7 +667,7 @@ mod tests {
                 1_000_000_000, // 1 PI
                 1,
             );
-            let signed = Transaction::sign(tx_data, sender);
+            let signed = Transaction::sign_ed25519_for_tests_only(tx_data, sender);
             mempool.insert(signed).unwrap();
         }
 

@@ -428,10 +428,17 @@ impl BettingExecutor {
 
         // Calculate payouts
         let total_pot = m.escrow_total;
-        let house_fee = total_pot
-            .checked_mul(m.house_fee_bps as u64)
-            .unwrap_or(0)
-            / 10_000;
+        let house_fee = match total_pot.checked_mul(m.house_fee_bps as u64) {
+            Some(v) => v / 10_000,
+            None => {
+                // Use u128 for overflow-safe calculation rather than silently zeroing
+                let fee_128 = (total_pot as u128) * (m.house_fee_bps as u128) / 10_000;
+                if fee_128 > u64::MAX as u128 {
+                    return betting_error("house fee calculation overflow");
+                }
+                fee_128 as u64
+            }
+        };
         let winner_pot = total_pot.saturating_sub(house_fee);
 
         // Distribute evenly among winners
@@ -488,6 +495,115 @@ impl BettingExecutor {
             debit_sender: 0,
             credits,
             house_fee_burn: house_fee,
+        }
+    }
+
+    /// Remove a single participant from a match — refund their wager.
+    /// Creator-only. Cannot remove self (use CancelMatch instead).
+    /// Auto-cancels the match if fewer than 2 participants remain.
+    pub fn remove_participant(
+        &self,
+        sender: Address,
+        match_id: MatchId,
+        participant: Address,
+    ) -> BettingResult {
+        let mut match_ref = match self.matches.get_mut(&match_id) {
+            Some(m) => m,
+            None => return betting_error("match not found"),
+        };
+        let m = match_ref.value_mut();
+
+        if sender != m.creator {
+            return betting_error("only the creator can remove participants");
+        }
+
+        if participant == m.creator {
+            return betting_error("creator cannot remove self (use CancelMatch)");
+        }
+
+        if !matches!(m.state, MatchState::Open | MatchState::InProgress) {
+            return betting_error("match is not active");
+        }
+
+        let idx = match m.participants.iter().position(|p| *p == participant) {
+            Some(i) => i,
+            None => return betting_error("participant not in match"),
+        };
+
+        // Remove participant and adjust escrow
+        m.participants.remove(idx);
+        m.escrow_total = m.escrow_total.saturating_sub(m.wager);
+
+        // Remove their client seed if present
+        m.client_seeds.retain(|(addr, _)| *addr != participant);
+
+        let wager = m.wager;
+
+        // Auto-cancel if fewer than 2 participants remain
+        if m.participants.len() < MIN_PLAYERS as usize {
+            // Refund remaining participants + the removed one
+            let mut credits: Vec<(Address, u64)> = m
+                .participants
+                .iter()
+                .map(|p| (*p, wager))
+                .collect();
+            credits.push((participant, wager));
+
+            m.state = MatchState::Cancelled;
+
+            // Decrement creator's active match count
+            if let Some(mut count) = self.creator_match_count.get_mut(&m.creator) {
+                *count = count.saturating_sub(1);
+            }
+
+            let match_snapshot = m.clone();
+            drop(match_ref);
+
+            let mut match_changes = HashMap::new();
+            match_changes.insert(match_id, match_snapshot);
+
+            return BettingResult {
+                status: TransactionStatus::Success,
+                events: vec![TransactionEvent {
+                    emitter: sender,
+                    event_type: "RemoveParticipant".to_string(),
+                    data: serde_json::to_vec(&serde_json::json!({
+                        "match_id": match_id.to_string(),
+                        "removed": participant.0.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                        "auto_cancelled": true,
+                    }))
+                    .unwrap_or_default(),
+                }],
+                match_changes,
+                debit_sender: 0,
+                credits,
+                house_fee_burn: 0,
+            };
+        }
+
+        // Normal removal — just refund the removed participant
+        let match_snapshot = m.clone();
+        drop(match_ref);
+
+        let mut match_changes = HashMap::new();
+        match_changes.insert(match_id, match_snapshot);
+
+        BettingResult {
+            status: TransactionStatus::Success,
+            events: vec![TransactionEvent {
+                emitter: sender,
+                event_type: "RemoveParticipant".to_string(),
+                data: serde_json::to_vec(&serde_json::json!({
+                    "match_id": match_id.to_string(),
+                    "removed": participant.0.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                    "auto_cancelled": false,
+                }))
+                .unwrap_or_default(),
+            }],
+            match_changes,
+            debit_sender: 0,
+            credits: vec![(participant, wager)],
+            house_fee_burn: 0,
         }
     }
 
@@ -727,5 +843,119 @@ mod tests {
 
         let cancel_result = ex.cancel_match(addr(3), match_id);
         assert!(matches!(cancel_result.status, TransactionStatus::Success));
+    }
+
+    // --- RemoveParticipant tests ---
+
+    #[test]
+    fn remove_participant_success() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+        ex.join_match(addr(3), match_id, [88; 32]);
+
+        // 3 players, remove player 3
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(3));
+        assert!(matches!(remove_result.status, TransactionStatus::Success));
+        assert_eq!(remove_result.credits.len(), 1);
+        assert_eq!(remove_result.credits[0].0, addr(3));
+        assert_eq!(remove_result.credits[0].1, 1_000_000_000);
+
+        let m = ex.get_match(&match_id).unwrap();
+        assert_eq!(m.participants.len(), 2);
+        assert_eq!(m.escrow_total, 2_000_000_000);
+        assert!(matches!(m.state, MatchState::Open));
+    }
+
+    #[test]
+    fn remove_participant_not_creator_fails() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+        ex.join_match(addr(3), match_id, [88; 32]);
+
+        // Player 2 tries to remove player 3
+        let remove_result = ex.remove_participant(addr(2), match_id, addr(3));
+        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+    }
+
+    #[test]
+    fn remove_participant_self_fails() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+
+        // Creator tries to remove self
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(1));
+        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+    }
+
+    #[test]
+    fn remove_participant_not_in_match_fails() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+
+        // Try to remove someone who never joined
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(5));
+        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+    }
+
+    #[test]
+    fn remove_participant_auto_cancels_below_minimum() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+
+        // 2 players, remove player 2 → only 1 left → auto-cancel
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(2));
+        assert!(matches!(remove_result.status, TransactionStatus::Success));
+        // Should refund both: remaining creator + removed player
+        assert_eq!(remove_result.credits.len(), 2);
+
+        let m = ex.get_match(&match_id).unwrap();
+        assert!(matches!(m.state, MatchState::Cancelled));
+    }
+
+    #[test]
+    fn remove_participant_completed_match_fails() {
+        let ex = make_executor();
+        let server_seed = b"my_secret_seed_value_for_testing!";
+        let seed_hash = *pichain_crypto::hash(server_seed).as_bytes();
+
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, seed_hash);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+        ex.start_match(addr(1), match_id, [0xAB; 32]);
+        ex.resolve_match(addr(1), match_id, &[addr(2)], server_seed);
+
+        // Try to remove from completed match
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(2));
+        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+    }
+
+    #[test]
+    fn remove_participant_in_progress_works() {
+        let ex = make_executor();
+        let result = ex.create_match(addr(1), 0, "fps", 1_000_000_000, 4, [42; 32]);
+        let match_id = *result.match_changes.keys().next().unwrap();
+        ex.join_match(addr(2), match_id, [99; 32]);
+        ex.join_match(addr(3), match_id, [88; 32]);
+        ex.start_match(addr(1), match_id, [0xAB; 32]);
+
+        // 3 players, match in progress, remove player 3
+        let remove_result = ex.remove_participant(addr(1), match_id, addr(3));
+        assert!(matches!(remove_result.status, TransactionStatus::Success));
+        assert_eq!(remove_result.credits.len(), 1);
+        assert_eq!(remove_result.credits[0].0, addr(3));
+
+        let m = ex.get_match(&match_id).unwrap();
+        assert_eq!(m.participants.len(), 2);
+        assert!(matches!(m.state, MatchState::InProgress));
     }
 }

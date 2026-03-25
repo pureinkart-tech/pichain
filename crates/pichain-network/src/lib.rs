@@ -6,6 +6,7 @@
 pub mod bridge;
 pub mod gossip;
 pub mod node;
+pub mod pq_transport;
 pub mod swarm;
 pub mod sync;
 pub mod testnet;
@@ -13,6 +14,10 @@ pub mod turbine;
 
 pub use bridge::{BridgeManager, BridgeTransfer, BridgeChain, BridgeError};
 pub use node::NetworkNode;
+pub use pq_transport::{
+    PqValidatorAnnounce, PqCapabilities, create_pq_announce, verify_pq_announce,
+    hybrid_shared_secret, PQ_TRANSPORT_VERSION,
+};
 pub use swarm::{PiChainSwarm, SwarmBroadcaster, SwarmConfig, SwarmMessage, peer_id_from_ed25519, TOPIC_SYNC};
 pub use sync::{StateSyncManager, SyncMode, SyncState, SyncRequest, SyncResponse};
 pub use testnet::{LocalTestnet, TestnetConfig, TestNodeConfig};

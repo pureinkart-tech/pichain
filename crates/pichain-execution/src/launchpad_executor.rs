@@ -237,9 +237,13 @@ impl LaunchpadExecutor {
             ));
         }
 
-        // Update launch state (with overflow protection)
+        // Update launch state (with overflow protection + supply cap)
         launch.tokens_sold = match launch.tokens_sold.checked_add(tokens) {
-            Some(v) => v,
+            Some(v) if v <= launch.tokens_for_sale => v,
+            Some(v) => return launchpad_error(&format!(
+                "tokens_sold {} would exceed tokens_for_sale {}",
+                v, launch.tokens_for_sale
+            )),
             None => return launchpad_error("tokens_sold overflow"),
         };
         launch.pi_raised = match launch.pi_raised.checked_add(actual_cost) {
@@ -250,13 +254,15 @@ impl LaunchpadExecutor {
         // limits and refund calculations are based on real expenditure.
         *launch.contributions.entry(sender).or_insert(0) = new_contribution;
 
-        // Check if target reached — auto-graduate to DEX immediately
+        // Check if target reached — transition to TargetReached and request pool seeding.
+        // SECURITY: Do NOT transition directly to Finalized here. If pool seeding fails
+        // downstream (e.g., duplicate pool), the launch must remain at TargetReached so
+        // finalize() can be called again. Direct Finalized without pool = stuck funds.
         let mut finalization = None;
         if launch.pi_raised >= launch.target_pi
             || launch.tokens_sold >= launch.tokens_for_sale
         {
-            // Skip TargetReached, go straight to Finalized
-            launch.state = LaunchState::Finalized;
+            launch.state = LaunchState::TargetReached;
 
             let (pi_for_pool, tokens_for_pool) = launch.finalization_amounts();
             if pi_for_pool > 0 && tokens_for_pool > 0 {
@@ -444,14 +450,6 @@ impl LaunchpadExecutor {
                 launch.contributions.remove(&sender);
             }
         }
-
-        // Revert TargetReached if we're now below target
-        if launch.state == LaunchState::TargetReached
-            && launch.pi_raised < launch.target_pi
-                && launch.tokens_sold < launch.tokens_for_sale
-            {
-                launch.state = LaunchState::Active;
-            }
 
         let launch = launch.clone();
         drop(launch_ref);
@@ -708,9 +706,9 @@ mod tests {
         let result = executor.participate(buyer, mint, 500_000);
         assert_eq!(result.status, TransactionStatus::Success);
 
-        // Should be auto-finalized (skips TargetReached)
+        // Should transition to TargetReached (pool seeding happens in executor layer)
         let launch = executor.get_launch_by_mint(&mint).unwrap();
-        assert_eq!(launch.state, LaunchState::Finalized);
+        assert_eq!(launch.state, LaunchState::TargetReached);
 
         // Result should include finalization data for pool seeding
         assert!(result.finalization.is_some());

@@ -176,6 +176,53 @@ a:hover { text-decoration: underline; }
 .empty { text-align: center; padding: 60px 24px; color: var(--dim); }
 .empty h3 { font-size: 20px; margin-bottom: 8px; color: var(--muted); }
 
+/* King of the Hill */
+.koth-banner { background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(99,102,241,0.08)); border: 1px solid rgba(251,191,36,0.25); border-radius: var(--radius); padding: 20px 24px; margin-bottom: 24px; cursor: pointer; transition: all 0.2s; display: none; }
+.koth-banner:hover { border-color: var(--gold); transform: translateY(-1px); }
+.koth-banner .koth-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--gold); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.koth-banner .koth-token { font-size: 20px; font-weight: 800; }
+.koth-banner .koth-stats { display: flex; gap: 24px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+.koth-banner .koth-stats span { font-weight: 600; color: var(--text); }
+
+/* Activity Ticker */
+.activity-ticker { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 16px; margin-bottom: 20px; overflow: hidden; white-space: nowrap; position: relative; height: 38px; }
+.activity-ticker .ticker-track { display: flex; gap: 32px; animation: ticker-scroll 30s linear infinite; }
+.activity-ticker .ticker-item { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.activity-ticker .ticker-item .ticker-action { font-weight: 600; }
+.activity-ticker .ticker-item .buy { color: var(--green); }
+.activity-ticker .ticker-item .sell { color: var(--rose); }
+@keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* Comments */
+.comments-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.comments-section h4 { font-size: 15px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.comment-input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.comment-input-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: 14px; }
+.comment-input-row input::placeholder { color: var(--dim); }
+.comment-input-row input:focus { outline: none; border-color: var(--accent); }
+.comment-list { max-height: 400px; overflow-y: auto; }
+.comment-item { padding: 10px 0; border-bottom: 1px solid rgba(30,41,59,0.3); }
+.comment-item:last-child { border-bottom: none; }
+.comment-meta { font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+.comment-meta .comment-author { color: var(--cyan); font-weight: 600; }
+.comment-text { font-size: 14px; line-height: 1.5; word-break: break-word; }
+
+/* Creator royalty badge */
+.royalty-badge { display: inline-flex; align-items: center; gap: 4px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.2); border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; color: var(--gold); }
+
+/* Holder dividends */
+.dividends-section { margin-top: 16px; padding: 16px; background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; }
+.dividends-section h4 { margin: 0 0 10px; font-size: 15px; color: #10b981; }
+.dividend-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.dividend-stat { font-size: 13px; color: var(--dim); }
+.dividend-stat b { color: var(--text); font-weight: 600; }
+.dividend-claimable { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px; background: rgba(16,185,129,0.08); border-radius: 8px; }
+.dividend-claimable .amount { font-size: 18px; font-weight: 700; color: #10b981; }
+.dividend-claimable .label { font-size: 12px; color: var(--dim); }
+.btn-claim { background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; padding: 8px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
+.btn-claim:hover { filter: brightness(1.1); }
+.btn-claim:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Footer */
 .footer { text-align: center; color: var(--dim); font-size: 13px; margin-top: 64px; padding: 24px; border-top: 1px solid var(--border); }
 
@@ -201,12 +248,11 @@ a:hover { text-decoration: underline; }
       <a href="/explorer">Explorer</a>
       <a href="/trade">Swap</a>
       <a href="/dex">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch" class="active">Launch</a>
       <a href="/mine">Mine</a>
-      <a href="/staking">Staking</a>
-      <a href="/nft">NFTs</a>
-      <a href="/download">Download</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -295,12 +341,34 @@ a:hover { text-decoration: underline; }
 
   <!-- DISCOVER TAB -->
   <div class="tab-content active" id="tab-discover">
+    <!-- King of the Hill Banner -->
+    <div class="koth-banner" id="kothBanner" onclick="kothClick()">
+      <div class="koth-label">&#128081; King of the Hill</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div class="koth-token" id="kothToken">--</div>
+          <div class="koth-stats">
+            <div>Market Cap: <span id="kothMcap">--</span></div>
+            <div>Progress: <span id="kothProgress">--</span></div>
+            <div>Comments: <span id="kothComments">--</span></div>
+          </div>
+        </div>
+        <div style="font-size:32px;">&#128081;</div>
+      </div>
+    </div>
+
+    <!-- Activity Ticker -->
+    <div class="activity-ticker" id="activityTicker" style="display:none;">
+      <div class="ticker-track" id="tickerTrack"></div>
+    </div>
+
     <div class="filter-bar">
       <button class="filter-btn active" onclick="setFilter('all')">All</button>
       <button class="filter-btn" onclick="setFilter('New')">New</button>
       <button class="filter-btn" onclick="setFilter('Active')">Active</button>
       <button class="filter-btn" onclick="setFilter('NearGrad')">Near Graduate</button>
       <button class="filter-btn" onclick="setFilter('Finalized')">Graduated</button>
+      <button class="filter-btn" onclick="setFilter('Trending')">Trending</button>
       <input type="text" class="search-input" placeholder="Search by name or symbol..." oninput="renderFeed()" id="searchInput">
     </div>
     <div id="tokenGrid" class="token-grid"></div>
@@ -425,8 +493,8 @@ a:hover { text-decoration: underline; }
 
 <div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
-<!-- TweetNaCl for Ed25519 signing -->
-<script async src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+
+<script src="/pichain-wallet.js"></script>
 
 <script>
 // =====================================================================
@@ -512,13 +580,18 @@ let currentBaseFee = 1000;
 
 let pendingNewSeed = null;
 
+const WALLET_PAGE_ID='launch';
 function initWallet(seed, skipModalClose) {
-  walletKeypair = nacl.sign.keyPair.fromSeed(seed);
+  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
+  // PQ: keypair managed by signing proxy
+  walletKeypair = {publicKey:walletAddress}; // shim for compatibility checks
   walletAddress = deriveAddress(walletKeypair.publicKey);
   walletAddressHex = hexEncode(walletAddress);
   walletSeedHex = hexEncode(seed);
   localStorage.setItem('pichain_seed', walletSeedHex);
   localStorage.setItem('pichain_wallet_seed', walletSeedHex);
+  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
   updateWalletUI();
   updateBalance();
   if(!skipModalClose){
@@ -529,9 +602,9 @@ function initWallet(seed, skipModalClose) {
 
 // Step 1: Generate key and show it to user
 function createWalletStep1() {
-  pendingNewSeed = nacl.randomBytes(32);
+  pendingNewSeed = crypto.getRandomValues(new Uint8Array(32));
   const seedHex = hexEncode(pendingNewSeed);
-  const kp = nacl.sign.keyPair.fromSeed(pendingNewSeed);
+  const kp = {publicKey:new Uint8Array(32)}; // PQ: key preview not available
   const addr = deriveAddress(kp.publicKey);
   const addrHex = hexEncode(addr);
 
@@ -661,6 +734,7 @@ async function solveActivationPoW(challenge,diffBits){
 }
 
 function loadWallet() {
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
   const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
   if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
 }
@@ -722,8 +796,7 @@ function showPrivateKey() {
 }
 
 function disconnectWallet() {
-  localStorage.removeItem('pichain_seed');
-  localStorage.removeItem('pichain_wallet_seed');
+  localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   updateWalletUI();
@@ -781,13 +854,15 @@ async function loadLaunches() {
     const data = await res.json();
     allLaunches = data.launches || [];
     renderFeed();
+    updateKingOfTheHill();
+    loadActivityTicker();
   } catch(e){}
 }
 
 function setFilter(f) {
   currentFilter = f;
   if(currentDetailMint) hideDetail();
-  const labels = {all:'All', New:'New', Active:'Active', NearGrad:'Near Graduate', Finalized:'Graduated'};
+  const labels = {all:'All', New:'New', Active:'Active', NearGrad:'Near Graduate', Finalized:'Graduated', Trending:'Trending'};
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===labels[f]));
   renderFeed();
 }
@@ -818,7 +893,7 @@ function renderTokenCard(l) {
     <div class="card-price">Price: ${formatPI(l.current_price)} PI/token</div>
     <div class="card-stats" style="margin-top:6px;">
       <span>by ${shortAddr(l.creator)}</span>
-      <span>${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
+      <span>${l.comment_count ? l.comment_count + ' comments' : ''} ${l.created_at_ms ? timeAgo(l.created_at_ms) : ''}</span>
     </div>
   </div>`;
 }
@@ -869,6 +944,10 @@ function renderFeed() {
     filtered = filtered.filter(l=>l.state!=='Finalized' && (l.percent_complete||0) >= 70);
   } else if(currentFilter==='Finalized') {
     filtered = filtered.filter(l=>l.state==='Finalized');
+  } else if(currentFilter==='Trending') {
+    // Sort by pi_raised (volume proxy) descending, active tokens first
+    filtered = filtered.filter(l=>l.state!=='Cancelled');
+    filtered.sort((a,b)=>(b.pi_raised||0)-(a.pi_raised||0));
   }
 
   if(filtered.length===0) {
@@ -952,8 +1031,10 @@ async function viewToken(mintId) {
         </div>`;
     } else if(isFinalized) {
       const userPiBal2 = walletAddressHex ? formatPI(piBalance) : '0';
+      const viewDexLink = l.pool_id ? `<a href="/dex?pair=${escHtml(l.pool_id)}" class="btn" style="display:inline-block;margin-bottom:12px;padding:10px 16px;background:var(--accent);color:white;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">View on DEX →</a>` : '';
       tradeHtml = `
         <div class="trade-panel">
+          ${viewDexLink}
           <h3>Buy $${escHtml(l.symbol)} <span style="font-size:11px;color:var(--dim);font-weight:400;">(DEX)</span></h3>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <span style="font-size:12px;color:var(--dim);">Balance: ${userPiBal2} PI</span>
@@ -1030,6 +1111,7 @@ async function viewToken(mintId) {
             </div>
           </div>
           <span class="badge badge-${l.state}" style="font-size:13px;padding:6px 14px;">${l.state==='TargetReached'?'Target Reached':l.state}</span>
+          ${isFinalized && l.pool_id ? '<a href="/dex?pair='+escHtml(l.pool_id)+'" class="btn btn-outline" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none;">View on DEX</a>' : ''}
         </div>
 
         ${meta.description ? '<div style="color:var(--muted);font-size:14px;line-height:1.6;margin:12px 0 16px;">' + escHtml(meta.description) + '</div>' : ''}
@@ -1049,7 +1131,25 @@ async function viewToken(mintId) {
         </div>
 
         ${tradeHtml}
+
+        ${isFinalized ? '<div style="margin-top:16px;"><span class="royalty-badge">&#128176; Creator earns ~0.10% of every trade</span></div>' : ''}
+
+        ${isFinalized ? '<div class="dividends-section" id="dividendsSection"><h4>&#128178; Holder Dividends</h4><p style="font-size:12px;color:var(--dim);margin:0 0 10px;">Token holders earn a share of every trade. Hold ' + escHtml(l.symbol) + ' to earn PI automatically.</p><div class="dividend-stats"><div class="dividend-stat">Total Distributed: <b id="divTotal">--</b> PI</div><div class="dividend-stat">Total Claimed: <b id="divClaimed">--</b> PI</div></div><div class="dividend-claimable" id="divClaimRow" style="display:none;"><div><div class="label">Your Claimable Dividends</div><div class="amount" id="divClaimable">0</div></div><button class="btn-claim" id="divClaimBtn" onclick="claimDividends(\'' + mintId + '\')">Claim PI</button></div></div>' : ''}
+
+        <!-- Comments Section -->
+        <div class="comments-section">
+          <h4>Comments <span style="font-size:12px;color:var(--dim);font-weight:400;">(${l.comment_count || 0})</span></h4>
+          <div class="comment-input-row">
+            <input type="text" id="commentInput" placeholder="Say something about $${escHtml(l.symbol)}..." maxlength="500" onkeydown="if(event.key==='Enter')postComment('${mintId}')">
+            <button class="btn btn-sm" onclick="postComment('${mintId}')">Post</button>
+          </div>
+          <div class="comment-list" id="commentsList"><div style="text-align:center;padding:16px;color:var(--dim);font-size:13px;">Loading...</div></div>
+        </div>
       </div>`;
+
+    // Load comments and dividends
+    loadComments(mintId);
+    if(isFinalized) loadDividends(mintId);
 
     // Load token balance for sell panel (active bonding curve or graduated DEX)
     if((isActive || isFinalized) && walletAddressHex) {
@@ -1400,7 +1500,6 @@ async function createTokenAndLaunch() {
     // Tx 1: CreateToken
     status.textContent = 'Signing CreateToken...';
     const canonical1 = buildCreateTokenCanonical(walletAddress, accountNonce, name, symbol, decimals, Number(maxSupply), metadataUri);
-    const sig1 = nacl.sign.detached(canonical1, walletKeypair.secretKey);
     const hex1 = buildSignedTxJson('CreateToken', {
       name: name, symbol: symbol, decimals: decimals,
       max_supply: Number(maxSupply), metadata_uri: metadataUri
@@ -1409,7 +1508,6 @@ async function createTokenAndLaunch() {
     // Tx 2: CreateLaunch
     status.textContent = 'Signing CreateLaunch...';
     const canonical2 = buildCreateLaunchCanonical(walletAddress, accountNonce+1, mintId, basePrice, slope, priceScale, Number(tokensForSale), Number(targetPi), Number(maxPerAddr));
-    const sig2 = nacl.sign.detached(canonical2, walletKeypair.secretKey);
     const hex2 = buildSignedTxJson('CreateLaunch', {
       mint: Array.from(mintId),
       launch_type: { BondingCurve: { base_price: basePrice, slope: slope, price_scale: priceScale } },
@@ -1424,7 +1522,6 @@ async function createTokenAndLaunch() {
       status.textContent = 'Signing dev buy-in...';
       const devBuyBase = Math.floor(devBuyFloat * 1e9);
       const canonical3 = buildParticipateCanonical(walletAddress, accountNonce+2, mintId, devBuyBase);
-      const sig3 = nacl.sign.detached(canonical3, walletKeypair.secretKey);
       hex3 = buildSignedTxJson('ParticipateInLaunch', {
         mint: Array.from(mintId), pi_amount: devBuyBase
       }, accountNonce+2, sig3, 50000);
@@ -1432,18 +1529,18 @@ async function createTokenAndLaunch() {
 
     // Submit all transactions and wait for on-chain confirmation
     status.textContent = 'Submitting CreateToken...';
-    const r1 = await submitTx(hex1);
+    const r1 = await submitPQTx(hex1);
     if(r1.status !== 'pending') { throw new Error('CreateToken failed: '+(r1.error||'unknown')); }
 
     status.textContent = 'Submitting CreateLaunch...';
-    const r2 = await submitTx(hex2);
+    const r2 = await submitPQTx(hex2);
     if(r2.status !== 'pending') { throw new Error('CreateLaunch failed: '+(r2.error||'unknown')); }
 
     let txCount = 2;
     let lastSubmittedHash = r2.tx_hash;
     if (hex3) {
       status.textContent = 'Submitting dev buy-in...';
-      const r3 = await submitTx(hex3);
+      const r3 = await submitPQTx(hex3);
       if(r3.status !== 'pending') {
         showToast('Token launched but dev buy failed: '+(r3.error||'unknown'), 'info');
       } else {
@@ -1599,13 +1696,11 @@ async function buyOnCurve(mintId) {
 
   try {
     await updateBalance();
-    const canonical = buildParticipateCanonical(walletAddress, accountNonce, mintIdBytes, piBase);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('ParticipateInLaunch', {
       mint: Array.from(mintIdBytes), pi_amount: piBase
     }, accountNonce, sig, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       showToast('Purchase submitted, confirming...', 'info');
       try {
@@ -1675,13 +1770,11 @@ async function sellOnCurve(mintId) {
 
   try {
     await updateBalance();
-    const canonical = buildSellCanonical(walletAddress, accountNonce, mintIdBytes, tokenBase);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('SellFromLaunch', {
-      mint: Array.from(mintIdBytes), token_amount: tokenBase
+      mint: Array.from(mintIdBytes), token_amount: Number(tokenBase)
     }, accountNonce, sig, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       showToast('Sell submitted, confirming...', 'info');
       try {
@@ -1708,13 +1801,11 @@ async function finalizeLaunch(mintId) {
 
   try {
     await updateBalance();
-    const canonical = buildFinalizeCanonical(walletAddress, accountNonce, mintIdBytes);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('FinalizeLaunch', {
       mint: Array.from(mintIdBytes)
     }, accountNonce, sig, 100000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       showToast('Finalization submitted, confirming...', 'info');
       try {
@@ -1742,7 +1833,9 @@ async function previewSwap(mintId) {
   if(amountIn <= 0) { document.getElementById('swapEstimate').textContent = '--'; document.getElementById('swapImpact').textContent = '--'; return; }
 
   const dir = document.getElementById('swapDir').value;
-  const amountBase = Math.floor(amountIn * 1e9);
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
+  const inputDecimals = dir === 'buy' ? 9 : (launch ? launch.decimals : 9);
+  const amountBase = Math.floor(amountIn * Math.pow(10, inputDecimals));
   const mintIn = dir === 'buy' ? NATIVE_PI_MINT : mintId;
   const mintOut = dir === 'buy' ? mintId : NATIVE_PI_MINT;
 
@@ -1767,8 +1860,10 @@ async function executeSwap(mintId) {
   if(amountIn <= 0) { showToast('Enter an amount','error'); return; }
 
   const dir = document.getElementById('swapDir').value;
+  const launch = allLaunches.find(l=>l.mint_id===mintId);
   const slippage = parseFloat(document.getElementById('swapSlippage').value) || 1;
-  const amountBase = Math.floor(amountIn * 1e9);
+  const inputDecimals = dir === 'buy' ? 9 : (launch ? launch.decimals : 9);
+  const amountBase = Math.floor(amountIn * Math.pow(10, inputDecimals));
 
   const mintInHex = dir === 'buy' ? NATIVE_PI_MINT : mintId;
   const mintOutHex = dir === 'buy' ? mintId : NATIVE_PI_MINT;
@@ -1784,14 +1879,12 @@ async function executeSwap(mintId) {
     const minOut = Math.floor(q.amount_out * (1 - slippage/100));
 
     await updateBalance();
-    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('Swap', {
       mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
       amount_in: amountBase, min_amount_out: minOut
     }, accountNonce, sig, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       accountNonce++;
       showToast('Swap submitted! Tx: '+result.tx_hash.slice(0,16)+'...', 'success');
@@ -1842,14 +1935,12 @@ async function buyOnDex(mintId) {
     const minOut = Math.floor(q.amount_out * (1 - slippage/100));
 
     await updateBalance();
-    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('Swap', {
       mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
       amount_in: amountBase, min_amount_out: minOut
     }, accountNonce, sig, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       showToast('Buy submitted, confirming...', 'info');
       try {
@@ -1918,14 +2009,12 @@ async function sellOnDex(mintId) {
     const minOut = Math.floor(q.amount_out * (1 - slippage/100));
 
     await updateBalance();
-    const canonical = buildSwapCanonical(walletAddress, accountNonce, mintInBytes, mintOutBytes, amountBase, minOut);
-    const sig = nacl.sign.detached(canonical, walletKeypair.secretKey);
     const hex = buildSignedTxJson('Swap', {
       mint_in: Array.from(mintInBytes), mint_out: Array.from(mintOutBytes),
-      amount_in: amountBase, min_amount_out: minOut
+      amount_in: Number(amountBase), min_amount_out: minOut
     }, accountNonce, sig, 50000);
 
-    const result = await submitTx(hex);
+    const result = await submitPQTx(hex);
     if(result.status === 'pending') {
       showToast('Sell submitted, confirming...', 'info');
       try {
@@ -1988,6 +2077,150 @@ async function loadPortfolio() {
 }
 
 // =====================================================================
+// KING OF THE HILL
+// =====================================================================
+function updateKingOfTheHill() {
+  const banner = document.getElementById('kothBanner');
+  // Find the active token with the highest pi_raised that hasn't graduated
+  const active = allLaunches.filter(l => l.state === 'Active' || l.state === 'TargetReached');
+  if (active.length === 0) { banner.style.display = 'none'; return; }
+  active.sort((a, b) => (b.pi_raised || 0) - (a.pi_raised || 0));
+  const king = active[0];
+  if (!king || king.pi_raised === 0) { banner.style.display = 'none'; return; }
+  banner.style.display = 'block';
+  banner.dataset.mintId = king.mint_id;
+  document.getElementById('kothToken').textContent = '$' + (king.symbol || '???') + ' — ' + (king.name || 'Unknown');
+  document.getElementById('kothMcap').textContent = formatPI(king.pi_raised) + ' PI';
+  document.getElementById('kothProgress').textContent = king.percent_complete.toFixed(1) + '%';
+  document.getElementById('kothComments').textContent = king.comment_count || '0';
+}
+function kothClick() {
+  const mintId = document.getElementById('kothBanner').dataset.mintId;
+  if (mintId) viewToken(mintId);
+}
+
+// =====================================================================
+// ACTIVITY TICKER (live feed)
+// =====================================================================
+async function loadActivityTicker() {
+  try {
+    const res = await fetch(API + '/api/v1/launches/activity');
+    const data = await res.json();
+    const items = data.activity || [];
+    if (items.length === 0) { document.getElementById('activityTicker').style.display = 'none'; return; }
+    document.getElementById('activityTicker').style.display = 'block';
+    const track = document.getElementById('tickerTrack');
+    // Build ticker items
+    let html = '';
+    for (const t of items) {
+      const isBuy = t.mint_in === '0'.repeat(64); // buying token with PI
+      const action = isBuy ? 'bought' : 'sold';
+      const cls = isBuy ? 'buy' : 'sell';
+      const mintId = isBuy ? t.mint_out : t.mint_in;
+      const launch = allLaunches.find(l => l.mint_id === mintId);
+      const symbol = launch ? '$' + launch.symbol : mintId.slice(0,8) + '...';
+      const piAmt = isBuy ? t.amount_in : t.amount_out;
+      html += `<div class="ticker-item"><span class="ticker-action ${cls}">${shortAddr(t.sender)} ${action}</span> ${formatPI(piAmt)} PI of <strong>${escHtml(symbol)}</strong> ${timeAgo(t.timestamp_ms)}</div>`;
+    }
+    // Duplicate for seamless loop
+    track.innerHTML = html + html;
+  } catch(e) { /* ignore */ }
+}
+
+// =====================================================================
+// COMMENTS
+// =====================================================================
+async function loadComments(mintId) {
+  const container = document.getElementById('commentsList');
+  if (!container) return;
+  try {
+    const res = await fetch(API + '/api/v1/launch/' + mintId + '/comments');
+    const data = await res.json();
+    const comments = data.comments || [];
+    if (comments.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--dim);font-size:13px;">No comments yet. Be the first!</div>';
+      return;
+    }
+    container.innerHTML = comments.map(c => `
+      <div class="comment-item">
+        <div class="comment-meta"><span class="comment-author">${shortAddr(c.author)}</span> &bull; ${timeAgo(c.timestamp_ms)}</div>
+        <div class="comment-text">${escHtml(c.text)}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--dim);font-size:13px;">Could not load comments</div>';
+  }
+}
+
+async function postComment(mintId) {
+  if (!walletKeypair) { showWalletModal(); return; }
+  const input = document.getElementById('commentInput');
+  const text = (input.value || '').trim();
+  if (!text || text.length > 500) { showToast('Comment must be 1-500 characters', 'error'); return; }
+  try {
+    const res = await fetch(API + '/api/v1/launch/' + mintId + '/comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, author: walletAddressHex })
+    });
+    const data = await res.json();
+    if (data.success) {
+      input.value = '';
+      showToast('Comment posted!', 'success');
+      loadComments(mintId);
+    } else {
+      showToast(data.error || 'Failed to post', 'error');
+    }
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+// =====================================================================
+// HOLDER DIVIDENDS
+// =====================================================================
+async function loadDividends(mintId) {
+  try {
+    let url = API+'/api/v1/launch/'+mintId+'/dividends';
+    if(walletAddressHex) url += '?holder='+walletAddressHex;
+    const res = await fetch(url);
+    const data = await res.json();
+    const totalEl = document.getElementById('divTotal');
+    const claimedEl = document.getElementById('divClaimed');
+    if(totalEl) totalEl.textContent = formatPI(data.total_accumulated || 0);
+    if(claimedEl) claimedEl.textContent = formatPI(data.total_claimed || 0);
+    const claimRow = document.getElementById('divClaimRow');
+    const claimableEl = document.getElementById('divClaimable');
+    if(data.claimable > 0 && claimRow && claimableEl) {
+      claimRow.style.display = 'flex';
+      claimableEl.textContent = formatPI(data.claimable) + ' PI';
+    }
+  } catch(e) {}
+}
+
+async function claimDividends(mintId) {
+  if(!walletAddressHex) { alert('Connect wallet first'); return; }
+  const btn = document.getElementById('divClaimBtn');
+  if(btn) { btn.disabled = true; btn.textContent = 'Claiming...'; }
+  try {
+    const res = await fetch(API+'/api/v1/launch/'+mintId+'/claim-dividends', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ holder: walletAddressHex })
+    });
+    const data = await res.json();
+    if(data.claimed) {
+      alert('Claimed ' + formatPI(data.claimed) + ' PI in dividends!');
+      loadDividends(mintId);
+      updateBalance();
+    } else if(data.error) {
+      alert('Claim failed: ' + data.error);
+    }
+  } catch(e) {
+    alert('Claim failed: ' + e.message);
+  }
+  if(btn) { btn.disabled = false; btn.textContent = 'Claim PI'; }
+}
+
+// =====================================================================
 // WEBSOCKET — real-time updates
 // =====================================================================
 let launchWs = null;
@@ -2015,6 +2248,8 @@ function connectLaunchWs() {
 // =====================================================================
 // INIT
 // =====================================================================
+// Wait for async nacl library before loading wallet
+// PQ wallet auto-connect (no NaCl dependency)
 loadWallet();
 loadLaunches();
 connectLaunchWs();

@@ -12,10 +12,22 @@ use tokio::sync::Mutex;
 
 // ---------- App state ----------
 
+/// Cached PQ key material for the current session.
+/// All four key components are needed to reconstruct the PqKeypair.
+struct CachedPqKeys {
+    ml_dsa_sk: Vec<u8>,
+    ml_dsa_pk: Vec<u8>,
+    slh_dsa_sk: Vec<u8>,
+    slh_dsa_pk: Vec<u8>,
+}
+
 struct AppState {
     running: Arc<AtomicBool>,
     mining_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     wallet_path: Mutex<Option<String>>,
+    /// Cached PQ key material (replaces legacy Ed25519 cached_secret).
+    cached_pq_keys: Mutex<Option<CachedPqKeys>>,
+    /// Legacy Ed25519 secret — kept only for loading old encrypted wallets during migration.
     cached_secret: Mutex<Option<[u8; 32]>>,
     wallet_encrypted: Mutex<bool>,
     http_client: reqwest::Client,
@@ -27,6 +39,7 @@ impl Default for AppState {
             running: Arc::new(AtomicBool::new(false)),
             mining_task: Mutex::new(None),
             wallet_path: Mutex::new(None),
+            cached_pq_keys: Mutex::new(None),
             cached_secret: Mutex::new(None),
             wallet_encrypted: Mutex::new(false),
             http_client: reqwest::Client::builder()
@@ -55,16 +68,19 @@ async fn create_wallet(
     save_path: String,
     password: String,
 ) -> Result<wallet::CreateWalletResult, String> {
-    wallet::create_wallet(&save_path, &password)
+    // All new wallets are post-quantum
+    wallet::create_pq_wallet(&save_path, &password)
 }
 
 #[tauri::command]
 async fn import_wallet(
-    secret_key: String,
-    save_path: String,
-    password: String,
+    _secret_key: String,
+    _save_path: String,
+    _password: String,
 ) -> Result<wallet::WalletInfo, String> {
-    wallet::import_wallet(&secret_key, &save_path, &password)
+    // Ed25519 key import no longer supported — wallets must be post-quantum.
+    // Users should create a new PQ wallet instead of importing Ed25519 keys.
+    Err("Importing Ed25519 keys is no longer supported. Create a new post-quantum wallet instead.".to_string())
 }
 
 #[tauri::command]
@@ -73,10 +89,22 @@ async fn load_wallet(
     password: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<wallet::WalletLoadResult, String> {
-    let (kp, result, encrypted) = wallet::load_wallet(&path, password.as_deref())?;
+    // Load as PQ wallet (legacy Ed25519 wallets are no longer supported)
+    let (export, result) = wallet::load_pq_wallet(&path, password.as_deref())?;
+
+    // Cache PQ key material for mining
+    *state.cached_pq_keys.lock().await = Some(CachedPqKeys {
+        ml_dsa_sk: hex::decode(&export.ml_dsa_secret_key)
+            .map_err(|e| format!("Invalid ML-DSA SK: {e}"))?,
+        ml_dsa_pk: hex::decode(&export.ml_dsa_public_key)
+            .map_err(|e| format!("Invalid ML-DSA PK: {e}"))?,
+        slh_dsa_sk: hex::decode(&export.slh_dsa_secret_key)
+            .map_err(|e| format!("Invalid SLH-DSA SK: {e}"))?,
+        slh_dsa_pk: hex::decode(&export.slh_dsa_public_key)
+            .map_err(|e| format!("Invalid SLH-DSA PK: {e}"))?,
+    });
     *state.wallet_path.lock().await = Some(path);
-    *state.cached_secret.lock().await = Some(kp.secret.to_bytes());
-    *state.wallet_encrypted.lock().await = encrypted;
+    *state.wallet_encrypted.lock().await = result.encrypted;
     Ok(result)
 }
 
@@ -162,21 +190,28 @@ async fn start_mining(
         return Err("Mining is already running".to_string());
     }
 
-    // Use cached keypair (already decrypted at load time)
-    let secret = *state
-        .cached_secret
+    // Reconstruct PQ keypair from cached key material.
+    let pq_keys = state
+        .cached_pq_keys
         .lock()
-        .await
+        .await;
+    let pq_keys_ref = pq_keys
         .as_ref()
-        .ok_or_else(|| "No wallet loaded. Please load your wallet first.".to_string())?;
-    let keypair = pichain_crypto::Keypair::from_secret_bytes(&secret);
+        .ok_or_else(|| "No PQ wallet loaded. Please load or create a wallet first.".to_string())?;
+    let pq_keypair = pichain_crypto::PqKeypair::from_bytes(
+        &pq_keys_ref.ml_dsa_sk,
+        &pq_keys_ref.ml_dsa_pk,
+        &pq_keys_ref.slh_dsa_sk,
+        &pq_keys_ref.slh_dsa_pk,
+    ).map_err(|e| format!("Failed to reconstruct PQ keypair: {e}"))?;
+    drop(pq_keys); // release lock before spawning
 
     let config = MiningConfig::from_profile(rpc_url, chain_id, &profile);
     let running = state.running.clone();
     running.store(true, Ordering::Release);
 
     let handle = tokio::spawn(async move {
-        miner::mining_loop(app, config, keypair, running).await;
+        miner::mining_loop(app, config, pq_keypair, running).await;
     });
 
     *state.mining_task.lock().await = Some(handle);
@@ -207,21 +242,17 @@ async fn export_wallet_key(
     password: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let is_encrypted = *state.wallet_encrypted.lock().await;
+    // PQ wallets: export the address (not raw keys — PQ keys are too large for clipboard)
+    let _is_encrypted = *state.wallet_encrypted.lock().await;
+    let pq_keys = state.cached_pq_keys.lock().await;
+    let keys = pq_keys.as_ref().ok_or_else(|| "No wallet loaded".to_string())?;
 
-    if is_encrypted {
-        // Verify password by attempting to decrypt the wallet file
-        let path_guard = state.wallet_path.lock().await;
-        let path = path_guard
-            .as_deref()
-            .ok_or_else(|| "No wallet loaded".to_string())?;
-        let pw = password.ok_or("Password required to export encrypted wallet")?;
-        let _ = wallet::load_wallet(path, Some(&pw))?;
-    }
-
-    let secret = state.cached_secret.lock().await;
-    let secret = secret.ok_or_else(|| "No wallet loaded".to_string())?;
-    Ok(hex::encode(secret))
+    // Return the wallet address derived from cached PQ keys
+    let kp = pichain_crypto::PqKeypair::from_bytes(
+        &keys.ml_dsa_sk, &keys.ml_dsa_pk, &keys.slh_dsa_sk, &keys.slh_dsa_pk,
+    ).map_err(|e| format!("Key error: {e}"))?;
+    let _ = password; // PQ export doesn't need re-auth (address is public)
+    Ok(format!("{}", kp.address()))
 }
 
 #[tauri::command]
@@ -233,6 +264,7 @@ async fn reset_wallet(state: State<'_, AppState>) -> Result<String, String> {
     if let Some(p) = path.take() {
         let _ = std::fs::remove_file(&p);
     }
+    *state.cached_pq_keys.lock().await = None;
     *state.cached_secret.lock().await = None;
     *state.wallet_encrypted.lock().await = false;
     Ok("Wallet reset".to_string())

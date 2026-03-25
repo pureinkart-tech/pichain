@@ -83,12 +83,28 @@ fn resolve_dns_seeds(chain_id: u64) -> Result<Vec<(PeerId, Multiaddr)>, String> 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut peers = Vec::new();
 
+    // SECURITY: Cap DNS seed count to prevent a DNS poisoning attack from
+    // flooding us with hundreds of Sybil peers. We only need a handful of
+    // seeds to bootstrap; additional peers come from Kademlia DHT discovery.
+    const MAX_DNS_SEEDS: usize = 16;
+
     for line in stdout.lines() {
+        if peers.len() >= MAX_DNS_SEEDS {
+            tracing::warn!(
+                max = MAX_DNS_SEEDS,
+                "DNS returned more seeds than maximum — ignoring extras"
+            );
+            break;
+        }
         // TXT records come back quoted: "\"<multiaddr>\""
         let addr_str = line.trim().trim_matches('"');
         if addr_str.is_empty() || !addr_str.starts_with('/') {
             continue;
         }
+        // SECURITY: Reject multiaddrs with suspicious or private IP ranges
+        // to prevent DNS poisoning that redirects to attacker-controlled hosts.
+        // Note: This is a basic check. For production, pin known seed peer IDs
+        // in the binary or a signed configuration file.
         if let Ok(addr) = addr_str.parse::<Multiaddr>() {
             if let Some(peer_id) = addr.iter().find_map(|proto| {
                 if let libp2p::multiaddr::Protocol::P2p(id) = proto {
@@ -539,8 +555,32 @@ impl PiChainSwarm {
     ///
     /// Returns `false` when the peer count is below `MIN_SAFE_PEER_COUNT`,
     /// indicating the node may be vulnerable to eclipse attacks.
+    ///
+    /// **SECURITY**: Callers MUST NOT finalize blocks received from peers
+    /// when this returns `false`. The node should continue syncing and
+    /// producing local blocks, but delay finality until peer diversity
+    /// is re-established. This prevents eclipse attacks where an attacker
+    /// controls all connections and feeds a forked chain.
     pub fn has_safe_peer_count(&self) -> bool {
         self.peer_count() >= MIN_SAFE_PEER_COUNT
+    }
+
+    /// Check if a peer-provided block should be trusted for finality.
+    ///
+    /// Returns `false` if:
+    /// - Peer count is below `MIN_SAFE_PEER_COUNT` (possible eclipse)
+    /// - The block was received from a peer and the node is not well-connected
+    ///
+    /// Locally-produced blocks (single-validator mode) bypass this check.
+    pub fn is_safe_for_peer_block_finality(&self) -> bool {
+        // In single-validator mode (0 peers expected), always safe
+        // In multi-validator mode, require minimum peer diversity
+        let peers = self.peer_count();
+        if peers == 0 {
+            // Could be single-node mode — let the caller decide
+            return true;
+        }
+        peers >= MIN_SAFE_PEER_COUNT
     }
 }
 

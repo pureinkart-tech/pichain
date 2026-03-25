@@ -81,6 +81,23 @@ a:hover { text-decoration: underline; }
 .stat-val.gold { color: var(--gold); }
 .stat-label { font-size: 11px; color: var(--dim); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
 
+/* Mining leaderboard */
+.mlb-rank{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;font-weight:700;font-size:13px;}
+.mlb-rank-1{background:linear-gradient(135deg,#FFD700,#FFA500);color:#000;}
+.mlb-rank-2{background:linear-gradient(135deg,#C0C0C0,#A0A0A0);color:#000;}
+.mlb-rank-3{background:linear-gradient(135deg,#CD7F32,#A0522D);color:#fff;}
+.mlb-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-right:4px;}
+.mlb-badge-digits{background:rgba(0,200,83,0.15);color:#00c853;}
+.mlb-badge-rank{background:rgba(255,215,0,0.15);color:#FFD700;}
+.mlb-row{cursor:pointer;transition:background 0.15s;}
+.mlb-row:hover{background:var(--bg-2,rgba(255,255,255,0.03));}
+.mlb-row td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);}
+.mlb-proofs{background:var(--bg);border-radius:8px;padding:12px;margin-top:8px;}
+.mlb-proofs table{width:100%;font-size:12px;}
+.mlb-proofs th{color:var(--muted);font-weight:600;text-align:left;padding:4px 8px;}
+.mlb-proofs td{color:var(--text);padding:4px 8px;}
+@media(max-width:768px){#miningNetStats{grid-template-columns:repeat(2,1fr);}}
+
 /* Log */
 .log-container { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; height: 200px; overflow-y: auto; font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.8; }
 .log-entry { color: var(--muted); }
@@ -234,12 +251,11 @@ pre .c { color: var(--dim); }
       <a href="/explorer">Explorer</a>
       <a href="/trade">Swap</a>
       <a href="/dex">DEX</a>
-      <a href="/games">Games</a>
       <a href="/launch">Launch</a>
       <a href="/mine" class="active">Mine</a>
-      <a href="/staking">Staking</a>
-      <a href="/nft">NFTs</a>
-      <a href="/download">Download</a>
+      <a href="/games">Games</a>
+      <a href="/music">Music</a>
+      <a href="/dating">Dating</a>
     </div>
     <button class="hamburger" onclick="document.getElementById('navLinks').classList.toggle('active')" aria-label="Menu">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -252,6 +268,7 @@ pre .c { color: var(--dim); }
     <button class="tab active" onclick="switchTab('browser')">Mine in Browser</button>
     <button class="tab" onclick="switchTab('cli')">Download &amp; CLI</button>
     <button class="tab" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="tab" onclick="switchTab('leaderboard')">Leaderboard</button>
   </div>
 
   <!-- ==================== BROWSER MINER TAB ==================== -->
@@ -785,6 +802,52 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
     </div>
   </div>
 
+  <!-- ==================== LEADERBOARD TAB ==================== -->
+  <div class="tab-content" id="tab-leaderboard">
+    <div style="margin-bottom:24px;">
+      <h3 style="margin:0 0 4px 0;">Mining Leaderboard</h3>
+      <p style="margin:0;font-size:13px;color:var(--muted);">Real-time stats from on-chain PI digit computation &mdash; auto-refreshes every 30s</p>
+    </div>
+
+    <!-- Network Stats -->
+    <div id="miningNetStats" class="stats-grid" style="margin-bottom:24px;">
+      <div class="stat-card">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">PI Frontier</div>
+        <div id="mNetFrontier" class="stat-val purple">-</div>
+      </div>
+      <div class="stat-card">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Total Digits</div>
+        <div id="mNetDigits" class="stat-val cyan">-</div>
+      </div>
+      <div class="stat-card">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Active Miners</div>
+        <div id="mNetMiners" class="stat-val green">-</div>
+      </div>
+      <div class="stat-card">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Total Mined</div>
+        <div id="mNetMined" class="stat-val gold">-</div>
+      </div>
+    </div>
+
+    <!-- Leaderboard Table -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+            <th style="padding:12px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:12px;">Rank</th>
+            <th style="padding:12px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:12px;">Miner</th>
+            <th style="padding:12px 16px;text-align:right;color:var(--muted);font-weight:600;font-size:12px;">Digits Computed</th>
+            <th style="padding:12px 16px;text-align:right;color:var(--muted);font-weight:600;font-size:12px;">Share</th>
+            <th style="padding:12px 16px;text-align:left;color:var(--muted);font-weight:600;font-size:12px;">Achievements</th>
+          </tr>
+        </thead>
+        <tbody id="miningLeaderboardBody">
+          <tr><td colspan="5" style="padding:40px;text-align:center;color:var(--dim);">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
 <!-- Import Wallet Modal -->
@@ -829,8 +892,8 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
 
 <div class="footer">PiChain &mdash; Computing the Infinite | <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></div>
 
-<!-- Ed25519 library -->
-<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js" integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp" crossorigin="anonymous"></script>
+
+<script src="/pichain-wallet.js"></script>
 
 <script>
 // =====================================================================
@@ -963,15 +1026,20 @@ let accountNonce=0, accountBalance=0;
 
 function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
 
-function createWallet(){initWallet(nacl.randomBytes(32));showToast('Wallet created! Your key is stored in this browser.','success');}
+function createWallet(){initWallet(crypto.getRandomValues(new Uint8Array(32)));showToast('Wallet created! Your key is stored in this browser.','success');}
 
+const WALLET_PAGE_ID='mine';
 function initWallet(seed){
+  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
   walletSeed=seed;
-  walletKeypair=nacl.sign.keyPair.fromSeed(seed);
+  // PQ: keypair managed by signing proxy
+  walletKeypair={publicKey:walletAddress}; // shim for compatibility checks
   walletAddress=deriveAddress(walletKeypair.publicKey);
   walletAddressHex=hexEncode(walletAddress);
   localStorage.setItem('pichain_wallet_seed',hexEncode(seed));
   localStorage.setItem('pichain_seed',hexEncode(seed));
+  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
+  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
   document.getElementById('wallet-setup').style.display='none';
   document.getElementById('wallet-info').style.display='block';
   document.getElementById('wallet-address').textContent='Pi314'+walletAddressHex;
@@ -1088,8 +1156,8 @@ function exportWallet(){
 }
 
 function resetWallet(){
-  if(!confirm('Remove wallet from browser? Make sure you exported your key!'))return;
-  stopMining();localStorage.removeItem('pichain_wallet_seed');localStorage.removeItem('pichain_seed');
+  if(!confirm('Disconnect wallet from this page?'))return;
+  stopMining();localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
   walletSeed=null;walletKeypair=null;walletAddress=null;walletAddressHex='';
   document.getElementById('wallet-setup').style.display='block';
   document.getElementById('wallet-info').style.display='none';
@@ -1111,14 +1179,23 @@ function updateLockedDisplay(locked){
   if(locked>0){document.getElementById('locked-balance').textContent=(locked/1e9).toFixed(3);row.style.display='block';}
   else{row.style.display='none';}
 }
-// Full sync: balance + nonce from on-chain state. Only call when NOT mining
-// or when starting a new mining session (before first proof submission).
+// Full sync: balance + nonce from on-chain state.
+// During mining, nonce is only synced UP (never down) to preserve pending tx nonces.
+// Proofs take ~100s to get into a block, so on-chain nonce lags behind accountNonce.
+// Resetting nonce down would cause duplicate nonce submissions → rejected proofs.
 async function updateBalance(){
   if(!walletAddressHex)return;
   try{
     const r=await fetch(API+'/api/v1/account/'+walletAddressHex);
     const d=await r.json();
-    accountBalance=d.balance||0;accountNonce=d.nonce||0;
+    accountBalance=d.balance||0;
+    var onChainNonce=d.nonce||0;
+    if(isMining){
+      // Only sync nonce UP — pending proofs in mempool use nonces above on-chain value
+      if(onChainNonce>accountNonce)accountNonce=onChainNonce;
+    }else{
+      accountNonce=onChainNonce;
+    }
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
     updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
@@ -1417,52 +1494,47 @@ async function miningLoop(){
       return;
     }
 
-    // On first round, request a slot from the server's miner coordination system.
-    // The server assigns a non-overlapping 500K-digit range per miner so the CLI
-    // miner and browser miners don't overwrite each other's work.
+    // FRONTIER-FIRST MINING: Always mine at or near the server's next_position
+    // (first unmined gap from frontier). This ensures all miners advance the
+    // global frontier together instead of racing ahead independently.
+    // Use local tracking only to avoid re-mining the same gap within a round
+    // (server won't update until proof is in a block), but cap how far ahead.
+    var maxLocalAhead=batchSize*threadCount*5; // max 5 rounds ahead
+    var serverNextPos=currentStatus.next_position??frontier;
+
+    // Always prefer server position; only use local if it's slightly ahead
+    // (within cap) to avoid re-mining the same gap
+    if(browserMiningPosition<serverNextPos){
+      browserMiningPosition=serverNextPos;
+    } else if(browserMiningPosition>serverNextPos+maxLocalAhead){
+      addLog('Position '+browserMiningPosition.toLocaleString()+' too far ahead of frontier '+frontier.toLocaleString()+', resetting to server position','info');
+      browserMiningPosition=serverNextPos;
+    }
+
+    // On first round, log slot info
     if(miningRound===1){
       try{
         const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
         const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
         if(slotResp.ok){
           const slot=await slotResp.json();
-          const remembered=loadMiningCursor();
-          browserMiningPosition=slot.recommended_position;
-          if(remembered&&remembered>browserMiningPosition){
-            browserMiningPosition=remembered;
-          }
-          browserSlotEnd=slot.recommended_position+slot.slot_range_size;
-          saveMiningCursor();
-          addLog('Mining slot #'+slot.slot_index+': position '+browserMiningPosition.toLocaleString()+' ('+((slot.recommended_position-frontier)/1000).toFixed(0)+'K ahead of frontier, '+batchSize+' digits/batch, '+slot.active_miners+' active miners)','info');
-        } else {
-          // Fallback: use deterministic lane if slot endpoint fails
-          const addrHash=BLAKE3.hash(walletAddress);
-          const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
-          const laneOffset=200000+(lane%1000)*1000;
-          browserMiningPosition=frontier+laneOffset;
-          browserSlotEnd=browserMiningPosition+500000;
-          saveMiningCursor();
-          addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
+          addLog('Mining slot #'+slot.slot_index+': frontier '+frontier.toLocaleString()+', '+batchSize+' digits/batch, '+slot.active_miners+' active miners','info');
         }
-      }catch(e){
-        const addrHash=BLAKE3.hash(walletAddress);
-        const lane=(addrHash[0]|(addrHash[1]<<8))&0xFFFF;
-        const laneOffset=200000+(lane%1000)*1000;
-        browserMiningPosition=frontier+laneOffset;
-        browserSlotEnd=browserMiningPosition+500000;
-        saveMiningCursor();
-        addLog('Mining lane: position '+browserMiningPosition.toLocaleString()+' (fallback, '+batchSize+' digits/batch)','info');
-      }
+      }catch(e){}
     }
 
     // Capture round-local snapshot of status to avoid race conditions
     // (currentStatus may be updated by refreshNetStats polling mid-round)
+    // Parse frontier bonus multiplier from status (e.g. "3.0x" → 3.0)
+    var bonusStr=currentStatus.frontier_bonus_at_next||'1.0x';
+    var bonusMult=parseFloat(bonusStr)||1.0;
     const roundStatus={
       anchor_block_hash:currentStatus.anchor_block_hash||'0'.repeat(64),
       difficulty_target_hex:currentStatus.difficulty_target_hex||'00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
       difficulty_bits:currentStatus.difficulty_bits??8,
       base_fee:currentStatus.base_fee??1000,
-      reward_per_digit:currentStatus.reward_per_digit??0
+      reward_per_digit:currentStatus.reward_per_digit??0,
+      frontier_bonus:bonusMult
     };
 
     const position=browserMiningPosition;
@@ -1620,39 +1692,37 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   // If we read accountNonce after an await, all workers would use the same nonce.
   const myNonce=accountNonce++;
 
-  const canonical=buildCanonicalBytes(
-    walletAddress,myNonce,gasLimit,baseFee,100,chainId,
-    startPosition,digitCount,digits,powNonce,anchorHash
-  );
-  const signature=nacl.sign.detached(canonical,walletKeypair.secretKey);
+  // PQ signing via proxy — no local Ed25519 signing
+  const hexStr = await signAndBuildPQ('MiningProof', {
+    start_position: startPosition,
+    digit_count: digitCount,
+    digits: Array.from(digits),
+    proof: [],
+    pow_nonce: powNonce,
+    anchor_block_hash: Array.from(anchorHash)
+  }, myNonce, gasLimit, { maxBaseFee: baseFee, chainId: chainId });
 
-  const signedTx={
-    data:{
-      sender:Array.from(walletAddress),
-      nonce:myNonce,
-      kind:{MiningProof:{
-        start_position:startPosition,digit_count:digitCount,
-        digits:Array.from(digits),proof:[],
-        pow_nonce:powNonce,
-        anchor_block_hash:Array.from(anchorHash)
-      }},
-      gas_limit:gasLimit,max_base_fee:baseFee,max_priority_fee:100,chain_id:chainId
-    },
-    signature:hexEncode(signature),
-    public_key:Array.from(walletKeypair.publicKey)
-  };
-
-  const jsonBytes=new TextEncoder().encode(JSON.stringify(signedTx));
-  const hexStr=hexEncode(jsonBytes);
-
-  const res=await fetch(API+'/api/v1/tx/submit',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({signed_tx_hex:hexStr})
-  });
-  if(!res.ok)throw new Error('Submit HTTP '+res.status);
+  var res;
+  try{
+    res=await fetch(API+'/api/v1/tx/submit',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({signed_tx_hex:hexStr})
+    });
+  }catch(netErr){
+    // Network error — tx never reached mempool. Roll back nonce to prevent gap.
+    accountNonce=myNonce;
+    throw new Error('network error: '+netErr.message);
+  }
+  if(!res.ok){
+    // Server rejected before mempool — roll back nonce to prevent gap.
+    accountNonce=myNonce;
+    throw new Error('Submit HTTP '+res.status);
+  }
   const result=await res.json();
   if(result.status==='pending'){return result.tx_hash;}
-  else throw new Error(result.error||result.status||'rejected');
+  // Server rejected (sig invalid, nonce issue, etc.) — roll back nonce
+  accountNonce=myNonce;
+  throw new Error(result.error||result.status||'rejected');
 }
 
 // Check a mining proof receipt to see if it actually succeeded on-chain
@@ -1671,11 +1741,12 @@ async function checkReceipt(txHash,digitCount){
         if(d.status==='success'){
           conflictStreak=0;
           proofsConfirmed++;
-          const reward=(currentStatus.reward_per_digit||0)*digitCount;
+          var bonusM=parseFloat(currentStatus.frontier_bonus_at_next)||1.0;
+          const reward=(currentStatus.reward_per_digit||0)*digitCount*bonusM;
           totalEarned+=reward;
           totalProofs=proofsConfirmed;
           updateStats();refreshBalance();
-          addLog('Proof CONFIRMED! +'+( reward/1e9).toFixed(4)+' PI (tx: '+txHash.slice(0,16)+'...)','success');
+          addLog('Proof CONFIRMED! +'+(reward/1e9).toFixed(4)+' PI (tx: '+txHash.slice(0,16)+'...)','success');
         }else{
           proofsFailed++;
           totalProofs=proofsConfirmed;
@@ -1722,13 +1793,21 @@ async function checkReceipt(txHash,digitCount){
 // =====================================================================
 // UI
 // =====================================================================
+var _lbRefreshInterval=null;
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  const idx=tab==='browser'?0:tab==='cli'?1:2;
-  document.querySelectorAll('.tab')[idx].classList.add('active');
+  const tabNames=['browser','cli','dashboard','leaderboard'];
+  const idx=tabNames.indexOf(tab);
+  if(idx>=0) document.querySelectorAll('.tab')[idx].classList.add('active');
   if(tab==='dashboard') refreshDashboard();
+  // Leaderboard auto-refresh
+  if(_lbRefreshInterval){clearInterval(_lbRefreshInterval);_lbRefreshInterval=null;}
+  if(tab==='leaderboard'){
+    loadMiningLeaderboard();
+    _lbRefreshInterval=setInterval(loadMiningLeaderboard,30000);
+  }
 }
 
 // =====================================================================
@@ -1783,6 +1862,101 @@ async function refreshDashboard(){
 })();
 
 // =====================================================================
+// LEADERBOARD TAB
+// =====================================================================
+function fmtNum(n){return n.toLocaleString();}
+function fmtPI(n){return n<1000?n.toFixed(2):fmtNum(Math.round(n));}
+function truncAddr(a){return a.slice(0,8)+'...'+a.slice(-4);}
+
+function getMiningBadges(digits,rank){
+  var b=[];
+  if(digits>=1000000) b.push('<span class="mlb-badge mlb-badge-digits">1M+</span>');
+  else if(digits>=100000) b.push('<span class="mlb-badge mlb-badge-digits">100K+</span>');
+  else if(digits>=10000) b.push('<span class="mlb-badge mlb-badge-digits">10K+</span>');
+  else if(digits>=1000) b.push('<span class="mlb-badge mlb-badge-digits">1K+</span>');
+  if(rank===1) b.push('<span class="mlb-badge mlb-badge-rank">#1 Miner</span>');
+  else if(rank<=3) b.push('<span class="mlb-badge mlb-badge-rank">Top 3</span>');
+  else if(rank<=10) b.push('<span class="mlb-badge mlb-badge-rank">Top 10</span>');
+  return b.join('');
+}
+
+function getRankHTML(rank){
+  if(rank<=3) return '<span class="mlb-rank mlb-rank-'+rank+'">'+rank+'</span>';
+  return '<span style="color:var(--muted);font-weight:600;">'+rank+'</span>';
+}
+
+var _expandedMiner=null;
+async function loadMiningLeaderboard(){
+  try{
+    var r=await fetch(API+'/api/v1/mining/leaderboard');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    var net=d.network;
+    document.getElementById('mNetFrontier').textContent=fmtNum(net.frontier_position);
+    document.getElementById('mNetDigits').textContent=fmtNum(net.total_digits_verified);
+    document.getElementById('mNetMiners').textContent=fmtNum(net.unique_miners);
+    document.getElementById('mNetMined').textContent=fmtPI(net.total_mined_pi)+' PI';
+
+    var tbody=document.getElementById('miningLeaderboardBody');
+    if(!d.miners||d.miners.length===0){
+      tbody.innerHTML='<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--dim);">No miners yet. Start mining to appear here!</td></tr>';
+      return;
+    }
+    var html='';
+    d.miners.forEach(function(m){
+      var isExpanded=_expandedMiner===m.address;
+      html+='<tr class="mlb-row" onclick="toggleMinerDetail(\''+m.address+'\')">';
+      html+='<td style="text-align:center;">'+getRankHTML(m.rank)+'</td>';
+      html+='<td style="font-family:monospace;font-size:13px;color:var(--text);">'+truncAddr(m.address)+'</td>';
+      html+='<td style="text-align:right;font-weight:600;color:var(--text);">'+fmtNum(m.digits_computed)+'</td>';
+      html+='<td style="text-align:right;color:var(--muted);">'+m.percentage.toFixed(2)+'%</td>';
+      html+='<td>'+getMiningBadges(m.digits_computed,m.rank)+'</td>';
+      html+='</tr>';
+      if(isExpanded){
+        html+='<tr id="miner-detail-row"><td colspan="5" style="padding:0 16px 16px 16px;"><div id="miner-detail-content">Loading...</div></td></tr>';
+      }
+    });
+    tbody.innerHTML=html;
+    if(_expandedMiner) loadMinerDetail(_expandedMiner);
+  }catch(e){
+    console.error('[Mining] leaderboard error:',e);
+  }
+}
+
+async function toggleMinerDetail(addr){
+  if(_expandedMiner===addr){_expandedMiner=null;loadMiningLeaderboard();return;}
+  _expandedMiner=addr;
+  loadMiningLeaderboard();
+}
+
+async function loadMinerDetail(addr){
+  var el=document.getElementById('miner-detail-content');
+  if(!el) return;
+  try{
+    var r=await fetch(API+'/api/v1/mining/miner/'+addr);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    var html='<div style="display:flex;gap:16px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">';
+    html+='<div style="font-family:monospace;font-size:13px;color:var(--accent-light);word-break:break-all;">'+d.address+'</div>';
+    html+='<div style="font-size:13px;color:var(--muted);">Rank #'+d.rank+' &middot; '+fmtNum(d.digits_computed)+' digits &middot; '+d.percentage.toFixed(2)+'% share</div>';
+    html+='</div>';
+    if(d.recent_proofs&&d.recent_proofs.length>0){
+      html+='<div class="mlb-proofs"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;">Recent Proofs ('+d.recent_proofs.length+')</div>';
+      html+='<table><thead><tr><th>Start Position</th><th>Digits</th><th>Block Height</th></tr></thead><tbody>';
+      d.recent_proofs.forEach(function(p){
+        html+='<tr><td>'+fmtNum(p.start)+'</td><td>'+fmtNum(p.count)+'</td><td>'+fmtNum(p.committed_at_height)+'</td></tr>';
+      });
+      html+='</tbody></table></div>';
+    }else{
+      html+='<div style="font-size:13px;color:var(--dim);">No recent proofs found.</div>';
+    }
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div style="color:var(--rose);">Failed to load miner detail.</div>';
+  }
+}
+
+// =====================================================================
 // NAVIGATION SAFETY — warn before leaving while mining
 // =====================================================================
 window.addEventListener('beforeunload',function(e){
@@ -1830,6 +2004,7 @@ function switchBuild(id){
 // Restore saved settings and wallet
 (function(){
   loadSettings();
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
   const s=localStorage.getItem('pichain_wallet_seed');
   if(s&&/^[0-9a-fA-F]{64}$/.test(s))initWallet(hexDecode(s));
 })();

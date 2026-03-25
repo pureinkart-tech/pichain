@@ -40,9 +40,20 @@ type ScanResult = Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError>;
 /// PIChain database backed by RocksDB.
 pub struct PiChainDB {
     db: Arc<DB>,
+    /// Serializes block writes to prevent TOCTOU race conditions.
+    /// Block writes are infrequent (one per 314ms) so contention is negligible.
+    block_write_lock: std::sync::Mutex<()>,
 }
 
 impl PiChainDB {
+    /// Attempt to repair a corrupted database at the given path.
+    pub fn repair<P: AsRef<Path>>(path: P) -> Result<(), StorageError> {
+        let mut db_opts = Options::default();
+        db_opts.create_if_missing(false);
+        DB::repair(&db_opts, path.as_ref())?;
+        Ok(())
+    }
+
     /// Open or create the database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
         let mut db_opts = Options::default();
@@ -80,7 +91,10 @@ impl PiChainDB {
             .collect();
 
         let db = DB::open_cf_descriptors(&db_opts, path, cf_descriptors)?;
-        Ok(Self { db: Arc::new(db) })
+        Ok(Self {
+            db: Arc::new(db),
+            block_write_lock: std::sync::Mutex::new(()),
+        })
     }
 
     /// Open a temporary database for testing.
@@ -120,7 +134,12 @@ impl PiChainDB {
 
     /// AUDIT-FIX H-6: Check for existing block before writing to prevent
     /// silent overwrites that could corrupt canonical chain state.
+    ///
+    /// SECURITY: Uses a mutex to serialize block writes, preventing the TOCTOU
+    /// race where two threads both pass the get_cf check and one overwrites the other.
     pub fn put_block(&self, height: u64, data: &[u8]) -> Result<(), StorageError> {
+        let _guard = self.block_write_lock.lock()
+            .map_err(|e| StorageError::IntegrityViolation(format!("block write lock poisoned: {e}")))?;
         let key = height.to_be_bytes();
         if self.db.get_cf(&self.cf(CF_BLOCKS), key)?.is_some() {
             return Err(StorageError::IntegrityViolation(format!(
