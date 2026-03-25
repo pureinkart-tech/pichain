@@ -48,35 +48,34 @@ const MAX_COLLECTIONS_PER_ADDRESS: u64 = 10_000;
 // These mirror the values in pichain_consensus::staking but are defined here
 // to avoid a circular dependency (execution must not depend on consensus).
 
-/// Maximum percentage of total staked that any single validator can hold (bps).
-/// 3333 bps = 33.33%. Prevents one validator from controlling 2/3+1 quorum.
-const MAX_VALIDATOR_STAKE_PCT_BPS: u32 = 3333;
+/// Maximum percentage of total staked that any single validator can hold.
+/// 3141 bps = 31.41% (π × 1000). Prevents one validator from reaching BFT 1/3 threshold.
+/// MUST match pichain_consensus::staking::MAX_VALIDATOR_STAKE_PCT_BPS.
+const MAX_VALIDATOR_STAKE_PCT_BPS: u32 = 3141;
 
 /// Maximum percentage of total staked that any single address can hold (bps).
 /// 1000 bps = 10%. Forces capital distribution across multiple delegators.
 const MAX_ADDRESS_STAKE_PCT_BPS: u32 = 1000;
 
-/// Minimum number of unique validators with non-zero delegations before
-/// concentration caps are enforced. During bootstrap, fewer validators
-/// are allowed to operate without caps.
+/// Minimum number of unique validators before concentration caps are enforced.
+/// MUST match pichain_consensus::staking::MIN_VALIDATORS_FOR_STAKE_CAP.
 const MIN_VALIDATORS_FOR_STAKE_CAP: usize = 4;
 
-/// Maximum stake growth per validator per epoch (bps of epoch-start stake).
-/// 5000 bps = 50%. Prevents flash-staking attacks.
-const MAX_STAKE_GROWTH_PCT_BPS: u32 = 3141; // π × 1000 bps
+/// Maximum stake growth per validator per epoch (π × 1000 bps = 31.41%).
+/// MUST match pichain_consensus::staking::MAX_STAKE_GROWTH_PCT_BPS.
+const MAX_STAKE_GROWTH_PCT_BPS: u32 = 3141;
 
-/// Maximum number of active validators. Prevents Sybil flooding.
-const MAX_ACTIVE_VALIDATORS: usize = 100;
+/// Maximum number of active validators (π × 100).
+/// MUST match pichain_consensus::staking::MAX_ACTIVE_VALIDATORS.
+const MAX_ACTIVE_VALIDATORS: usize = 314;
 
 /// Bootstrap validator concentration cap (41.3% = 4130 bps).
-/// During bootstrap (< 4 validators), caps are relaxed to this level.
-/// PI-themed: 4-1-3 = first 3 digits of π.
+/// MUST match pichain_consensus::staking::BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS.
 const BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS: u32 = 4130;
 
-/// Minimum stake to count an address as a validator in the StakeTracker.
-/// Must match pichain_consensus::staking::MIN_VALIDATOR_STAKE.
-/// Without this, an attacker can fill all 100 validator slots for 100 lamports.
-const MIN_VALIDATOR_STAKE: u64 = 10_000 * 1_000_000_000;
+/// Minimum stake to count as a validator (3,141 PI = π × 1000).
+/// MUST match pichain_consensus::staking::MIN_VALIDATOR_STAKE.
+const MIN_VALIDATOR_STAKE: u64 = 3_141 * 1_000_000_000;
 
 /// Blocks per staking epoch for velocity limiting.
 /// 31,415 blocks × 314ms ≈ 2.74 hours. Prevents flash-staking within a single epoch.
@@ -3924,7 +3923,7 @@ mod tests {
         // During bootstrap (< 4 validators with MIN_VALIDATOR_STAKE), relaxed 41.3% cap applies.
         // Setup: 3 validators each staking 10,000 PI (each 33.3% of total).
         let executor = TransactionExecutor::new(1);
-        let stake = 10_000 * 1_000_000_000_u64; // MIN_VALIDATOR_STAKE
+        let stake = 3_141 * 1_000_000_000_u64; // MIN_VALIDATOR_STAKE
         let staker1 = PqKeypair::generate();
         let staker2 = PqKeypair::generate();
         let staker3 = PqKeypair::generate();
