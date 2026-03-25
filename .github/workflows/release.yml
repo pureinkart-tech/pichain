@@ -297,10 +297,12 @@ jobs:
             **For developers:** `pichain-cli` — wallet generation, PI computation, and chain tools
             **GUI Miner:** Desktop app with built-in wallet management
 
-            ### Quantum Resistance
+            ### Features
 
-            - Dual PQ signatures (NIST FIPS 204 + 205)
-            - Quantum-safe hash combiner (Blake3 XOR SHA-3)
+            - Post-quantum signatures (ML-DSA-65 + SLH-DSA-SHAKE-128f)
+            - π-smooth emission (half-life = π years, no cliff halvings)
+            - 4-way π-native fee split (31.41% burn, 31.41% stakers, 18.59% miners, 18.59% proposer)
+            - Send PI from desktop app and CLI
+            - Browser mining (pool-style, no wallet needed)
             - VDF with progressive strengthening
-            - Ed25519 wallets no longer accepted
           files: artifacts/*

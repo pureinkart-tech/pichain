@@ -22,7 +22,7 @@ use pichain_types::{PiAmount, BASE_UNITS_PER_PI, TOTAL_SUPPLY};
 ///
 /// Satoshi-style launch: 85% to miners, no team/treasury allocations.
 /// Miners earn this pool over time via π-smooth decay, supplemented
-/// by transaction fee income (25% of base fees flow back).
+/// by transaction fee income (18.59% of base fees flow back).
 const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 85 / 100;
 
 /// Compile-time assertion: MINING_POOL_BASE must fit in u64.
@@ -75,7 +75,7 @@ pub struct RewardCalculator {
     /// Total rewards distributed so far (in base units).
     total_mined: u64,
     /// Cumulative transaction fee income added to the mining pool.
-    /// 25% of base fees flow back into the pool, extending its lifetime.
+    /// 18.59% of base fees flow back into the pool, extending its lifetime.
     fee_income: u64,
 }
 

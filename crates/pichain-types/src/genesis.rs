@@ -55,7 +55,7 @@ impl GenesisConfig {
     /// Total supply: 3,141,592,653 PI = 3.14B tokens.
     ///
     /// Satoshi model: no team, no foundation, no treasury.
-    /// 85% Mining Pool — earned by computing Pi digits (2π% geometric decay)
+    /// 85% Mining Pool — earned by computing Pi digits (π-smooth emission, half-life = π years)
     /// 10% Validator Staking — secures BFT consensus
     ///  5% Initial Liquidity — DEX bootstrapping
     pub fn pichain_mainnet() -> Self {

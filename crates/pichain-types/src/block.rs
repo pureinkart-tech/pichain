@@ -43,7 +43,7 @@ pub struct BlockHeader {
     pub tx_count: u32,
     /// Total PI burned in this block.
     pub pi_burned: PiAmount,
-    /// Total miner fee income (25% of base fees) flowing to mining pool.
+    /// Total miner fee income (18.59% of base fees) flowing to mining pool.
     #[serde(default)]
     pub pi_miner_fee: PiAmount,
 }

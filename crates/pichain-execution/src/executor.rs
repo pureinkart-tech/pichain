@@ -154,7 +154,7 @@ pub struct ExecutionResult {
     pub pi_minted: PiAmount,
     /// Fee reward for the block proposer (priority fees + staker share of base fees).
     pub proposer_reward: PiAmount,
-    /// Miner fee income (25% of base fees) flowing back to mining pool.
+    /// Miner fee income (18.59% of base fees) flowing back to mining pool.
     pub miner_fee: PiAmount,
     /// Addresses read during execution (for conflict detection).
     pub state_reads: Vec<Address>,
