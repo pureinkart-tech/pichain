@@ -9,7 +9,7 @@ use zeroize::Zeroize;
 
 use crate::CryptoError;
 
-/// 32-byte Ed25519 public key.
+/// 32-byte public key (used for P2P identity and internal types).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PublicKey(pub [u8; 32]);
 
@@ -52,7 +52,7 @@ impl std::fmt::Display for PublicKey {
     }
 }
 
-/// 64-byte Ed25519 signature.
+/// 64-byte signature.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Signature(pub [u8; 64]);
 
@@ -120,7 +120,7 @@ impl std::fmt::Display for Address {
     }
 }
 
-/// Ed25519 secret key (zeroized on drop).
+/// Secret key (zeroized on drop).
 pub struct SecretKey {
     inner: SigningKey,
 }
@@ -165,7 +165,7 @@ impl Drop for SecretKey {
     }
 }
 
-/// Ed25519 keypair (convenience wrapper).
+/// Keypair for P2P identity and internal use.
 pub struct Keypair {
     pub secret: SecretKey,
     pub public: PublicKey,
@@ -197,7 +197,7 @@ impl Keypair {
     }
 }
 
-/// Batch-verify multiple Ed25519 signatures for throughput.
+/// Batch-verify multiple signatures for throughput.
 /// Returns Ok if ALL signatures are valid, Err if any is invalid.
 pub fn verify_batch(
     messages: &[&[u8]],

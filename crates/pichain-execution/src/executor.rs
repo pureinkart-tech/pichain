@@ -2765,13 +2765,13 @@ impl TransactionExecutor {
                 inner_tx_data,
                 signatures,
             } => {
-                // SECURITY: Verify all provided signatures are valid Ed25519 signatures
+                // SECURITY: Verify all provided signatures are valid signatures
                 // over hash(multisig_address || inner_tx_data). Reject if any signature
                 // is invalid or if there are duplicate signers.
                 //
                 // The multisig wallet registry is event-based (off-chain tracking via
                 // CreateMultisig events). On-chain, we verify:
-                // a) Each signature is valid Ed25519 over the canonical message
+                // a) Each signature is valid over the canonical message
                 // b) No duplicate signers
                 // c) At least 1 valid signature (threshold enforcement is off-chain)
                 //
@@ -2801,7 +2801,7 @@ impl TransactionExecutor {
                     // Canonical message for off-chain signature verification:
                     // hash("pichain-multisig-v1:" || multisig_address || inner_tx_data)
                     // On-chain we validate format + uniqueness; off-chain verifiers
-                    // use this hash to check actual Ed25519 signatures.
+                    // use this hash to check actual signatures.
                     let _msg_hash = pichain_crypto::hash_concat(&[
                         b"pichain-multisig-v1:",
                         &multisig_address.0,
@@ -2814,7 +2814,7 @@ impl TransactionExecutor {
                         if !seen_signers.insert(*signer_addr) {
                             continue;
                         }
-                        // Signature must be exactly 64 bytes (Ed25519)
+                        // Signature must be exactly 64 bytes
                         if sig_bytes.len() != 64 {
                             continue;
                         }

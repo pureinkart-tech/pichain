@@ -1,0 +1,979 @@
+<!doctype html><html lang=en translate=no><meta charset=utf-8><meta content="width=device-width,initial-scale=1,maximum-scale=1.0,user-scalable=no" name=viewport><title>Mk48.io - PIChain</title><meta content=#00487d name=theme-color><link href=favicon.png rel=icon><script>
+var _mk48base='/game-assets/mk48';
+// PVP mode: check for pvpMatch URL param to route to private instance
+var _mk48params=new URLSearchParams(window.location.search);
+var _mk48pvpMatch=_mk48params.get('pvpMatch');
+var _mk48wsPath=_mk48pvpMatch?'/ws/mk48-pvp/'+_mk48pvpMatch:'/ws/mk48';
+var _mk48v='?v=9';
+var _fetch=window.fetch;window.fetch=function(u,o){if(typeof u==='string'){if(u.startsWith('/system.json'))u=_mk48wsPath+u;else if(u.startsWith('/data/'))u=_mk48base+u+_mk48v}if(u instanceof Request){var nu=u.url;if(nu.includes('/data/')&&!nu.includes('game-assets')){var p=new URL(nu).pathname;u=new Request(_mk48base+p+_mk48v,u)}}return _fetch.call(this,u,o)};
+// Also intercept Image.src for textures loaded via new Image() instead of fetch()
+var _imgSrcDesc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');Object.defineProperty(HTMLImageElement.prototype,'src',{set:function(v){if(typeof v==='string'&&v.startsWith('/data/'))v=_mk48base+v+_mk48v;return _imgSrcDesc.set.call(this,v)},get:_imgSrcDesc.get});
+var _WS=WebSocket;window.WebSocket=function(u,p){try{var d=new URL(u);if(d.pathname==='/ws'){d.port='';d.pathname=_mk48wsPath+'/ws';u=d.toString()}}catch(e){}return p?new _WS(u,p):new _WS(u)};window.WebSocket.prototype=_WS.prototype;Object.defineProperty(window.WebSocket,'CONNECTING',{value:0});Object.defineProperty(window.WebSocket,'OPEN',{value:1});Object.defineProperty(window.WebSocket,'CLOSING',{value:2});Object.defineProperty(window.WebSocket,'CLOSED',{value:3});
+var request_pointer_lock_with_unadjusted_movement=(a=>{const b=a.requestPointerLock({unadjustedMovement:!0});if(b){b.catch(b=>{if(b.name===`NotSupportedError`){a.requestPointerLock()}})}})</script><script>
+// PVP Match Overlay — auto-play, death detection, elimination
+(function(){
+  var params=new URLSearchParams(window.location.search);
+  var pvpMatch=params.get('pvpMatch');
+  var pvpName=params.get('pvpName');
+  if(!pvpMatch)return;
+
+  var MATCH_DURATION=900; // 15 minute match
+  var matchTime=MATCH_DURATION;
+  var matchOver=false;
+  var eliminated=false;
+  var playClicked=false;
+  var gameConfirmedStarted=false;
+
+  // Hide mk48 social/banner UI via CSS
+  var pvpStyle=document.createElement('style');
+  pvpStyle.textContent=
+    '#play_with_friends_button,#social_links,.social-links,.banner-ad,'+
+    '.ad-container,[class*="social"],[class*="banner"],[class*="invite"],'+
+    '#play_with_friends_button,.leaderboard-overlay,'+
+    '[class*="leaderboard"]{display:none!important;}'+
+    '#spawn_overlay{transition:opacity 0.3s;}';
+  document.head.appendChild(pvpStyle);
+
+  // Phase 1: Auto-play — use Enter key on alias_input (more reliable than button click)
+  // Kodiak's spawn overlay fires onplay when Enter is pressed on alias_input
+  // The input is only disabled during 'transitioning' (~1.5s), not 'paused'
+  var autoPlayAttempts=0;
+  var autoPlayTimer=setInterval(function(){
+    autoPlayAttempts++;
+    // If spawn overlay is gone, we're in the game
+    var spawnOv=document.getElementById('spawn_overlay');
+    if(playClicked && !spawnOv){
+      clearInterval(autoPlayTimer);
+      return;
+    }
+
+    var aliasInput=document.getElementById('alias_input');
+    if(!aliasInput)return;
+
+    // Set alias
+    try{
+      var nativeSetter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+      nativeSetter.call(aliasInput,pvpName||'Player');
+      aliasInput.dispatchEvent(new Event('input',{bubbles:true}));
+    }catch(_e){}
+
+    // After 2s, force-enable the input if it's disabled
+    if(autoPlayAttempts>2 && aliasInput.disabled) aliasInput.disabled=false;
+
+    // Focus and send Enter key to trigger Yew's onkeydown handler
+    aliasInput.focus();
+    var enterEvent=new KeyboardEvent('keydown',{
+      key:'Enter',keyCode:13,code:'Enter',which:13,bubbles:true,cancelable:true
+    });
+    aliasInput.dispatchEvent(enterEvent);
+
+    if(!playClicked){
+      playClicked=true;
+      console.log('[MK48 PVP] Auto-play Enter sent for',pvpName);
+      waitForGameStart();
+    }
+  },1000);
+
+  // Stop retrying after 30s
+  setTimeout(function(){
+    clearInterval(autoPlayTimer);
+  },30000);
+
+  function waitForGameStart(){
+    // Wait for canvas to appear (WASM loaded) then setup HUD immediately
+    var sawCanvas=false;
+    var checkInterval=setInterval(function(){
+      var canvas=document.getElementById('canvas');
+      if(canvas && !sawCanvas){
+        sawCanvas=true;
+        console.log('[MK48 PVP] Canvas found, WASM loaded');
+      }
+      // Game started when spawn_overlay disappears (after clicking play)
+      var spawnOv=document.getElementById('spawn_overlay');
+      if(sawCanvas && !spawnOv){
+        gameConfirmedStarted=true;
+        clearInterval(checkInterval);
+        console.log('[MK48 PVP] Game confirmed started');
+        setupPvpHud();
+      }
+    },200);
+    // Fallback: force HUD after 15s regardless
+    setTimeout(function(){
+      if(!gameConfirmedStarted){
+        gameConfirmedStarted=true;
+        clearInterval(checkInterval);
+        console.log('[MK48 PVP] Forced game start after timeout');
+        setupPvpHud();
+      }
+    },15000);
+  }
+
+  function setupPvpHud(){
+    var hud=document.createElement('div');
+    hud.id='pvp-hud';
+    hud.style.cssText='position:fixed;top:8px;right:16px;z-index:99999;'+
+      'background:rgba(0,0,0,0.7);border:1px solid #42a5f5;border-radius:8px;'+
+      'padding:10px 16px;font-family:sans-serif;text-align:center;pointer-events:none;';
+    hud.innerHTML='<div style="color:#42a5f5;font-size:11px;font-weight:700;">PVP ELIMINATION</div>'+
+      '<div id="pvp-timer" style="color:#fff;font-size:28px;font-weight:900;">15:00</div>'+
+      '<div id="pvp-status" style="color:#4caf50;font-size:12px;">ALIVE</div>';
+    document.body.appendChild(hud);
+
+    // Death detection: ONLY watch for #death div (kodiak's respawn overlay)
+    // #death div is CREATED by Yew when UiStatus→Respawning (player died)
+    // It does NOT exist at all until the player actually dies
+    var deathCheckTimer=setInterval(function(){
+      if(matchOver||eliminated)return;
+      var deathEl=document.getElementById('death');
+      if(deathEl){
+        // #death div exists in DOM = player has died
+        console.log('[MK48 PVP] Death detected — #death div appeared');
+        eliminated=true;
+        clearInterval(deathCheckTimer);
+        reportElimination();
+      }
+    },300);
+
+    // Countdown timer
+    var timerEl=document.getElementById('pvp-timer');
+    var countdown=setInterval(function(){
+      if(matchOver)return;
+      matchTime--;
+      var m=Math.floor(matchTime/60);
+      var s=matchTime%60;
+      timerEl.textContent=m+':'+(s<10?'0':'')+s;
+      if(matchTime<=60)timerEl.style.color='#ff6b6b';
+      if(matchTime<=0){
+        matchOver=true;
+        clearInterval(countdown);
+        clearInterval(deathCheckTimer);
+        reportTimeUp();
+      }
+    },1000);
+
+    function getScore(){
+      var d=window._mk48MapData;
+      return d&&d.score?d.score:0;
+    }
+
+    function reportElimination(){
+      matchOver=true;
+      clearInterval(countdown);
+      var statusEl=document.getElementById('pvp-status');
+      if(statusEl){statusEl.textContent='ELIMINATED';statusEl.style.color='#ff6b6b';}
+      if(window.parent!==window){
+        window.parent.postMessage({
+          type:'mk48_match_end',
+          playerName:pvpName,
+          matchId:pvpMatch,
+          alive:false,
+          survived:MATCH_DURATION-matchTime,
+          score:getScore()
+        },'*');
+      }
+      var overlay=document.createElement('div');
+      overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;z-index:999999;'+
+        'background:rgba(0,0,0,0.85);display:flex;flex-direction:column;'+
+        'align-items:center;justify-content:center;';
+      overlay.innerHTML='<div style="color:#ff6b6b;font-size:48px;font-weight:900;'+
+        'text-shadow:0 0 30px rgba(255,107,107,0.5);">ELIMINATED!</div>'+
+        '<div style="color:#aaa;font-size:16px;margin-top:16px;">Your ship was sunk.</div>'+
+        '<div style="color:#666;font-size:14px;margin-top:12px;">Waiting for match to finish...</div>';
+      document.body.appendChild(overlay);
+    }
+
+    function reportTimeUp(){
+      if(window.parent!==window){
+        window.parent.postMessage({
+          type:'mk48_match_end',
+          playerName:pvpName,
+          matchId:pvpMatch,
+          alive:true,
+          survived:MATCH_DURATION,
+          score:getScore()
+        },'*');
+      }
+      var overlay=document.createElement('div');
+      overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;z-index:999999;'+
+        'background:rgba(0,0,0,0.85);display:flex;flex-direction:column;'+
+        'align-items:center;justify-content:center;';
+      overlay.innerHTML='<div style="color:#42a5f5;font-size:48px;font-weight:900;'+
+        'text-shadow:0 0 30px rgba(66,165,245,0.5);">TIME UP!</div>'+
+        '<div style="color:#4caf50;font-size:20px;margin-top:16px;">You survived!</div>'+
+        '<div style="color:#aaa;font-size:14px;margin-top:12px;">Determining winner...</div>';
+      document.body.appendChild(overlay);
+    }
+  }
+})();
+</script><script>
+// Minimap overlay — reads _mk48MapData set by WASM each frame
+(function(){
+  var SIZE=180,PAD=12,DOT=5,MY_DOT=5;
+  var canvas,ctx,started=false;
+  function init(){
+    if(started)return;
+    if(!document.getElementById('canvas'))return;
+    started=true;
+    canvas=document.createElement('canvas');
+    canvas.id='minimap';
+    canvas.width=SIZE;canvas.height=SIZE;
+    canvas.style.cssText='position:fixed;bottom:'+PAD+'px;left:'+PAD+'px;z-index:99990;'+
+      'width:'+SIZE+'px;height:'+SIZE+'px;border-radius:50%;border:2px solid rgba(66,165,245,0.6);'+
+      'background:rgba(0,20,40,0.75);pointer-events:none;';
+    document.body.appendChild(canvas);
+    ctx=canvas.getContext('2d');
+  }
+  setInterval(function(){
+    if(!started){init();return;}
+    var d=window._mk48MapData;
+    if(!d||!d.contacts)return;
+    var r=d.worldRadius||5000;
+    var cx=SIZE/2,cy=SIZE/2,scale=(SIZE/2-8)/r;
+    ctx.clearRect(0,0,SIZE,SIZE);
+    // World border circle
+    ctx.beginPath();ctx.arc(cx,cy,SIZE/2-4,0,Math.PI*2);
+    ctx.strokeStyle='rgba(66,165,245,0.3)';ctx.lineWidth=1;ctx.stroke();
+    // Contacts — absolute positions on world map (0,0 = center of world)
+    var contacts=d.contacts;
+    var enemyCount=0;
+    for(var i=0;i<contacts.length;i++){
+      var c=contacts[i];
+      if(!c.me)enemyCount++;
+      // Absolute position scaled to minimap
+      var px=cx+c.x*scale;
+      var py=cy-c.y*scale;
+      // Clamp to circle
+      var dx=px-cx,dy=py-cy;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      var maxR=SIZE/2-8;
+      if(dist>maxR){px=cx+dx/dist*maxR;py=cy+dy/dist*maxR;}
+      ctx.beginPath();
+      if(c.me){
+        ctx.arc(px,py,MY_DOT,0,Math.PI*2);
+        ctx.fillStyle='#4caf50';
+      }else{
+        ctx.arc(px,py,DOT,0,Math.PI*2);
+        ctx.fillStyle='#ff6b6b';
+      }
+      ctx.fill();
+    }
+    // Show player count at bottom of minimap
+    ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='10px sans-serif';ctx.textAlign='center';
+    ctx.fillText(enemyCount+' enemies | R:'+Math.round(r),cx,SIZE-4);
+  },100);
+})();
+</script><script>
+// ═══════════════════════════════════════════════════════════════════════
+// Mk48 Bot Controller v2 — Advanced AI with lead aiming, island avoidance,
+// weapon management, defensive play, and smooth mouse control
+// Activate: window._mk48BotEnabled = true  (or URL param ?bot=1)
+// Control: window._mk48Bot.enable() / .disable() / .status()
+// ═══════════════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+
+  // ── Configuration ────────────────────────────────────────────────────
+  var BOT_TICK_MS=80;              // 12.5 Hz for smoother control
+  var PATROL_SPEED=0.02;           // Radians per tick for patrol rotation
+  var BORDER_MARGIN=300;           // Stay this far from world border
+  var BORDER_MARGIN_HARD=150;      // Emergency border push distance
+
+  // Engagement ranges
+  var TORPEDO_RANGE=500;           // Fire torpedoes only when close
+  var GUN_RANGE=800;               // Fire guns at medium range
+  var ENGAGE_RANGE=1000;           // Overall engage distance
+  var FLEE_RANGE=300;              // Too close — back off if hurt
+
+  // Firing cooldowns (ms)
+  var TORPEDO_COOLDOWN_MS=2500;    // Torpedoes are precious, space them
+  var GUN_COOLDOWN_MS=400;         // Guns fire fast
+  var SPACE_FIRE_COOLDOWN_MS=300;  // Keyboard fire rate
+
+  // Precision fire: max angle between heading and intercept for torpedo launch
+  var TORPEDO_MAX_INTERCEPT_ANGLE=0.26; // ~15 degrees in radians
+
+  // Health thresholds (score-based heuristic)
+  var FLEE_HEALTH_PCT=0.25;        // Flee when health below 25%
+
+  // Torpedo/missile dodge: fast contacts heading toward us
+  var TORP_DETECT_SPEED=15;        // Min speed to consider a contact a torpedo
+  var TORP_DODGE_RANGE=600;        // Start dodging when torpedo within this range
+  var TORP_DODGE_ANGLE_THRESHOLD=0.5; // Max angle deviation for "heading toward us"
+
+  // Velocity tracking
+  var VEL_HISTORY_FRAMES=5;        // Track N frames for stable velocity estimate
+  var VEL_MAX_MATCH_DIST=400;      // Max distance to match contacts across frames
+
+  // Stuck detection
+  var STUCK_THRESHOLD=3;           // World units — if we move less than this
+  var STUCK_FRAMES_TRIGGER=15;     // Consecutive stuck frames before reversing
+  var STUCK_REVERSE_DURATION=20;   // How many ticks to reverse when stuck
+
+  // Smooth mouse
+  var MOUSE_SMOOTHING=0.3;         // Lerp factor (0=no move, 1=instant)
+
+  // ── State ────────────────────────────────────────────────────────────
+  var botInterval=null,canvas=null;
+  var lastTorpedoTime=0,lastGunTime=0,lastSpaceTime=0;
+  var patrolAngle=Math.random()*Math.PI*2,tick=0;
+  var mouseHeld=false,botActive=false;
+  var lastAimX=0,lastAimY=0;
+  var smoothAimX=0,smoothAimY=0;   // Smoothed aim position
+  var lastMyX=0,lastMyY=0,myVX=0,myVY=0;
+  var zoomDone=false;
+
+  // Multi-frame velocity tracking: map of contact key -> [{x,y,t}]
+  var contactHistory={};
+  var contactHistoryTick=0;
+
+  // Stuck detection
+  var stuckCounter=0;
+  var reverseCounter=0;
+  var reverseAngle=0;
+
+  // Health tracking (estimated from score changes and contact visibility)
+  var lastScore=0,peakScore=0;
+  var estimatedHealthPct=1.0;
+  var hitDetectedTime=0;
+
+  // Evasion state
+  var evasionAngle=0;
+  var lastEvasionSwitch=0;
+
+  // Torpedo dodge state
+  var torpedoDodgeActive=false;
+  var torpedoDodgeAngle=0;
+  var torpedoDodgeTicks=0;
+
+  // My team ID (for team play)
+  var myTeamId=null;
+
+  // Auto-enable from URL param
+  if(new URLSearchParams(window.location.search).get('bot')==='1'){
+    window._mk48BotEnabled=true;
+  }
+
+  function log(m){console.log('[MK48 BOT]',m)}
+  function dist(x1,y1,x2,y2){var a=x2-x1,b=y2-y1;return Math.sqrt(a*a+b*b)}
+  function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v}
+  function lerp(a,b,t){return a+(b-a)*t}
+  function normalizeAngle(a){while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a}
+
+  // ── Multi-frame velocity estimation ──────────────────────────────────
+  // Track contact positions over VEL_HISTORY_FRAMES for stable velocity.
+  // Contacts have no ID, so we match by proximity across frames.
+
+  function updateContactHistory(enemies){
+    contactHistoryTick++;
+    var newHistory={};
+    for(var i=0;i<enemies.length;i++){
+      var e=enemies[i];
+      // Find best matching history entry
+      var bestKey=null,bestDist=Infinity;
+      for(var key in contactHistory){
+        var h=contactHistory[key];
+        var last=h[h.length-1];
+        var d=dist(e.x,e.y,last.x,last.y);
+        if(d<bestDist&&d<VEL_MAX_MATCH_DIST&&!newHistory[key]){
+          bestDist=d;bestKey=key;
+        }
+      }
+      var histKey=bestKey||('c'+contactHistoryTick+'_'+i);
+      var history=bestKey?contactHistory[bestKey].slice():[];
+      history.push({x:e.x,y:e.y,t:contactHistoryTick});
+      // Keep only last N frames
+      while(history.length>VEL_HISTORY_FRAMES)history.shift();
+      newHistory[histKey]=history;
+    }
+    contactHistory=newHistory;
+    return newHistory;
+  }
+
+  function getSmoothedVelocity(enemy){
+    // Find this enemy's history
+    var bestKey=null,bestDist=Infinity;
+    for(var key in contactHistory){
+      var h=contactHistory[key];
+      var last=h[h.length-1];
+      var d=dist(enemy.x,enemy.y,last.x,last.y);
+      if(d<bestDist&&d<50){bestDist=d;bestKey=key;}
+    }
+    if(!bestKey)return{vx:0,vy:0,speed:0,confidence:0};
+
+    var h=contactHistory[bestKey];
+    if(h.length<2)return{vx:0,vy:0,speed:0,confidence:0};
+
+    // Use linear regression over all history points for stable velocity
+    var n=h.length;
+    var sumT=0,sumX=0,sumY=0,sumTT=0,sumTX=0,sumTY=0;
+    for(var i=0;i<n;i++){
+      var t=h[i].t;
+      sumT+=t;sumX+=h[i].x;sumY+=h[i].y;
+      sumTT+=t*t;sumTX+=t*h[i].x;sumTY+=t*h[i].y;
+    }
+    var denom=n*sumTT-sumT*sumT;
+    if(Math.abs(denom)<0.001)return{vx:0,vy:0,speed:0,confidence:0};
+
+    // Velocity in world units per tick
+    var vxPerTick=(n*sumTX-sumT*sumX)/denom;
+    var vyPerTick=(n*sumTY-sumT*sumY)/denom;
+    // Convert to world units per second
+    var ticksPerSec=1000/BOT_TICK_MS;
+    var vx=vxPerTick*ticksPerSec;
+    var vy=vyPerTick*ticksPerSec;
+    var speed=Math.sqrt(vx*vx+vy*vy);
+    var confidence=clamp(n/VEL_HISTORY_FRAMES,0,1);
+
+    return{vx:vx,vy:vy,speed:speed,confidence:confidence};
+  }
+
+  // ── Iterative intercept calculation ──────────────────────────────────
+  // Solve: |targetPos + targetVel * t - myPos| = projectileSpeed * t
+  // Using iterative refinement (2 iterations is accurate enough)
+
+  function computeIntercept(ex,ey,vx,vy,myX,myY,projSpeed){
+    if(projSpeed<=0)projSpeed=20;
+    var ix=ex,iy=ey;
+    for(var iter=0;iter<3;iter++){
+      var d=dist(myX,myY,ix,iy);
+      var t=d/projSpeed;
+      t=clamp(t,0,8);
+      ix=ex+vx*t;
+      iy=ey+vy*t;
+    }
+    return{x:ix,y:iy};
+  }
+
+  // ── Screen/world conversion ──────────────────────────────────────────
+  function getCenter(){
+    if(!canvas)return{x:640,y:360};
+    var r=canvas.getBoundingClientRect();
+    return{x:r.left+r.width/2,y:r.top+r.height/2};
+  }
+
+  function worldToScreen(dx,dy){
+    var c=getCenter();
+    return{x:c.x+dx*1.0,y:c.y-dy*1.0};
+  }
+
+  // ── Mouse event dispatch ─────────────────────────────────────────────
+  function sendMouse(type,cx,cy,btn){
+    if(!canvas)return;
+    var c=getCenter();
+    canvas.dispatchEvent(new MouseEvent(type,{
+      bubbles:true,cancelable:true,clientX:cx,clientY:cy,
+      movementX:cx-c.x,movementY:cy-c.y,
+      button:btn||0,buttons:type==='mousedown'?1:0,view:window
+    }));
+  }
+  function sendPointer(type,cx,cy,btn){
+    if(!canvas)return;
+    var c=getCenter();
+    try{canvas.dispatchEvent(new PointerEvent(type,{
+      bubbles:true,cancelable:true,clientX:cx,clientY:cy,
+      movementX:cx-c.x,movementY:cy-c.y,
+      button:btn||0,buttons:type==='pointerdown'?1:0,
+      pointerId:1,pointerType:'mouse',view:window
+    }))}catch(_){}
+  }
+
+  // Smooth aim: lerp toward target to avoid jumpy teleporting
+  function smoothAimAt(targetX,targetY){
+    if(smoothAimX===0&&smoothAimY===0){smoothAimX=targetX;smoothAimY=targetY;}
+    smoothAimX=lerp(smoothAimX,targetX,MOUSE_SMOOTHING);
+    smoothAimY=lerp(smoothAimY,targetY,MOUSE_SMOOTHING);
+    lastAimX=Math.round(smoothAimX);
+    lastAimY=Math.round(smoothAimY);
+    sendPointer('pointermove',lastAimX,lastAimY,0);
+    sendMouse('mousemove',lastAimX,lastAimY,0);
+  }
+
+  // Direct aim (no smoothing) for firing
+  function directAimAt(sx,sy){
+    lastAimX=sx;lastAimY=sy;
+    smoothAimX=sx;smoothAimY=sy;
+    sendPointer('pointermove',sx,sy,0);
+    sendMouse('mousemove',sx,sy,0);
+  }
+
+  function startHold(sx,sy){
+    if(mouseHeld)return;mouseHeld=true;
+    sendPointer('pointerdown',sx,sy,0);
+    sendMouse('mousedown',sx,sy,0);
+  }
+  function releaseHold(){
+    if(!mouseHeld)return;mouseHeld=false;
+    sendPointer('pointerup',lastAimX,lastAimY,0);
+    sendMouse('mouseup',lastAimX,lastAimY,0);
+  }
+
+  // Tap fire: brief click at target position for torpedo launch
+  function tapFire(sx,sy){
+    releaseHold();
+    setTimeout(function(){
+      directAimAt(sx,sy);
+      sendPointer('pointerdown',sx,sy,0);sendMouse('mousedown',sx,sy,0);
+      setTimeout(function(){
+        sendPointer('pointerup',sx,sy,0);sendMouse('mouseup',sx,sy,0);
+      },60);
+    },20);
+  }
+
+  // ── Keyboard helpers ─────────────────────────────────────────────────
+  function pressKey(key,code,keyCode){
+    if(!canvas)return;
+    canvas.dispatchEvent(new KeyboardEvent('keydown',{
+      key:key,code:code,keyCode:keyCode,bubbles:true,cancelable:true
+    }));
+  }
+  function releaseKey(key,code,keyCode){
+    if(!canvas)return;
+    canvas.dispatchEvent(new KeyboardEvent('keyup',{
+      key:key,code:code,keyCode:keyCode,bubbles:true,cancelable:true
+    }));
+  }
+
+  // Fire via spacebar (fires all ready weapons)
+  function spacebarFire(){
+    pressKey(' ','Space',32);
+    setTimeout(function(){releaseKey(' ','Space',32)},50);
+  }
+
+  // ── Border avoidance ─────────────────────────────────────────────────
+  function getBorderRepulsion(myX,myY,wr){
+    var d=Math.sqrt(myX*myX+myY*myY);
+    var safeR=wr-BORDER_MARGIN;
+    if(d<safeR||d<1)return{fx:0,fy:0,urgent:false};
+
+    // Gradual push
+    var s=clamp((d-safeR)/BORDER_MARGIN,0,5);
+    var urgent=d>(wr-BORDER_MARGIN_HARD);
+    var mult=urgent?1500:600;
+    return{fx:-myX/d*s*mult,fy:-myY/d*s*mult,urgent:urgent};
+  }
+
+  // ── Stuck/island detection ───────────────────────────────────────────
+  function checkStuck(myX,myY){
+    var moved=dist(myX,myY,lastMyX,lastMyY);
+    if(moved<STUCK_THRESHOLD&&tick>20){
+      stuckCounter++;
+      if(stuckCounter>=STUCK_FRAMES_TRIGGER&&reverseCounter<=0){
+        // We're stuck! Pick a reverse direction
+        reverseCounter=STUCK_REVERSE_DURATION;
+        reverseAngle=Math.atan2(myY,myX)+Math.PI+((Math.random()-0.5)*1.0);
+        log('Stuck detected! Reversing at angle '+reverseAngle.toFixed(2));
+        stuckCounter=0;
+      }
+    }else{
+      stuckCounter=Math.max(0,stuckCounter-2);
+    }
+  }
+
+  // ── Health estimation ────────────────────────────────────────────────
+  // Mk48 doesn't expose health directly. We use heuristics:
+  // - Score only increases, so if score drops we died and respawned
+  // - Track if we've taken damage (no direct signal, estimate from combat)
+  // - Use time-in-combat as a proxy for damage taken
+  var combatTicks=0,peaceTicks=0;
+
+  function updateHealthEstimate(score,inCombat){
+    if(score<lastScore){
+      // Score dropped — we respawned
+      estimatedHealthPct=1.0;combatTicks=0;peaceTicks=0;
+    }
+    if(score>peakScore)peakScore=score;
+    lastScore=score;
+
+    if(inCombat){
+      combatTicks++;
+      peaceTicks=0;
+      // Estimate health decay: ~2% per tick in combat (very rough)
+      estimatedHealthPct=clamp(estimatedHealthPct-0.005,0.05,1.0);
+    }else{
+      peaceTicks++;
+      combatTicks=0;
+      // Slow health regen when not in combat
+      estimatedHealthPct=clamp(estimatedHealthPct+0.002,0.05,1.0);
+    }
+  }
+
+  // ── Threat assessment ────────────────────────────────────────────────
+  function assessThreat(enemies){
+    // Count nearby enemies and compute danger level
+    var closeCount=0,medCount=0;
+    for(var i=0;i<enemies.length;i++){
+      if(enemies[i]._dist<FLEE_RANGE)closeCount++;
+      else if(enemies[i]._dist<ENGAGE_RANGE)medCount++;
+    }
+    return{
+      closeCount:closeCount,
+      medCount:medCount,
+      shouldFlee:estimatedHealthPct<FLEE_HEALTH_PCT&&closeCount>0,
+      outnumbered:closeCount>=2
+    };
+  }
+
+  // ── Main bot loop ────────────────────────────────────────────────────
+  function botTick(){
+    if(!window._mk48BotEnabled){
+      if(botActive){log('Bot disabled');botActive=false;releaseHold();}
+      return;
+    }
+    if(!botActive){log('Bot v2 activated');botActive=true;}
+
+    if(!canvas){canvas=document.getElementById('canvas');if(!canvas)return;}
+
+    // Auto-respawn if dead
+    var deathEl=document.getElementById('death');
+    var spawnEl=document.getElementById('spawn_overlay');
+    if(deathEl||spawnEl){
+      var inp=document.getElementById('alias_input');
+      if(inp){
+        inp.focus();
+        inp.dispatchEvent(new KeyboardEvent('keydown',{
+          key:'Enter',keyCode:13,code:'Enter',which:13,bubbles:true,cancelable:true
+        }));
+      }
+      releaseHold();
+      // Reset state on death
+      estimatedHealthPct=1.0;combatTicks=0;peaceTicks=0;
+      stuckCounter=0;reverseCounter=0;zoomDone=false;
+      contactHistory={};
+      return;
+    }
+
+    var d=window._mk48MapData;
+    if(!d||!d.contacts)return;
+    var worldRadius=d.worldRadius||5000;
+    var score=d.score||0;
+
+    var me=null,enemies=[],incomingTorpedoes=[];
+    // Extract team ID from our contact if available
+    for(var i=0;i<d.contacts.length;i++){
+      var c=d.contacts[i];
+      if(c.me){
+        me=c;
+        if(c.team!==undefined&&c.team!==null)myTeamId=c.team;
+      }
+    }
+    if(!me)return;
+
+    // Gather enemies, filtering out teammates
+    for(var i=0;i<d.contacts.length;i++){
+      var c=d.contacts[i];
+      if(c.me)continue;
+      // Team play: skip teammates (check team property if available)
+      if(myTeamId!==null&&c.team!==undefined&&c.team===myTeamId)continue;
+      enemies.push(c);
+    }
+
+    var myX=me.x,myY=me.y;
+
+    // Track our velocity
+    var dt=BOT_TICK_MS/1000;
+    myVX=(myX-lastMyX)/dt;
+    myVY=(myY-lastMyY)/dt;
+
+    // Stuck detection (before updating lastMyX/Y)
+    checkStuck(myX,myY);
+
+    lastMyX=myX;lastMyY=myY;
+
+    // Update multi-frame contact history and get smoothed velocities
+    updateContactHistory(enemies);
+
+    for(var i=0;i<enemies.length;i++){
+      enemies[i]._dist=dist(myX,myY,enemies[i].x,enemies[i].y);
+      enemies[i]._vel=getSmoothedVelocity(enemies[i]);
+    }
+    enemies.sort(function(a,b){return a._dist-b._dist});
+
+    // ── Torpedo/missile detection ─────────────────────────────────
+    // Detect fast-moving contacts heading toward us (torpedoes/missiles)
+    incomingTorpedoes=[];
+    for(var i=0;i<enemies.length;i++){
+      var e=enemies[i];
+      var vel=e._vel;
+      if(!vel||vel.speed<TORP_DETECT_SPEED)continue;
+      if(e._dist>TORP_DODGE_RANGE)continue;
+      // Check if heading toward us
+      var angleToMe=Math.atan2(myY-e.y,myX-e.x);
+      var contactHeading=Math.atan2(vel.vy,vel.vx);
+      var headingDiff=Math.abs(normalizeAngle(angleToMe-contactHeading));
+      if(headingDiff<TORP_DODGE_ANGLE_THRESHOLD){
+        incomingTorpedoes.push({
+          x:e.x,y:e.y,vx:vel.vx,vy:vel.vy,
+          dist:e._dist,heading:contactHeading,speed:vel.speed
+        });
+      }
+    }
+
+    var border=getBorderRepulsion(myX,myY,worldRadius);
+    tick++;
+    var now=Date.now();
+
+    // Health estimation
+    var inCombat=enemies.length>0&&enemies[0]._dist<ENGAGE_RANGE;
+    updateHealthEstimate(score,inCombat);
+
+    // Threat assessment
+    var threat=assessThreat(enemies);
+
+    // ── Zoom out aggressively at start ─────────────────────────────
+    if(!zoomDone&&tick>=3){
+      zoomDone=true;
+      for(var z=0;z<20;z++){
+        (function(z){setTimeout(function(){
+          if(!canvas)return;
+          canvas.dispatchEvent(new WheelEvent('wheel',{
+            deltaY:120,bubbles:true,cancelable:true,
+            clientX:getCenter().x,clientY:getCenter().y
+          }));
+        },z*80)})(z);
+      }
+      log('Zooming out (20 steps)');
+    }
+
+    // ── Stuck reversal override ────────────────────────────────────
+    if(reverseCounter>0){
+      reverseCounter--;
+      var rx=Math.cos(reverseAngle)*500;
+      var ry=Math.sin(reverseAngle)*500;
+      var sp=worldToScreen(rx,ry);
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      if(reverseCounter<=0){releaseHold();log('Reverse complete');}
+      return;
+    }
+
+    // ── Border emergency ───────────────────────────────────────────
+    if(border.urgent){
+      // Override everything — get away from border
+      var sp=worldToScreen(border.fx,border.fy);
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      return;
+    }
+
+    // ── TORPEDO DODGE — turn perpendicular to incoming torpedo ─────
+    if(incomingTorpedoes.length>0){
+      var torp=incomingTorpedoes[0]; // Dodge the closest incoming torpedo
+      // Turn perpendicular to torpedo heading to minimize profile
+      var perpAngle1=torp.heading+Math.PI/2;
+      var perpAngle2=torp.heading-Math.PI/2;
+      // Pick the perpendicular direction that moves us AWAY from the torpedo
+      var test1x=Math.cos(perpAngle1),test1y=Math.sin(perpAngle1);
+      var test2x=Math.cos(perpAngle2),test2y=Math.sin(perpAngle2);
+      var toTorpX=torp.x-myX,toTorpY=torp.y-myY;
+      // Pick direction with negative dot product (away from torpedo)
+      var dot1=test1x*toTorpX+test1y*toTorpY;
+      var dot2=test2x*toTorpX+test2y*toTorpY;
+      var dodgeA=dot1<dot2?perpAngle1:perpAngle2;
+      var dodgeDist=500+border.fx;
+      var dx=Math.cos(dodgeA)*dodgeDist+border.fx;
+      var dy=Math.sin(dodgeA)*dodgeDist+border.fy;
+      var sp=worldToScreen(dx,dy);
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      torpedoDodgeActive=true;
+      torpedoDodgeTicks++;
+      // Stop dodging after torpedo passes (max 25 ticks = 2s)
+      if(torpedoDodgeTicks>25){torpedoDodgeActive=false;torpedoDodgeTicks=0;}
+      // Don't return — still allow shooting during dodge, but skip movement below
+    }else{
+      torpedoDodgeActive=false;
+      torpedoDodgeTicks=0;
+    }
+
+    // ── FLEE MODE — low health, disengage ──────────────────────────
+    if(!torpedoDodgeActive&&threat.shouldFlee){
+      var nearest=enemies[0];
+      // Run away from nearest enemy
+      var fleeAngle=Math.atan2(myY-nearest.y,myX-nearest.x);
+      // Add border avoidance
+      var fx=Math.cos(fleeAngle)*600+border.fx;
+      var fy=Math.sin(fleeAngle)*600+border.fy;
+      var sp=worldToScreen(fx,fy);
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      // Brief release every ~1s for course correction
+      if(tick%12===0)releaseHold();
+      return;
+    }
+
+    // ── COMBAT MODE — enemies within engage range ──────────────────
+    if(!torpedoDodgeActive&&enemies.length>0&&enemies[0]._dist<ENGAGE_RANGE){
+      var target=enemies[0];
+      var vel=target._vel;
+      var targetDist=target._dist;
+
+      // Compute intercept point using iterative solver
+      // Torpedo speed ~20 m/s, gun shells ~40 m/s
+      var torpIntercept=computeIntercept(target.x,target.y,vel.vx,vel.vy,myX,myY,20);
+      var gunIntercept=computeIntercept(target.x,target.y,vel.vx,vel.vy,myX,myY,40);
+
+      // Add slight over-lead to account for target acceleration (5% extra)
+      torpIntercept.x+=(torpIntercept.x-target.x)*0.05;
+      torpIntercept.y+=(torpIntercept.y-target.y)*0.05;
+
+      // ── Weapon management by range ────────────────────────────
+      if(targetDist<TORPEDO_RANGE&&now-lastTorpedoTime>TORPEDO_COOLDOWN_MS){
+        // Precision fire: only launch torpedo when intercept angle is tight
+        // Compute angle from our heading to the intercept point
+        var interceptAngle=Math.atan2(torpIntercept.y-myY,torpIntercept.x-myX);
+        var myHeading=Math.atan2(myVY,myVX);
+        var interceptDiff=Math.abs(normalizeAngle(interceptAngle-myHeading));
+        // Only fire if intercept angle < 15 degrees (high probability hit)
+        if(interceptDiff<TORPEDO_MAX_INTERCEPT_ANGLE||targetDist<200){
+          var dx=torpIntercept.x-myX+border.fx;
+          var dy=torpIntercept.y-myY+border.fy;
+          var sp=worldToScreen(dx,dy);
+          tapFire(sp.x,sp.y);
+          lastTorpedoTime=now;
+        }
+      }else if(targetDist<GUN_RANGE&&now-lastGunTime>GUN_COOLDOWN_MS){
+        // MEDIUM RANGE: Fire guns (spacebar) continuously
+        var dx=gunIntercept.x-myX;
+        var dy=gunIntercept.y-myY;
+        var sp=worldToScreen(dx+border.fx,dy+border.fy);
+        directAimAt(sp.x,sp.y);
+        // Use spacebar for secondary weapons (guns)
+        if(now-lastSpaceTime>SPACE_FIRE_COOLDOWN_MS){
+          spacebarFire();
+          lastSpaceTime=now;
+        }
+        lastGunTime=now;
+      }
+
+      // ── Movement: strafe around target ────────────────────────
+      // Approach angle with sinusoidal evasion offset
+      var baseAngle=Math.atan2(target.y-myY,target.x-myX);
+
+      // Switch evasion direction periodically to be unpredictable
+      if(now-lastEvasionSwitch>2000+Math.random()*1500){
+        evasionAngle=evasionAngle>0?-1:1;
+        lastEvasionSwitch=now;
+      }
+
+      // Strafe perpendicular to target direction
+      var strafeOffset=evasionAngle*0.7+Math.sin(tick*0.08)*0.3;
+
+      // When close, circle strafe; when far, close distance
+      var approachFactor=clamp((targetDist-200)/400,0,1);
+      var moveAngle=baseAngle+strafeOffset*(1-approachFactor*0.6);
+
+      // If outnumbered, keep more distance
+      var moveDist=threat.outnumbered?400:250;
+
+      var moveDX=Math.cos(moveAngle)*moveDist+border.fx;
+      var moveDY=Math.sin(moveAngle)*moveDist+border.fy;
+      var moveSP=worldToScreen(moveDX,moveDY);
+
+      smoothAimAt(moveSP.x,moveSP.y);
+      startHold(moveSP.x,moveSP.y);
+      // Brief release for course correction every ~0.8s
+      if(tick%10===0)releaseHold();
+
+    // ── APPROACH MODE — enemy visible but far ──────────────────────
+    }else if(!torpedoDodgeActive&&enemies.length>0){
+      var target=enemies[0];
+      // Move toward target but not in a straight line (zigzag approach)
+      var baseAngle=Math.atan2(target.y-myY,target.x-myX);
+      var zigzag=Math.sin(tick*0.05)*0.25;
+      var approachAngle=baseAngle+zigzag;
+
+      var dx=Math.cos(approachAngle)*500+border.fx;
+      var dy=Math.sin(approachAngle)*500+border.fy;
+      var sp=worldToScreen(dx,dy);
+
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      if(tick%10===0)releaseHold();
+
+      // Pre-fire guns if within extended range
+      if(target._dist<GUN_RANGE*1.3&&now-lastSpaceTime>SPACE_FIRE_COOLDOWN_MS*2){
+        var vel=target._vel;
+        var intercept=computeIntercept(target.x,target.y,vel.vx,vel.vy,myX,myY,40);
+        var firesp=worldToScreen(intercept.x-myX,intercept.y-myY);
+        directAimAt(firesp.x,firesp.y);
+        spacebarFire();
+        lastSpaceTime=now;
+      }
+
+    // ── PATROL MODE — no enemies visible ───────────────────────────
+    }else if(!torpedoDodgeActive){
+      patrolAngle+=PATROL_SPEED;
+
+      // Expand patrol radius over time, then contract (spiral search)
+      var patrolR=300+Math.sin(tick*0.008)*250;
+      var patrolDX=Math.cos(patrolAngle)*patrolR;
+      var patrolDY=Math.sin(patrolAngle)*patrolR;
+
+      // Drift toward center if too far out (stay in action zone)
+      var distFromCenter=Math.sqrt(myX*myX+myY*myY);
+      if(distFromCenter>worldRadius*0.5){
+        // Blend patrol direction with center-seeking
+        var centerWeight=clamp((distFromCenter-worldRadius*0.5)/(worldRadius*0.3),0,1);
+        patrolDX=patrolDX*(1-centerWeight)+(-myX*0.3)*centerWeight;
+        patrolDY=patrolDY*(1-centerWeight)+(-myY*0.3)*centerWeight;
+      }
+
+      // Add border avoidance
+      patrolDX+=border.fx;
+      patrolDY+=border.fy;
+
+      var sp=worldToScreen(patrolDX,patrolDY);
+      smoothAimAt(sp.x,sp.y);
+      startHold(sp.x,sp.y);
+      // Slower release cadence during patrol (smooth movement)
+      if(tick%15===0)releaseHold();
+    }
+
+    // ── Periodic zoom maintenance ──────────────────────────────────
+    // Re-zoom out every 30 seconds in case it drifted
+    if(tick>0&&tick%375===0){
+      for(var z=0;z<5;z++){
+        (function(z){setTimeout(function(){
+          if(!canvas)return;
+          canvas.dispatchEvent(new WheelEvent('wheel',{
+            deltaY:120,bubbles:true,cancelable:true,
+            clientX:getCenter().x,clientY:getCenter().y
+          }));
+        },z*80)})(z);
+      }
+    }
+
+    // ── Upgrade auto-click ─────────────────────────────────────────
+    if(tick%30===0&&score>0){
+      var upgradeOverlay=document.querySelector('[class*="upgrade"]');
+      if(upgradeOverlay){
+        var btn=upgradeOverlay.querySelector('button,[role="button"],div[onclick]');
+        if(btn){btn.click();log('Clicked upgrade');}
+      }
+    }
+  }
+
+  // ── Initialization ───────────────────────────────────────────────────
+  function init(){
+    if(botInterval)return;
+    log('Bot v2 controller loaded (set _mk48BotEnabled=true or use ?bot=1)');
+    botInterval=setInterval(botTick,BOT_TICK_MS);
+  }
+
+  if(document.readyState==='complete'||document.readyState==='interactive')init();
+  else window.addEventListener('DOMContentLoaded',init);
+
+  window._mk48Bot={
+    enable:function(){window._mk48BotEnabled=true;},
+    disable:function(){window._mk48BotEnabled=false;},
+    status:function(){return{enabled:!!window._mk48BotEnabled,active:botActive,tick:tick,
+      hasCanvas:!!canvas,hasData:!!window._mk48MapData,
+      health:estimatedHealthPct,stuckCounter:stuckCounter,
+      combatTicks:combatTicks,contactsTracked:Object.keys(contactHistory).length,
+      torpedoDodge:torpedoDodgeActive,teamId:myTeamId};}
+  };
+})();
+</script><script type=module>import init, * as bindings from './client.js?v=9';
+try{const wasm = await init({ module_or_path: './client_bg.wasm?v=9&t='+Date.now() });
+window.wasmBindings = bindings;
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));}catch(e){console.error('[MK48] WASM init failed:',e);var w=document.getElementById('load_warning');if(w)w.style.display='initial';var t=document.getElementById('load_warning_text');if(t)t.innerText='WASM failed: '+e.message+' — click retry';}</script><script>var startLoadInterval=(()=>{let a=0;let b=document.getElementById(`load_warning`);let c=document.getElementById(`load_warning_text`);const d=setInterval(()=>{if(document.getElementById(`canvas`)){clearInterval(d);if(b&&b.style){b.style.display=`none`};return};if(a>5){b.style.display=`initial`;c.innerText=`Loading taking longer than expected (${Math.floor(a)}s)`};a+=0.5},500)});try{navigator.serviceWorker.getRegistrations().then(a=>{for(const b of a){b.unregister()}})}catch(a){console.log(a)}</script><link href=./client.js?v=9 rel=modulepreload><link as=fetch href=./client_bg.wasm?v=9 rel=preload type=application/wasm></head><body onload=startLoadInterval() style=background-color:#00487d><div id=load_warning style=color:#fff;text-align:center;padding:1rem;font-family:sans-serif;display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)><h2 id=load_warning_text style=margin-top:0></h2><button style="color:#fff;cursor:pointer;background-color:#505050;border:2px solid #606060;border-radius:.5rem;width:10rem;height:3rem;font-size:1.2rem" onclick=window.location.reload()>Click to retry</button></div></body></html>

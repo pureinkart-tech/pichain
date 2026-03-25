@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Bomberman — Spectator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: sans-serif; }
+        canvas { display: block; margin: 0 auto; }
+        #hud { position: fixed; top: 8px; left: 8px; color: #aaa; font-size: 12px; z-index: 10; }
+        #status { position: fixed; top: 8px; right: 8px; color: #22d3ee; font-size: 14px; font-weight: bold; z-index: 10; }
+    </style>
+</head>
+<body>
+<div id="hud">Connecting...</div>
+<div id="status"></div>
+<canvas id="c"></canvas>
+<script src="https://unpkg.com/colyseus.js@0.15.18/dist/colyseus.js"></script>
+<script>
+// Bomberman 2D Spectator — connects to Colyseus as spectator, renders top-down map
+const { Client } = Colyseus;
+
+const params = new URLSearchParams(window.location.search);
+const roomId = params.get('room');
+const serverUrl = location.protocol === 'https:' ? 'wss://' + location.host + '/ws/bomberman' : 'ws://' + location.hostname + ':8406';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const status = document.getElementById('status');
+
+// Game state
+let players = new Map();
+let cells = new Map();
+let bombs = new Map();
+let powers = new Map();
+let mapRows = 24, mapCols = 24;
+let gameStatus = 'WAITING';
+let events = []; // {text, time, color}
+
+function addEvent(text, color = '#aaa') {
+    events.push({ text, time: Date.now(), color });
+    if (events.length > 8) events.shift();
+}
+
+// Resize canvas to fit window
+function resize() {
+    const size = Math.min(window.innerWidth, window.innerHeight - 40);
+    canvas.width = size;
+    canvas.height = size;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Colors for cell types
+const CELL_COLORS = {
+    ground: '#1a1a2e',
+    spawnpoint: '#1a1a2e',
+    wall: '#4a4a5a',
+    breakable_wall: '#8b6914',
+    bomb: '#ff4444',
+    explosion: '#ff8800',
+    power_up: '#44ff44',
+};
+
+const PLAYER_COLORS = ['#ef4444', '#22d3ee', '#39ff14', '#fbbf24', '#a78bfa', '#fb7185', '#4ade80', '#f97316', '#06b6d4', '#8b5cf6'];
+
+// Connect to Colyseus as spectator
+async function connect() {
+    if (!roomId) {
+        hud.textContent = 'No room ID — add ?room=XXXX to URL';
+        return;
+    }
+    hud.textContent = 'Connecting to room ' + roomId + '...';
+
+    try {
+        const client = new Client(serverUrl);
+        const room = await client.joinById(roomId, { name: 'Spectator', spectator: true });
+        hud.textContent = 'Connected as spectator';
+        addEvent('Connected to room', '#22d3ee');
+
+        // Track players
+        room.state.players.onAdd((player, id) => {
+            const data = { id, row: player.row, col: player.col, name: player.name, color: player.color, eliminated: player.eliminated, health: player.health };
+            players.set(id, data);
+            addEvent(player.name + ' joined', '#22d3ee');
+            player.onChange(() => {
+                const d = players.get(id);
+                if (!d) return;
+                const wasAlive = !d.eliminated;
+                d.row = player.row; d.col = player.col; d.eliminated = player.eliminated; d.health = player.health;
+                if (wasAlive && player.eliminated) addEvent(player.name + ' eliminated!', '#ef4444');
+            });
+        });
+        room.state.players.onRemove((_, id) => players.delete(id));
+
+        // Track cells
+        room.state.cells.onAdd((cell, key) => {
+            cells.set(key, { row: cell.row, col: cell.col, type: cell.type });
+            if (cell.row + 1 > mapRows) mapRows = cell.row + 1;
+            if (cell.col + 1 > mapCols) mapCols = cell.col + 1;
+            cell.onChange(() => {
+                const c = cells.get(key);
+                if (c) c.type = cell.type;
+            });
+        });
+        room.state.cells.onRemove((_, key) => cells.delete(key));
+
+        // Track bombs
+        room.state.bombs.onAdd((bomb, key) => {
+            bombs.set(key, { row: bomb.row, col: bomb.col, size: bomb.size, placedAt: Date.now() });
+            bomb.onChange(() => { const b = bombs.get(key); if (b) { b.row = bomb.row; b.col = bomb.col; } });
+        });
+        room.state.bombs.onRemove((_, key) => bombs.delete(key));
+
+        // Track powerups
+        room.state.powers.onAdd((p, key) => {
+            powers.set(key, { row: p.row, col: p.col, power: p.power });
+        });
+        room.state.powers.onRemove((_, key) => powers.delete(key));
+
+        // Game messages
+        const onMsg = (type, handler) => {
+            room.onMessage(type, handler);
+            if (typeof type === 'number') room.onMessage(String(type), handler);
+        };
+        onMsg(3, () => { gameStatus = 'PLAYING'; addEvent('Game started!', '#39ff14'); });
+        onMsg(9, (d) => { addEvent((d.name || 'Player') + ' eliminated!', '#ef4444'); });
+        onMsg(10, (d) => { gameStatus = 'ENDED'; addEvent('Winner: ' + (d.winner || 'Nobody'), '#fbbf24'); });
+        onMsg(8, (d) => { /* explosion visual */ });
+
+        room.onLeave(() => { hud.textContent = 'Disconnected'; addEvent('Disconnected', '#ef4444'); });
+
+    } catch (e) {
+        hud.textContent = 'Connection failed: ' + e.message;
+        addEvent('Error: ' + e.message, '#ef4444');
+    }
+}
+
+// Render loop
+function render() {
+    const w = canvas.width, h = canvas.height;
+    const cellW = w / mapCols, cellH = h / mapRows;
+
+    // Background
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw cells
+    for (const [, cell] of cells) {
+        const x = cell.col * cellW, y = cell.row * cellH;
+        ctx.fillStyle = CELL_COLORS[cell.type] || '#1a1a2e';
+        ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+    }
+
+    // Draw powerups
+    for (const [, pu] of powers) {
+        const x = pu.col * cellW + cellW / 2, y = pu.row * cellH + cellH / 2;
+        const colors = ['#ef4444', '#3b82f6', '#22d3ee']; // health, bomb, speed
+        ctx.fillStyle = colors[pu.power] || '#44ff44';
+        ctx.beginPath();
+        ctx.arc(x, y, cellW * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = (cellW * 0.4) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(['H', 'B', 'S'][pu.power] || '?', x, y + cellW * 0.15);
+    }
+
+    // Draw bombs (pulsing red)
+    const now = Date.now();
+    for (const [, bomb] of bombs) {
+        const x = bomb.col * cellW + cellW / 2, y = bomb.row * cellH + cellH / 2;
+        const age = (now - bomb.placedAt) / 1000;
+        const pulse = 0.7 + Math.sin(age * 8) * 0.3; // Fast pulse as it gets older
+        ctx.fillStyle = `rgba(255, 50, 50, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(x, y, cellW * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        // Fuse indicator
+        const remaining = Math.max(0, 3 - age);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold ' + (cellW * 0.35) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(remaining.toFixed(1), x, y + cellW * 0.12);
+    }
+
+    // Draw players
+    let pidx = 0;
+    for (const [, player] of players) {
+        if (player.eliminated || player.row < 0) { pidx++; continue; }
+        const x = player.col * cellW + cellW / 2, y = player.row * cellH + cellH / 2;
+        const color = player.color || PLAYER_COLORS[pidx % PLAYER_COLORS.length];
+
+        // Player circle
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, cellW * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // White border
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Name label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold ' + Math.max(10, cellW * 0.35) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.name || 'P' + pidx, x, y - cellW * 0.5);
+        pidx++;
+    }
+
+    // Draw HUD: player list
+    ctx.textAlign = 'left';
+    ctx.font = '13px sans-serif';
+    let hy = 30;
+    pidx = 0;
+    for (const [, player] of players) {
+        const color = player.color || PLAYER_COLORS[pidx % PLAYER_COLORS.length];
+        const alive = !player.eliminated && player.row >= 0;
+        ctx.fillStyle = alive ? color : '#555';
+        ctx.fillText((alive ? '● ' : '✕ ') + (player.name || 'Player'), 8, hy);
+        hy += 18;
+        pidx++;
+    }
+
+    // Draw events log
+    ctx.textAlign = 'right';
+    ctx.font = '12px sans-serif';
+    let ey = h - 10;
+    for (let i = events.length - 1; i >= 0; i--) {
+        const ev = events[i];
+        const age = (now - ev.time) / 1000;
+        if (age > 30) continue;
+        ctx.fillStyle = ev.color;
+        ctx.globalAlpha = Math.max(0.3, 1 - age / 30);
+        ctx.fillText(ev.text, w - 8, ey);
+        ctx.globalAlpha = 1;
+        ey -= 16;
+    }
+
+    // Game status
+    status.textContent = gameStatus;
+    status.style.color = gameStatus === 'PLAYING' ? '#39ff14' : gameStatus === 'ENDED' ? '#fbbf24' : '#22d3ee';
+
+    requestAnimationFrame(render);
+}
+
+connect();
+render();
+</script>
+</body>
+</html>

@@ -199,6 +199,7 @@ export class KenStage {
 	};
 
 	constructor() {
+		this.backgroundPeopleKeys = Object.keys(this.backgroundPeople);
 		playSound(this.backgroundMusic, 0.2);
 	}
 
@@ -207,10 +208,8 @@ export class KenStage {
 	};
 
 	drawBoat = (context, camera) => {
-		this.boat.position = {
-			x: Math.floor(150 - camera.position.x / 1.613445),
-			y: -3 - camera.position.y - this.boat.animation[this.boat.animationFrame],
-		};
+		this.boat.position.x = Math.floor(150 - camera.position.x / 1.613445);
+		this.boat.position.y = -3 - camera.position.y - this.boat.animation[this.boat.animationFrame];
 		this.drawFrame(
 			context,
 			'stage-boat',
@@ -250,23 +249,25 @@ export class KenStage {
 	};
 
 	updateBoatPersons(time, context, camera) {
-		Object.keys(this.backgroundPeople).forEach((name) => {
-			this.backgroundPeople[name][0].update(time);
-		});
+		const keys = this.backgroundPeopleKeys;
+		for (let i = 0; i < keys.length; i++) {
+			this.backgroundPeople[keys[i]][0].update(time);
+		}
 	}
 
 	drawPeople = (context, camera) => {
-		Object.keys(this.backgroundPeople).forEach((name) => {
-			this.backgroundPeople[name][0].draw(
+		const keys = this.backgroundPeopleKeys;
+		const camParallax = camera.position.x / 1.613445;
+		const boatY = this.boat.animation[this.boat.animationFrame];
+		for (let i = 0; i < keys.length; i++) {
+			const person = this.backgroundPeople[keys[i]];
+			person[0].draw(
 				context,
 				camera,
-				Math.floor(
-					this.backgroundPeople[name][1][0] - camera.position.x / 1.613445
-				),
-				this.backgroundPeople[name][1][1] -
-					this.boat.animation[this.boat.animationFrame]
+				Math.floor(person[1][0] - camParallax),
+				person[1][1] - boatY
 			);
-		});
+		}
 	};
 
 	drawFloor = (context, camera) => {

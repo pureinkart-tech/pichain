@@ -285,7 +285,7 @@ pub struct SwarmConfig {
     pub protocol_version: String,
     /// Maximum number of peer connections.
     pub max_connections: u32,
-    /// Optional Ed25519 secret key bytes for deterministic peer ID.
+    /// Optional secret key bytes for deterministic peer ID (libp2p protocol).
     /// When set, the swarm derives its libp2p identity from this key instead
     /// of generating a random one. This allows pre-configuring bootstrap peer
     /// addresses with known peer IDs.

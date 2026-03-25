@@ -7,11 +7,19 @@
 		<title>Street Fighter 2</title>
 		<link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
 		<link rel="stylesheet" href="src/style.css" />
-		<script>window.__autostart="practice";</script>
+		<script>
+			(function () {
+				const qs = new URLSearchParams(window.location.search);
+				window.__autostart = qs.get('autostart') || 'practice';
+				window.__sfRoomCode = qs.get('room') || '';
+				window.__sfMatchId = qs.get('match') || '';
+			})();
+		</script>
 		<script type="module" src="src/index.js"></script>
 	</head>
 
 	<body>
+		<div id="pvp-indicator" class="pvp-indicator hidden">PVP: OFFLINE</div>
 		<main>
 			<canvas width="382px" height="224px"></canvas>
 		</main>
@@ -37,12 +45,11 @@
 			</div>
 		</div>
 
-		<!-- RESULT OVERLAY (PvP) -->
+		<!-- RESULT OVERLAY (non-embedded PvP only) -->
 		<div id="result-overlay" class="overlay hidden">
 			<div class="overlay-content">
 				<h1 id="pvp-result-text" class="result-title"></h1>
 				<div class="lobby-actions">
-					<button id="btn-rematch" class="lobby-btn lobby-btn-primary">REMATCH</button>
 					<button id="btn-main-menu" class="lobby-btn lobby-btn-secondary">MAIN MENU</button>
 				</div>
 				<p id="rematch-status" class="status-text"></p>

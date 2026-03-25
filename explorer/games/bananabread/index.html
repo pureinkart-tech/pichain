@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BananaBread - Cube 2 FPS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #e94560;
+            z-index: 100;
+            position: relative;
+        }
+
+        #header h1 {
+            font-size: 18px;
+            color: #e94560;
+            font-weight: 700;
+        }
+
+        #header h1 span {
+            color: #888;
+            font-weight: 400;
+            font-size: 14px;
+        }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .btn:hover { background: #ff6b81; }
+
+        .btn-secondary {
+            background: #333;
+            border: 1px solid #555;
+        }
+
+        .btn-secondary:hover { background: #444; }
+
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: calc(100vh - 50px);
+            position: relative;
+        }
+
+        #loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 10, 10, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            transition: opacity 0.5s;
+        }
+
+        #loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #loading-overlay h2 {
+            font-size: 28px;
+            color: #e94560;
+            margin-bottom: 10px;
+        }
+
+        #loading-overlay p {
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #e94560;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #status {
+            color: #aaa;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        #progress-bar {
+            width: 300px;
+            height: 6px;
+            background: #222;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        #progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #ff6b81);
+            width: 0%;
+            transition: width 0.3s;
+            border-radius: 3px;
+        }
+
+        .controls-info {
+            color: #666;
+            font-size: 12px;
+            text-align: center;
+            line-height: 1.8;
+        }
+
+        .controls-info kbd {
+            background: #222;
+            border: 1px solid #444;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-family: monospace;
+            color: #ccc;
+        }
+
+        canvas {
+            border: none;
+            outline: none;
+            cursor: crosshair;
+        }
+
+        #output {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 150px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 8px;
+            border-top: 1px solid #333;
+            resize: none;
+            z-index: 200;
+        }
+
+        #output.visible { display: block; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>BananaBread <span>Cube 2 / Sauerbraten FPS</span></h1>
+        <div id="controls">
+            <button class="btn btn-secondary" onclick="toggleConsole()">Console</button>
+            <button class="btn" onclick="Module.goFullScreen()">Fullscreen</button>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="loading-overlay">
+            <div class="spinner" id="spinner"></div>
+            <h2>BananaBread</h2>
+            <p>Cube 2 / Sauerbraten compiled to WebAssembly</p>
+            <div id="status">Downloading game data...</div>
+            <div id="progress-bar">
+                <div id="progress-fill"></div>
+            </div>
+            <div class="controls-info">
+                <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> Move &nbsp;|&nbsp;
+                <kbd>Mouse</kbd> Look &nbsp;|&nbsp;
+                <kbd>Left Click</kbd> Shoot &nbsp;|&nbsp;
+                <kbd>Space</kbd> Jump<br>
+                <kbd>Scroll</kbd> Switch Weapon &nbsp;|&nbsp;
+                <kbd>E</kbd> Edit Mode &nbsp;|&nbsp;
+                <kbd>Esc</kbd> Release Mouse
+            </div>
+        </div>
+
+        <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="1"></canvas>
+    </div>
+
+    <textarea id="output" rows="8"></textarea>
+
+    <script>
+        function toggleConsole() {
+            document.getElementById('output').classList.toggle('visible');
+        }
+
+        var statusElement = document.getElementById('status');
+        var progressFill = document.getElementById('progress-fill');
+        var loadingOverlay = document.getElementById('loading-overlay');
+
+        var Module = {
+            preRun: [],
+            postRun: [],
+            print: (function() {
+                var element = document.getElementById('output');
+                if (element) element.value = '';
+                return function(text) {
+                    text = Array.prototype.slice.call(arguments).join(' ');
+                    console.log(text);
+                    if (element) {
+                        element.value += text + "\n";
+                        element.scrollTop = element.scrollHeight;
+                    }
+                };
+            })(),
+            printErr: function(text) {
+                text = Array.prototype.slice.call(arguments).join(' ');
+                console.error(text);
+            },
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                canvas.addEventListener("webglcontextlost", function(e) {
+                    alert('WebGL context lost. You will need to reload the page.');
+                    e.preventDefault();
+                }, false);
+                canvas.addEventListener('click', function() {
+                    canvas.requestPointerLock();
+                });
+                return canvas;
+            })(),
+            setStatus: function(text) {
+                if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
+                if (text === Module.setStatus.text) return;
+                var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+                var now = Date.now();
+                if (m && now - Module.setStatus.last.time < 30) return;
+                Module.setStatus.last.time = now;
+                if (m) {
+                    var pct = (parseInt(m[2]) / parseInt(m[4])) * 100;
+                    progressFill.style.width = pct + '%';
+                    statusElement.innerHTML = m[1].trim() + ' (' + Math.round(pct) + '%)';
+                } else {
+                    progressFill.style.width = '100%';
+                    if (!text) {
+                        loadingOverlay.classList.add('hidden');
+                    }
+                    statusElement.innerHTML = text;
+                }
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+            },
+            goFullScreen: function() {
+                Module.requestFullScreen(true, false);
+            },
+            onFullScreen: function(isFullScreen) {
+                if (isFullScreen) {
+                    BananaBread.execute('screenres ' + screen.width + ' ' + screen.height);
+                } else {
+                    BananaBread.execute('screenres ' + Module.desiredWidth + ' ' + Module.desiredHeight);
+                }
+            },
+        };
+
+        Module.setStatus('Downloading...');
+        window.onerror = function() {
+            Module.setStatus('Exception thrown, see JavaScript console');
+            Module.setStatus = function(text) {
+                if (text) Module.printErr('[post-exception status] ' + text);
+            };
+        };
+    </script>
+
+    <script>
+        // Set canvas size to fill viewport
+        function resizeCanvas() {
+            var container = document.getElementById('game-container');
+            var w = container.clientWidth;
+            var h = container.clientHeight;
+            Module.desiredWidth = w;
+            Module.desiredHeight = h;
+            var canvas = document.getElementById('canvas');
+            canvas.width = w;
+            canvas.height = h;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        Module.autoexec = function() {
+            Module.setStatus('');
+        };
+        Module.postLoadWorld = function() {
+            Module.tweakDetail();
+            BananaBread.execute('sensitivity 10');
+            BananaBread.execute('clearconsole');
+
+            // PVP Mode: Track kills and report to parent
+            var params = new URLSearchParams(window.location.search);
+            var pvpMatch = params.get('pvpMatch');
+            var pvpName = params.get('pvpName');
+            if (!pvpMatch) return;
+
+            console.log('[BB-PVP] Match mode active:', pvpMatch, 'player:', pvpName);
+
+            // PVP: No extra bots — just the default 1 bot from setup_low.js
+
+            // Create PVP HUD
+            var hud = document.createElement('div');
+            hud.id = 'pvp-hud';
+            hud.style.cssText = 'position:fixed;top:60px;right:16px;z-index:100;' +
+              'background:rgba(0,0,0,0.7);border:1px solid #e94560;border-radius:8px;' +
+              'padding:12px 20px;font-family:sans-serif;text-align:center;pointer-events:none;';
+            hud.innerHTML = '<div style="color:#e94560;font-size:11px;font-weight:700;">PVP ELIMINATION</div>' +
+              '<div id="pvp-timer" style="color:#fff;font-size:28px;font-weight:900;">5:00</div>' +
+              '<div id="pvp-kills" style="color:#4caf50;font-size:14px;">Kills: 0</div>' +
+              '<div id="pvp-status" style="color:#4caf50;font-size:12px;">ALIVE</div>';
+            document.body.appendChild(hud);
+
+            var kills = 0;
+            var lastFrags = 0;
+            var lastDeaths = 0;
+            var matchTime = 300; // 5 minute match
+            var matchOver = false;
+            var eliminated = false;
+
+            // Poll frags and deaths every 500ms
+            var fragTimer = setInterval(function() {
+              if (matchOver) return;
+              try {
+                // Track kills
+                var frags = parseInt(BananaBread.executeString('echo (getfrags)')) || 0;
+                if (frags > lastFrags) {
+                  kills += (frags - lastFrags);
+                  lastFrags = frags;
+                  document.getElementById('pvp-kills').textContent = 'Kills: ' + kills;
+                }
+                // Track deaths — one death = elimination
+                var deaths = parseInt(BananaBread.executeString('echo (getdeaths)')) || 0;
+                if (deaths > lastDeaths && !eliminated) {
+                  eliminated = true;
+                  matchOver = true;
+                  clearInterval(fragTimer);
+                  clearInterval(countdownTimer);
+                  reportElimination();
+                }
+              } catch(e) {}
+            }, 500);
+
+            // Countdown timer
+            var timerEl = document.getElementById('pvp-timer');
+            var countdownTimer = setInterval(function() {
+              if (matchOver) return;
+              matchTime--;
+              var m = Math.floor(matchTime / 60);
+              var s = matchTime % 60;
+              timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+              if (matchTime <= 60) timerEl.style.color = '#ff6b6b';
+              if (matchTime <= 0) {
+                matchOver = true;
+                clearInterval(countdownTimer);
+                clearInterval(fragTimer);
+                reportSurvival();
+              }
+            }, 1000);
+
+            function reportElimination() {
+              var statusEl = document.getElementById('pvp-status');
+              if (statusEl) { statusEl.textContent = 'ELIMINATED'; statusEl.style.color = '#ff6b6b'; }
+              if (window.parent !== window) {
+                window.parent.postMessage({
+                  type: 'bananabread_match_end',
+                  playerName: pvpName,
+                  kills: kills,
+                  alive: false,
+                  matchId: pvpMatch
+                }, '*');
+              }
+              // Show elimination overlay
+              var overlay = document.createElement('div');
+              overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;' +
+                'background:rgba(0,0,0,0.85);display:flex;flex-direction:column;' +
+                'align-items:center;justify-content:center;';
+              overlay.innerHTML = '<div style="color:#ff6b6b;font-size:48px;font-weight:900;' +
+                'text-shadow:0 0 30px rgba(255,107,107,0.5);">ELIMINATED!</div>' +
+                '<div style="color:#fff;font-size:20px;margin-top:16px;">Kills: ' + kills + '</div>' +
+                '<div style="color:#aaa;font-size:14px;margin-top:12px;">Waiting for match to end...</div>';
+              document.body.appendChild(overlay);
+            }
+
+            function reportSurvival() {
+              if (window.parent !== window) {
+                window.parent.postMessage({
+                  type: 'bananabread_match_end',
+                  playerName: pvpName,
+                  kills: kills,
+                  alive: true,
+                  matchId: pvpMatch
+                }, '*');
+              }
+              var overlay = document.createElement('div');
+              overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;' +
+                'background:rgba(0,0,0,0.85);display:flex;flex-direction:column;' +
+                'align-items:center;justify-content:center;';
+              overlay.innerHTML = '<div style="color:#4caf50;font-size:48px;font-weight:900;' +
+                'text-shadow:0 0 30px rgba(76,175,80,0.5);">SURVIVED!</div>' +
+                '<div style="color:#fff;font-size:20px;margin-top:16px;">Kills: ' + kills + '</div>' +
+                '<div style="color:#aaa;font-size:14px;margin-top:12px;">Determining winner...</div>';
+              document.body.appendChild(overlay);
+            }
+        };
+    </script>
+
+    <script async src="js/api.js"></script>
+    <script async src="js/zee.js"></script>
+    <script async src="game/gl-matrix.js"></script>
+    <script async src="game/setup_low.js"></script>
+    <script async src="game/preload_base.js"></script>
+    <script async src="game/preload_character.js"></script>
+    <script async src="game/preload_low.js"></script>
+
+    <script>
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', 'bb.wasm', true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function() {
+            Module.wasmBinary = xhr.response;
+            var script = document.createElement('script');
+            script.src = "bb.js";
+            document.body.appendChild(script);
+        };
+        xhr.send(null);
+    </script>
+</body>
+</html>

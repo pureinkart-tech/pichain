@@ -183,3 +183,38 @@ img{
 }
 
 .hidden { display: none !important; }
+
+/* ============================================
+   EMBEDDED PVP INDICATOR
+   ============================================ */
+.pvp-indicator {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 120;
+  padding: 8px 10px;
+  font-size: 8px;
+  line-height: 1.4;
+  letter-spacing: 1px;
+  color: #9ca3af;
+  background: rgba(0, 0, 0, 0.78);
+  border: 2px solid #374151;
+  border-radius: 4px;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+.pvp-indicator.connected {
+  color: #50E661;
+  border-color: #50E661;
+  box-shadow: 0 0 8px rgba(80, 230, 97, 0.35);
+}
+
+.pvp-indicator.warning {
+  color: #FFD700;
+  border-color: #FFD700;
+}
+
+.pvp-indicator.error {
+  color: #ff7a7a;
+  border-color: #DE0000;
+}

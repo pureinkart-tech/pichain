@@ -1,0 +1,14 @@
+{
+  "name": "PIChain Player",
+  "short_name": "Player",
+  "description": "Offline music player — download songs from AI Music Studio and play them anywhere",
+  "start_url": "/player",
+  "display": "standalone",
+  "background_color": "#06080d",
+  "theme_color": "#06080d",
+  "orientation": "portrait",
+  "categories": ["music", "entertainment"],
+  "icons": [
+    { "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%2306080d' width='100' height='100' rx='20'/><text x='50' y='65' text-anchor='middle' font-size='50'>🎵</text></svg>", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

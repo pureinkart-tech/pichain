@@ -46,6 +46,10 @@ export class BattleScene {
 	network = null;
 	localPlayerId = 0;
 	isPvP = false;
+	isHost = false; // P1 is authoritative host
+	healthSyncTimer = 0;
+	inputSendTimer = 0;
+	_remotePos = [null, null]; // latest authoritative positions from host
 
 	constructor(changeScene, pvpConfig) {
 		this.changeScene = changeScene;
@@ -61,14 +65,71 @@ export class BattleScene {
 			this.isPvP = true;
 			this.network = pvpConfig.network;
 			this.localPlayerId = pvpConfig.localPlayerId;
+			this.isHost = this.localPlayerId === 0; // P1 is host/authority
 			this.onPvPEnd = pvpConfig.onGameEnd;
 			setPvPMode(true, this.localPlayerId);
 
-			// Listen for remote inputs
+			// Listen for remote inputs (P2 also reads piggybacked positions+states from P1)
 			this._onRemoteInput = (msg) => {
 				updateRemoteInputs(msg.h || []);
+				if (!this.isHost && msg.p) {
+					for (let fi = 0; fi < 2; fi++) {
+						if (msg.p[fi]) this._remotePos[fi] = msg.p[fi];
+					}
+				}
+				// P2: apply remote fighter state from host's input messages
+				if (!this.isHost && Array.isArray(msg.st) && this.fighters.length === 2) {
+					const remoteIdx = 1 - this.localPlayerId;
+					const newSt = msg.st[remoteIdx];
+					if (newSt && this.fighters[remoteIdx].currentState !== newSt) {
+						this._forceState(this.fighters[remoteIdx], newSt);
+					}
+				}
 			};
 			this.network.on('ri', this._onRemoteInput);
+
+			// P2 listens for authoritative health sync from P1
+			if (!this.isHost) {
+				this._onHealthSync = (msg) => {
+					if (Array.isArray(msg.hp) && msg.hp.length === 2) {
+						gameState.fighters[0].hitPoints = msg.hp[0];
+						gameState.fighters[1].hitPoints = msg.hp[1];
+					}
+					if (Array.isArray(msg.pos) && msg.pos.length === 2) {
+						for (var fi = 0; fi < 2; fi++) {
+							if (msg.pos[fi] && typeof msg.pos[fi].x === 'number') {
+								this._remotePos[fi] = msg.pos[fi];
+							}
+						}
+					}
+					// Apply authoritative animation states from host
+					if (Array.isArray(msg.st) && msg.st.length === 2 && this.fighters.length === 2) {
+						const remoteIdx = 1 - this.localPlayerId;
+						const newSt = msg.st[remoteIdx];
+						if (newSt && this.fighters[remoteIdx].currentState !== newSt) {
+							this._forceState(this.fighters[remoteIdx], newSt);
+						}
+					}
+				};
+				this.network.on('hs', this._onHealthSync);
+			}
+
+			// P2 listens for authoritative game result from P1
+			if (!this.isHost) {
+				this._onGameResult = (msg) => {
+					if (this.battleEnded) return;
+					const w = typeof msg.winner === 'number' ? msg.winner : -1;
+					if (w === 0 || w === 1) {
+						this.winnerId = w;
+						this.battleEnded = true;
+						this.fighters[w].victory = true;
+						this.fighters[1 - w].changeState(FighterState.KO, { previous: performance.now() });
+						gameState.fighters[1 - w].hitPoints = 0;
+						this.goToStartScene();
+					}
+				};
+				this.network.on('gr', this._onGameResult);
+			}
 
 			// Listen for disconnect
 			this._onDisconnect = () => {
@@ -124,15 +185,23 @@ export class BattleScene {
 		fighterEntities[0].opponent = fighterEntities[1];
 		fighterEntities[1].opponent = fighterEntities[0];
 
+		// PvP non-host: skip hit detection for the remote fighter to prevent phantom hits
+		// Only the host runs authoritative hit detection; P2 only detects its own attacks
+		if (this.isPvP && !this.isHost) {
+			const remoteIdx = 1 - this.localPlayerId; // remote fighter index
+			fighterEntities[remoteIdx].skipHitDetection = true;
+		}
+
 		return fighterEntities;
 	};
 
 	updateFighters = (time, context) => {
-		this.fighters.map((fighter) => {
+		for (let i = 0; i < this.fighters.length; i++) {
+			const fighter = this.fighters[i];
 			if (this.hurtTimer > time.previous) {
 				fighter.updateHurtShake(time, this.hurtTimer);
 			} else fighter.update(time, this.camera);
-		});
+		}
 	};
 
 	getHitSplashClass = (strength) => {
@@ -150,14 +219,18 @@ export class BattleScene {
 
 	handleAttackHit = (time, playerId, opponentId, position, strength) => {
 		this.FighterDrawOrder = [opponentId, playerId];
-		gameState.fighters[playerId].score += FighterAttackBaseData[strength].score;
 
-		gameState.fighters[opponentId].hitPoints -=
-			FighterAttackBaseData[strength].damage;
+		// In PvP, only the host (P1) modifies HP — P2 gets HP via health sync
+		if (!this.isPvP || this.isHost) {
+			gameState.fighters[playerId].score += FighterAttackBaseData[strength].score;
+			gameState.fighters[opponentId].hitPoints -=
+				FighterAttackBaseData[strength].damage;
+		}
 
 		const HitSplashClass = this.getHitSplashClass(strength);
 
-		if (gameState.fighters[opponentId].hitPoints <= 0) {
+		// Only host triggers KO state change
+		if ((!this.isPvP || this.isHost) && gameState.fighters[opponentId].hitPoints <= 0) {
 			this.fighters[opponentId].changeState(FighterState.KO, time);
 		}
 
@@ -171,7 +244,7 @@ export class BattleScene {
 	};
 
 	updateShadows = (time) => {
-		this.shadows.map((shadow) => shadow.update(time));
+		for (let i = 0; i < this.shadows.length; i++) this.shadows[i].update(time);
 	};
 
 	startRound = () => {
@@ -186,18 +259,20 @@ export class BattleScene {
 	};
 
 	goToStartScene = () => {
-		if (window.__autostart) {
-			// In embedded mode, stay on KO screen — parent page handles result
-			return;
+		// PvP host: send authoritative game result to P2
+		if (this.isPvP && this.isHost && this.network && this.winnerId !== undefined) {
+			this.network.sendGameResult(this.winnerId);
 		}
+
 		setTimeout(() => {
 			if (this.isPvP) {
 				const result = this.winnerId === this.localPlayerId ? 'win' : 'lose';
 				this.cleanup();
 				if (this.onPvPEnd) this.onPvPEnd(result);
-			} else {
+			} else if (!window.__autostart) {
 				this.changeScene(StartScene);
 			}
+			// else: non-PvP embedded mode, stay on KO screen
 		}, 3000);
 	};
 
@@ -219,27 +294,75 @@ export class BattleScene {
 	};
 
 	updateOverlays = (time) => {
-		this.overlays.map((overlay) => overlay.update(time));
+		for (let i = 0; i < this.overlays.length; i++) this.overlays[i].update(time);
 	};
 
 	updateFighterHP = (time) => {
-		gameState.fighters.map((fighter, index) => {
+		// In PvP, only the host (P1) determines KO. P2 waits for authoritative result.
+		if (this.isPvP && !this.isHost) return;
+
+		for (let index = 0; index < gameState.fighters.length; index++) {
+			const fighter = gameState.fighters[index];
 			if (fighter.hitPoints <= 0 && !this.battleEnded) {
 				this.fighters[index].opponent.victory = true;
 				this.winnerId = 1 - index;
 				this.battleEnded = true;
 				this.goToStartScene();
 			}
-		});
+		}
 	};
 
 	update = (time) => {
-		// PvP: send local inputs each frame
+		// PvP: send local inputs at ~30hz (every 33ms) for tighter sync
 		if (this.isPvP && this.network) {
-			this.network.sendInput(getLocalHeldControls());
+			if (time.previous - this.inputSendTimer > 33) {
+				this.inputSendTimer = time.previous;
+				if (this.isHost && this.fighters.length === 2) {
+					// Host piggybacks positions + states onto input messages for 30Hz sync
+					this.network.send({
+						t: 'input',
+						h: getLocalHeldControls(),
+						p: [
+							{ x: this.fighters[0].position.x, y: this.fighters[0].position.y },
+							{ x: this.fighters[1].position.x, y: this.fighters[1].position.y },
+						],
+						st: [this.fighters[0].currentState, this.fighters[1].currentState],
+					});
+				} else {
+					this.network.sendInput(getLocalHeldControls());
+				}
+			}
+		}
+
+		// PvP host: send health + position sync every ~100ms
+		if (this.isPvP && this.isHost && this.network && !this.battleEnded) {
+			if (time.previous - this.healthSyncTimer > 100) {
+				this.healthSyncTimer = time.previous;
+				this.network.send({
+					t: 'hs',
+					hp: [gameState.fighters[0].hitPoints, gameState.fighters[1].hitPoints],
+					pos: [
+						{ x: this.fighters[0].position.x, y: this.fighters[0].position.y },
+						{ x: this.fighters[1].position.x, y: this.fighters[1].position.y },
+					],
+					st: [this.fighters[0].currentState, this.fighters[1].currentState],
+				});
+			}
 		}
 
 		this.updateFighters(time);
+
+		// P2: override REMOTE fighter position with P1's authoritative data
+		// Local fighter keeps its own simulation (responsive to local input)
+		if (this.isPvP && !this.isHost && this.fighters.length === 2) {
+			const remoteIdx = 1 - this.localPlayerId;
+			const rp = this._remotePos[remoteIdx];
+			if (rp) {
+				this.fighters[remoteIdx].position.x = rp.x;
+				this.fighters[remoteIdx].position.y = rp.y;
+			}
+		}
+
 		this.updateShadows(time);
 		this.stage.update(time);
 		this.entities.update(time, this.camera);
@@ -249,17 +372,17 @@ export class BattleScene {
 	};
 
 	drawFighters(context) {
-		this.FighterDrawOrder.map((id) =>
-			this.fighters[id].draw(context, this.camera)
-		);
+		for (let i = 0; i < this.FighterDrawOrder.length; i++) {
+			this.fighters[this.FighterDrawOrder[i]].draw(context, this.camera);
+		}
 	}
 
 	drawShadows(context) {
-		this.shadows.map((shadow) => shadow.draw(context, this.camera));
+		for (let i = 0; i < this.shadows.length; i++) this.shadows[i].draw(context, this.camera);
 	}
 
 	drawOverlays(context) {
-		this.overlays.map((overlay) => overlay.draw(context, this.camera));
+		for (let i = 0; i < this.overlays.length; i++) this.overlays[i].draw(context, this.camera);
 		if (this.winnerId !== undefined) {
 			this.drawWinnerText(context, this.winnerId);
 		}
@@ -274,14 +397,22 @@ export class BattleScene {
 		this.drawOverlays(context);
 	};
 
+	// Force a fighter into a specific animation state, bypassing validFrom checks.
+	// Used by P2 to sync remote fighter state from P1's authoritative data.
+	_forceState(fighter, newState) {
+		if (!fighter.states[newState]) return;
+		fighter.currentState = newState;
+		fighter.animationFrame = 0;
+	}
+
 	cleanup = () => {
 		if (this.isPvP) {
 			setPvPMode(false);
-			if (this.network && this._onRemoteInput) {
-				this.network.off('ri', this._onRemoteInput);
-			}
-			if (this.network && this._onDisconnect) {
-				this.network.off('opponent_disconnected', this._onDisconnect);
+			if (this.network) {
+				if (this._onRemoteInput) this.network.off('ri', this._onRemoteInput);
+				if (this._onDisconnect) this.network.off('opponent_disconnected', this._onDisconnect);
+				if (this._onHealthSync) this.network.off('hs', this._onHealthSync);
+				if (this._onGameResult) this.network.off('gr', this._onGameResult);
 			}
 		}
 	};

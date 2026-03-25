@@ -107,7 +107,7 @@ pub struct Attestation {
     pub transfer_id: Hash,
     /// Relayer address.
     pub relayer: Address,
-    /// Relayer's Ed25519 signature over the transfer attestation message.
+    /// Relayer's signature over the transfer attestation message.
     pub signature: Signature,
     /// Block height when the attestation was submitted.
     pub submitted_at: u64,
@@ -118,7 +118,7 @@ pub struct Attestation {
 pub struct BridgeRelayer {
     /// Relayer's PIChain address.
     pub address: Address,
-    /// Relayer's Ed25519 public key (for signature verification).
+    /// Relayer's public key (for signature verification).
     pub public_key: PublicKey,
     /// Relayer's stake (bonded for honest behavior).
     pub stake: u64,
@@ -573,7 +573,7 @@ impl BridgeManager {
             return Err(BridgeError::TransferNotPending(transfer_id));
         }
 
-        // Verify the Ed25519 signature over the canonical attestation message
+        // Verify the signature over the canonical attestation message
         let msg = Self::attestation_message(transfer);
         public_key
             .verify(&msg, &signature)

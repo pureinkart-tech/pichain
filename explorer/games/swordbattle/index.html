@@ -1,0 +1,239 @@
+<!doctype html><html lang="en"><head><script>console.log("%cSwordbattle.io %cV2\n%cA project by %cGautam\n\n%cgithub.com/codergautam","color: orange; font-size: 30px;","color: red; font-size: 30px;","color: green; font-size: 20px;","color: cyan; font-size: 20px","color: grey; font-size: 10px")</script><script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js" integrity="sha512-YQL0GVx/Too3vZjBl9plePRIYsRnd1s8N6QOvXPdZ+JMH2mtRTLQXGUDGjNW6zr1HUgcOIury67IvWe91oeEwQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script><link rel="stylesheet" href="https://sdk.playlight.dev/playlight-sdk.css"><script type="module">try {
+      const module = await import("https://sdk.playlight.dev/playlight-sdk.es.js");
+      const playlightSDK = module.default;
+      await playlightSDK.init({
+        button: {
+        position: 'bottom-right',
+        visible: false
+      },
+      exitIntent: {
+        enabled: false
+      }
+      });
+      window.showPlaylight = async (visible = true) => {
+        await playlightSDK.setDiscovery(visible)
+      };
+    } catch (error) {
+      console.error("Error loading the Playlight SDK:", error);
+    }</script><script async src="https://www.googletagmanager.com/gtag/js?id=G-35EKK5X5R4"></script><script>function gtag(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],gtag("js",new Date),gtag("config","G-35EKK5X5R4")</script><script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script><script>window._isCrazyGamesBasicLaunch=!1;try{window.self!==window.top&&(window._isCrazyGamesBasicLaunch=!0)}catch(a){window._isCrazyGamesBasicLaunch=!0}</script><script>if(!window._isCrazyGamesBasicLaunch){var s=document.createElement("script");s.async=!0,s.setAttribute("data-ad-frequency-hint","30s"),s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3340825671684972",s.crossOrigin="anonymous",document.head.appendChild(s),window.adsbygoogle=window.adsbygoogle||[];var adBreak=adConfig=function(a){adsbygoogle.push(a)};adConfig({preloadAdBreaks:"on"}),window.adBreak=adBreak}</script><script>const vidAdDelay={adinplay:3e5,gamemonetize:12e4,gamepix:0,crazygames:0};function checkAdProvider(){if(window._isCrazyGamesBasicLaunch)return"crazygames";let e="adinplay";const i=new URLSearchParams(window.location.search).get("adprovider");return i&&["adinplay","gamemonetize","gamepix"].includes(i)&&(e=i),e}if(window.adProvider=checkAdProvider(),console.log("Ad provider:",window.adProvider),window.vidAdDelay=vidAdDelay[window.adProvider],window.lastVidAdTime=0,!window._isCrazyGamesBasicLaunch){try{window.localStorage.getItem("lastVidAdTime")&&"gamemonetize"!==window.adProvider&&(window.lastVidAdTime=parseInt(window.localStorage.getItem("lastVidAdTime"))),"adinplay"!==window.adProvider&&"gamepix"!==window.adProvider||window.localStorage.getItem("lastVidAdTime")||(console.log("New player! Resetting lastVidAdTime"),window.lastVidAdTime=Date.now())}catch(e){}if("gamemonetize"===window.adProvider)window.SDK_OPTIONS={gameId:"m2yzvbmyf75dl11i5lrtzlykjkzrgb85",onEvent:function(e){const i=new CustomEvent("gamemonetize_event_"+e.name,{detail:e});console.log("gamemonetize_event_"+e.name,e),window.dispatchEvent(i)}},function(e,i,a){var d=e.getElementsByTagName(i)[0];e.getElementById(a)||((e=e.createElement(i)).id=a,e.src="https://api.gamemonetize.com/sdk.js",d.parentNode.insertBefore(e,d))}(document,"script","gamemonetize-sdk");else if("adinplay"===window.adProvider){var aiptag=aiptag||{};aiptag.cmd=aiptag.cmd||[],aiptag.cmd.display=aiptag.cmd.display||[],aiptag.cmd.player=aiptag.cmd.player||[],aiptag.cmp={show:!0,position:"centered",button:!0,buttonText:"Privacy settings",buttonPosition:"bottom-right"}}}</script><script>if(!window._isCrazyGamesBasicLaunch){var s=document.createElement("script");s.src="//api.adinplay.com/libs/aiptag/pub/SWT/swordbattle.io/tag.min.js",document.head.appendChild(s)}</script><meta charset="utf-8"/><link rel="icon" href="./favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><title>Swordbattle.io</title><meta name="description" content="Swordbattle.io is an online sword fighting io game! Fight with friends and enemies in this multiplayer battle arena! Collect coins to be huge, rule the land and upgrade your character!"/><meta name="keywords" content="IOGAME, swordbattle, codergautam, swordiogame, swordio"/><meta property="og:image" content="/assets/game/player/sword.png"/><meta name="author" content="CoderGautam"/><meta name="viewport" id="viewport" content="width=device-width,minimum-scale=1,maximum-scale=1,initial-scale=1,user-scalable=0"/><title>Swordbattle.io</title><script>
+// PIChain: Override WebSocket to inject pvpRoom token for private server
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  var pvpRoom = params.get('pvpRoom');
+  if (!pvpRoom) return;
+  var _WS = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    // Append pvpRoom to the WebSocket URL
+    try {
+      var u = new URL(url);
+      u.searchParams.set('pvpRoom', pvpRoom);
+      url = u.toString();
+    } catch(e) {
+      // If URL parsing fails, append manually
+      url += (url.indexOf('?') >= 0 ? '&' : '?') + 'pvpRoom=' + encodeURIComponent(pvpRoom);
+    }
+    console.log('[PVP] WebSocket connecting to:', url);
+    return protocols ? new _WS(url, protocols) : new _WS(url);
+  };
+  window.WebSocket.prototype = _WS.prototype;
+  window.WebSocket.CONNECTING = 0;
+  window.WebSocket.OPEN = 1;
+  window.WebSocket.CLOSING = 2;
+  window.WebSocket.CLOSED = 3;
+  // Set inviteRoomId so the game client includes roomId in play request
+  window.inviteRoomId = pvpRoom;
+  console.log('[PVP] Set inviteRoomId:', pvpRoom);
+})();
+</script><script defer="defer" src="./static/js/main.d07e8d31.js"></script><link href="./static/css/main.ec8aa7cb.css" rel="stylesheet"></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div><div id="preroll"></div>
+<script>
+// PIChain PVP: auto-play + 15min timer + death detection + elimination
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var pvpName = params.get('pvpName');
+  var pvpRoom = params.get('pvpRoom');
+  if (!pvpName) return;
+
+  console.log('[PVP] Swordbattle PVP mode:', pvpName, 'room:', pvpRoom);
+
+  var MATCH_DURATION = 1200; // 20 minutes
+  var matchTime = MATCH_DURATION;
+  var pvpDied = false;
+  var pvpPlaying = false;
+  var matchOver = false;
+  var countdownInterval = null;
+  var deathCheckTimer = null;
+
+  // Inject PVP CSS: hide leaderboard, hide external links, block respawn
+  var style = document.createElement('style');
+  style.textContent =
+    '.leaderboard-content,.leaderboard-header,.leaderboard-title,' +
+    '.leaderboard-extra,.leaderboard-modal,.leaderboard-search,' +
+    '.game-buttons,.changelogbutton,.profilebutton,.auth-buttons,' +
+    '[class*="social"],[class*="discord"],[class*="changelog"],' +
+    '[class*="partner"],.results-buttons' +
+    '{display:none!important;}';
+  document.head.appendChild(style);
+
+  // Helper: try to extract kills count from the in-game HUD or results screen
+  function getKills() {
+    try {
+      // Results screen: look for the info div with title "Stabs:" and the CountUp value
+      var infoDivs = document.querySelectorAll('.results-container .info, .results .info');
+      for (var i = 0; i < infoDivs.length; i++) {
+        var titleEl = infoDivs[i].querySelector('.title');
+        if (titleEl && titleEl.textContent && titleEl.textContent.trim().toLowerCase().indexOf('stab') >= 0) {
+          var valEl = infoDivs[i].querySelector('span') || infoDivs[i];
+          var text = valEl.textContent.replace(/[^0-9]/g, '');
+          if (text) return parseInt(text, 10);
+        }
+      }
+      // Fallback: try to read from the Phaser game canvas text (coin counter shows coins\nkills)
+      // Can't reliably read canvas text, return 0
+    } catch(_e) {}
+    return 0;
+  }
+
+  // Auto-click Play
+  var autoPlayTimer = setInterval(function() {
+    try {
+      var playBtn = document.getElementById('enterGame');
+      if (playBtn && playBtn.textContent.trim() === 'Play!') {
+        playBtn.click();
+        pvpPlaying = true;
+        clearInterval(autoPlayTimer);
+        console.log('[PVP] Auto-play triggered for', pvpName);
+        // Start timer and death detection after a brief delay
+        setTimeout(startPvpTimer, 2000);
+      }
+    } catch(e) { console.log('[PVP] Auto-play error:', e); }
+  }, 800);
+
+  function startPvpTimer() {
+    // Add PVP HUD with timer
+    var hud = document.createElement('div');
+    hud.id = 'pvp-hud';
+    hud.style.cssText = 'position:fixed;top:8px;right:16px;z-index:99999;' +
+      'background:rgba(0,0,0,0.7);border:1px solid #ef4444;border-radius:8px;' +
+      'padding:10px 16px;font-family:sans-serif;text-align:center;pointer-events:none;';
+    hud.innerHTML = '<div style="color:#ef4444;font-size:11px;font-weight:700;">PVP ELIMINATION</div>' +
+      '<div id="pvp-timer" style="color:#fff;font-size:28px;font-weight:900;">20:00</div>' +
+      '<div id="pvp-status" style="color:#4caf50;font-size:12px;">ALIVE</div>';
+    document.body.appendChild(hud);
+
+    var timerEl = document.getElementById('pvp-timer');
+    countdownInterval = setInterval(function() {
+      if (matchOver) return;
+      matchTime--;
+      var m = Math.floor(matchTime / 60);
+      var s = matchTime % 60;
+      timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      if (matchTime <= 60) timerEl.style.color = '#ff6b6b';
+      if (matchTime <= 0) {
+        matchOver = true;
+        clearInterval(countdownInterval);
+        if (deathCheckTimer) clearInterval(deathCheckTimer);
+        reportTimeout();
+      }
+    }, 1000);
+
+    // Start death detection
+    deathCheckTimer = setInterval(function() {
+      if (pvpDied || matchOver) return;
+      if (!pvpPlaying) return;
+      try {
+        var resultsEl = document.querySelector('.results-container, .results-main, .results');
+        var playAgainEl = document.querySelector('.play-again');
+        var stabText = document.querySelector('.results-title');
+
+        var isDead = false;
+        // Check multiple indicators — offsetParent, computed style, or just existence with content
+        function isVisible(el) {
+          if (!el) return false;
+          if (el.offsetParent !== null) return true;
+          var cs = window.getComputedStyle(el);
+          return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
+        }
+        if (isVisible(playAgainEl)) isDead = true;
+        if (isVisible(resultsEl)) isDead = true;
+        if (isVisible(stabText) && stabText.textContent &&
+            (stabText.textContent.includes('stabbed') || stabText.textContent.includes('Killed') ||
+             stabText.textContent.includes('killed') || stabText.textContent.includes('Disconnect') ||
+             stabText.textContent.includes('died') || stabText.textContent.includes('slain'))) {
+          isDead = true;
+        }
+        // Also check for the results-main div which wraps the death screen
+        var resultsMain = document.querySelector('.results-main');
+        if (isVisible(resultsMain)) isDead = true;
+
+        if (isDead) {
+          pvpDied = true;
+          matchOver = true;
+          clearInterval(deathCheckTimer);
+          if (countdownInterval) clearInterval(countdownInterval);
+
+          var killerName = 'unknown';
+          try { if (stabText) killerName = stabText.textContent.trim(); } catch(_e){}
+
+          var kills = getKills();
+          console.log('[PVP] Player died! Killed by:', killerName, 'Kills:', kills);
+
+          // Report death to parent frame
+          if (window.parent !== window) {
+            window.parent.postMessage({
+              type: 'swordbattle_player_died',
+              playerName: pvpName,
+              killedBy: killerName,
+              kills: kills
+            }, '*');
+          }
+
+          // Block respawn
+          if (playAgainEl) playAgainEl.style.display = 'none';
+          document.querySelectorAll('.results-buttons, .play-again, .to-home').forEach(function(el) {
+            el.style.display = 'none';
+          });
+
+          // Update HUD
+          var statusEl = document.getElementById('pvp-status');
+          if (statusEl) { statusEl.textContent = 'ELIMINATED'; statusEl.style.color = '#ff6b6b'; }
+
+          // Show elimination overlay
+          var elimOverlay = document.createElement('div');
+          elimOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;';
+          elimOverlay.innerHTML = '<div style="color:#f87171;font-size:32px;font-weight:bold;text-shadow:0 0 20px rgba(248,113,113,0.5);">ELIMINATED</div>' +
+            '<div style="color:#fff;font-size:16px;margin-top:12px;opacity:0.8;">Returning to match screen...</div>';
+          document.body.appendChild(elimOverlay);
+        }
+      } catch(e) {}
+    }, 500);
+  }
+
+  function reportTimeout() {
+    console.log('[PVP] Match time expired — reporting timeout');
+
+    var statusEl = document.getElementById('pvp-status');
+    if (statusEl) { statusEl.textContent = 'TIME UP'; statusEl.style.color = '#42a5f5'; }
+
+    // Report timeout to parent frame — include kills for tiebreaker
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: 'swordbattle_timeout',
+        playerName: pvpName,
+        kills: getKills()
+      }, '*');
+    }
+
+    // Show time up overlay
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;';
+    overlay.innerHTML = '<div style="color:#42a5f5;font-size:32px;font-weight:bold;text-shadow:0 0 20px rgba(66,165,245,0.5);">TIME UP!</div>' +
+      '<div style="color:#4caf50;font-size:18px;margin-top:12px;">You survived!</div>' +
+      '<div style="color:#aaa;font-size:14px;margin-top:8px;">Determining winner...</div>';
+    document.body.appendChild(overlay);
+  }
+
+  // Timeout auto-play attempts after 30s
+  setTimeout(function() { clearInterval(autoPlayTimer); }, 30000);
+})();
+</script>
+</body></html>

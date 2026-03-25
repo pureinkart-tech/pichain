@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>Bomberman — 3D Spectator</title>
+<style>*{margin:0;padding:0;overflow:hidden}canvas{width:100%;height:100%}</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://unpkg.com/colyseus.js@0.15.18/dist/colyseus.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+var params = new URLSearchParams(location.search);
+var roomId = params.get('room');
+var serverUrl = location.protocol === 'https:' ? 'wss://' + location.host + '/ws/bomberman' : 'ws://' + location.hostname + ':8406';
+
+// BabylonJS setup
+var canvas = document.getElementById('c');
+var engine = new BABYLON.Engine(canvas, true, { antialias: true });
+var scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.06, 0.06, 0.12, 1);
+
+// Camera: overhead view of 24x24 grid
+var camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, 0.5, 35, new BABYLON.Vector3(12, 0, 12), scene);
+camera.lowerRadiusLimit = 15;
+camera.upperRadiusLimit = 60;
+camera.lowerBetaLimit = 0.1;
+camera.upperBetaLimit = 1.5;
+camera.attachControl(canvas, true);
+
+// Lights
+var light = new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
+light.intensity = 0.8;
+var dirLight = new BABYLON.DirectionalLight('dir', new BABYLON.Vector3(-1, -2, 1), scene);
+dirLight.intensity = 0.5;
+
+// Materials
+var matWall = new BABYLON.StandardMaterial('wall', scene);
+matWall.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.35);
+var matBreakable = new BABYLON.StandardMaterial('break', scene);
+matBreakable.diffuseColor = new BABYLON.Color3(0.6, 0.45, 0.1);
+var matGround = new BABYLON.StandardMaterial('ground', scene);
+matGround.diffuseColor = new BABYLON.Color3(0.12, 0.12, 0.18);
+var matBomb = new BABYLON.StandardMaterial('bomb', scene);
+matBomb.diffuseColor = new BABYLON.Color3(1, 0.2, 0.2);
+matBomb.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
+var matPowerup = new BABYLON.StandardMaterial('powerup', scene);
+matPowerup.diffuseColor = new BABYLON.Color3(0.2, 1, 0.2);
+matPowerup.emissiveColor = new BABYLON.Color3(0, 0.3, 0);
+
+var playerColors = [
+  new BABYLON.Color3(0.9, 0.2, 0.2),
+  new BABYLON.Color3(0.1, 0.8, 0.9),
+  new BABYLON.Color3(0.2, 1, 0.1),
+  new BABYLON.Color3(1, 0.75, 0.15),
+  new BABYLON.Color3(0.65, 0.5, 0.98),
+  new BABYLON.Color3(0.98, 0.45, 0.53),
+  new BABYLON.Color3(0.3, 0.85, 0.5),
+  new BABYLON.Color3(0.98, 0.6, 0.1),
+  new BABYLON.Color3(0, 0.7, 0.8),
+  new BABYLON.Color3(0.55, 0.35, 0.95),
+];
+
+// Mesh pools
+var cellMeshes = {};   // "row-col" -> mesh
+var playerMeshes = {}; // sessionId -> mesh
+var bombMeshes = {};   // key -> mesh
+var powerMeshes = {};  // key -> mesh
+var playerIdx = 0;
+
+// HUD
+var hudDiv = document.createElement('div');
+hudDiv.style.cssText = 'position:fixed;top:8px;left:8px;color:#aaa;font:13px sans-serif;z-index:10;text-shadow:0 1px 3px #000;';
+hudDiv.textContent = 'Connecting...';
+document.body.appendChild(hudDiv);
+
+var eventDiv = document.createElement('div');
+eventDiv.style.cssText = 'position:fixed;bottom:8px;right:8px;color:#aaa;font:12px sans-serif;z-index:10;text-align:right;text-shadow:0 1px 3px #000;max-height:200px;overflow:hidden;';
+document.body.appendChild(eventDiv);
+var events = [];
+function addEvent(text, color) {
+  events.push({text:text, color:color||'#aaa', time:Date.now()});
+  if (events.length > 8) events.shift();
+  eventDiv.innerHTML = events.map(function(e) {
+    return '<div style="color:'+e.color+'">'+e.text+'</div>';
+  }).join('');
+}
+
+// Ground plane
+var ground = BABYLON.MeshBuilder.CreateGround('ground', {width:24, height:24}, scene);
+ground.position = new BABYLON.Vector3(12, -0.01, 12);
+ground.material = matGround;
+
+function getOrCreateCell(key, row, col, type) {
+  if (cellMeshes[key]) {
+    // Update type
+    if (type === 'wall') cellMeshes[key].material = matWall;
+    else if (type === 'breakable_wall') cellMeshes[key].material = matBreakable;
+    else { cellMeshes[key].isVisible = false; return cellMeshes[key]; }
+    cellMeshes[key].isVisible = true;
+    return cellMeshes[key];
+  }
+  if (type !== 'wall' && type !== 'breakable_wall') return null;
+  var box = BABYLON.MeshBuilder.CreateBox(key, {size:0.9, height: type==='wall'?1.0:0.7}, scene);
+  box.position = new BABYLON.Vector3(col, type==='wall'?0.5:0.35, row);
+  box.material = type === 'wall' ? matWall : matBreakable;
+  cellMeshes[key] = box;
+  return box;
+}
+
+function getOrCreatePlayer(id, idx) {
+  if (playerMeshes[id]) return playerMeshes[id];
+  var sphere = BABYLON.MeshBuilder.CreateSphere('player_'+id, {diameter:0.7}, scene);
+  var mat = new BABYLON.StandardMaterial('pmat_'+id, scene);
+  mat.diffuseColor = playerColors[idx % playerColors.length];
+  mat.emissiveColor = playerColors[idx % playerColors.length].scale(0.3);
+  sphere.material = mat;
+  playerMeshes[id] = sphere;
+  return sphere;
+}
+
+function getOrCreateBomb(key, row, col) {
+  if (bombMeshes[key]) {
+    bombMeshes[key].position.x = col;
+    bombMeshes[key].position.z = row;
+    bombMeshes[key].isVisible = true;
+    return bombMeshes[key];
+  }
+  var sphere = BABYLON.MeshBuilder.CreateSphere(key, {diameter:0.5}, scene);
+  sphere.position = new BABYLON.Vector3(col, 0.3, row);
+  sphere.material = matBomb;
+  bombMeshes[key] = sphere;
+  return sphere;
+}
+
+// Connect to Colyseus as spectator
+async function connect() {
+  if (!roomId) { hudDiv.textContent = 'No room ID'; return; }
+  hudDiv.textContent = 'Connecting to ' + roomId + '...';
+
+  try {
+    var client = new Colyseus.Client(serverUrl);
+    var room = await client.joinById(roomId, { name: 'Spectator', spectator: true });
+    hudDiv.textContent = 'Spectating (room: ' + roomId + ')';
+    addEvent('Connected', '#22d3ee');
+
+    var playerList = {};
+    var pIdx = 0;
+
+    room.state.players.onAdd(function(player, id) {
+      var idx = pIdx++;
+      playerList[id] = { name: player.name, idx: idx };
+      var mesh = getOrCreatePlayer(id, idx);
+      mesh.position = new BABYLON.Vector3(player.col, 0.4, player.row);
+      addEvent(player.name + ' joined', '#22d3ee');
+
+      player.onChange(function() {
+        if (player.eliminated || player.row < 0) {
+          mesh.isVisible = false;
+          return;
+        }
+        mesh.position.x = player.col;
+        mesh.position.z = player.row;
+        mesh.position.y = 0.4;
+        mesh.isVisible = true;
+      });
+    });
+
+    room.state.cells.onAdd(function(cell, key) {
+      getOrCreateCell(key, cell.row, cell.col, cell.type);
+      cell.onChange(function() {
+        getOrCreateCell(key, cell.row, cell.col, cell.type);
+      });
+    });
+    room.state.cells.onRemove(function(_, key) {
+      if (cellMeshes[key]) cellMeshes[key].isVisible = false;
+    });
+
+    room.state.bombs.onAdd(function(bomb, key) {
+      getOrCreateBomb(key, bomb.row, bomb.col);
+      bomb.onChange(function() {
+        var m = bombMeshes[key];
+        if (m) { m.position.x = bomb.col; m.position.z = bomb.row; }
+      });
+    });
+    room.state.bombs.onRemove(function(_, key) {
+      if (bombMeshes[key]) { bombMeshes[key].isVisible = false; }
+    });
+
+    room.state.powers.onAdd(function(p, key) {
+      if (!powerMeshes[key]) {
+        var box = BABYLON.MeshBuilder.CreateBox('pow_'+key, {size:0.4}, scene);
+        box.position = new BABYLON.Vector3(p.col, 0.3, p.row);
+        box.material = matPowerup;
+        powerMeshes[key] = box;
+      }
+    });
+    room.state.powers.onRemove(function(_, key) {
+      if (powerMeshes[key]) powerMeshes[key].isVisible = false;
+    });
+
+    // Messages (handle both number and string types)
+    function onMsg(type, handler) {
+      room.onMessage(type, handler);
+      room.onMessage(String(type), handler);
+    }
+    onMsg(3, function() { addEvent('Game Started!', '#39ff14'); });
+    onMsg(9, function(d) { addEvent((d.name||'Player') + ' eliminated!', '#ef4444'); });
+    onMsg(10, function(d) {
+      addEvent('Winner: ' + (d.winner||'Nobody'), '#fbbf24');
+      hudDiv.innerHTML = '<span style="color:#fbbf24;font-size:18px;font-weight:bold">Winner: '+(d.winner||'Nobody')+'</span>';
+    });
+
+    room.onLeave(function() { hudDiv.textContent = 'Disconnected'; addEvent('Disconnected', '#ef4444'); });
+
+  } catch(e) {
+    hudDiv.textContent = 'Error: ' + e.message;
+    addEvent('Connection failed: ' + e.message, '#ef4444');
+  }
+}
+
+connect();
+engine.runRenderLoop(function() { scene.render(); });
+window.addEventListener('resize', function() { engine.resize(); });
+</script>
+</body>
+</html>

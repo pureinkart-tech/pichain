@@ -822,6 +822,7 @@ export class Fighter {
 	};
 
 	updateAttackBoxCollided = (time) => {
+		if (this.skipHitDetection) return;
 		if (!this.states[this.currentState].attackType || this.attackStruck) return;
 
 		const actualHitBox = getActualBoxDimensions(

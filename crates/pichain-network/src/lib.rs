@@ -102,23 +102,23 @@ pub enum NetworkMessage {
     /// Consensus DAG certificate.
     DagCertificate {
         round: u64,
-        /// Ed25519 public key of the certificate author (32 bytes).
+        /// Public key of the certificate author (32 bytes).
         author: [u8; 32],
         /// Serialized certificate data.
         data: Vec<u8>,
-        /// Ed25519 signature over (round || data) by the author (64 bytes).
+        /// Signature over (round || data) by the author (64 bytes).
         signature: Vec<u8>,
     },
     /// Peer discovery / validator announcement.
     /// Includes a signature to prevent Sybil attacks.
     ValidatorAnnounce {
-        /// Validator's Ed25519 public key (32 bytes).
+        /// Validator's public key (32 bytes).
         public_key: [u8; 32],
         /// Derived PIChain address (20 bytes).
         address: [u8; 20],
         /// Self-reported stake amount.
         stake: u64,
-        /// Ed25519 signature over ("pichain-validator:" || public_key || stake_le_bytes) (64 bytes).
+        /// Signature over ("pichain-validator:" || public_key || stake_le_bytes) (64 bytes).
         signature: Vec<u8>,
     },
 }
@@ -159,7 +159,7 @@ impl NetworkMessage {
         msg.extend_from_slice(public_key);
         msg.extend_from_slice(&stake.to_le_bytes());
 
-        // Verify the Ed25519 signature
+        // Verify the signature
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(signature);
         pk.verify(&msg, &Signature(sig_bytes))

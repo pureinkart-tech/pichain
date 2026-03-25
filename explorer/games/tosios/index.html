@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <link rel="shortcut icon" href="./favicon.ico" />
+        <meta
+            name="viewport"
+            content="initial-scale=1, maximum-scale=1, user-scalable=no, minimum-scale=1, width=device-width, height=device-height, shrink-to-fit=no"
+        />
+        <meta name="mobile-web-app-capable" content="yes" />
+
+        <meta name="theme-color" content="#000000" />
+        <link rel="manifest" href="./manifest.json" />
+        <title>TOSIOS</title>
+        <meta
+            name="description"
+            content="The Open-Source IO Shooter is an open-source multiplayer game in the browser."
+        />
+
+        <!-- Style -->
+        <link rel="stylesheet" href="./script.css" />
+
+        <!-- Open Graph / Facebook -->
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://tosios.online/" />
+        <meta property="og:title" content="TOSIOS" />
+        <meta
+            property="og:description"
+            content="The Open-Source IO Shooter is an open-source multiplayer game in the browser."
+        />
+        <meta property="og:image" content="https://tosios.online/banner.jpg" />
+
+        <!-- Twitter -->
+        <meta property="twitter:card" content="summary_large_image" />
+        <meta property="twitter:url" content="https://tosios.online/" />
+        <meta property="twitter:title" content="TOSIOS" />
+        <meta
+            property="twitter:description"
+            content="The Open-Source IO Shooter is an open-source multiplayer game in the browser."
+        />
+        <meta property="twitter:image" content="https://tosios.online/banner.jpg" />
+    </head>
+
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        <script>
+        // Bot API: Intercept Colyseus WebSocket to expose game state
+        (function() {
+            if (!window.location.search.includes('room=')) return;
+            window._tosiosState = { players: {}, bullets: [], myId: null, status: 'loading' };
+            var _origWS = window.WebSocket;
+            window.WebSocket = function(url, protocols) {
+                var ws = protocols ? new _origWS(url, protocols) : new _origWS(url);
+                ws.addEventListener('open', function() { window._tosiosWs = ws; });
+                return ws;
+            };
+            window.WebSocket.prototype = _origWS.prototype;
+            ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach(function(k,i){ Object.defineProperty(window.WebSocket,k,{value:i}); });
+            // Poll PixiJS renderer for entity positions
+            setInterval(function() {
+                try {
+                    // PIXI stores sprites in stage children. Extract positions.
+                    if (!window.PIXI) return;
+                    var app = PIXI.utils?.TextureCache ? null : null;
+                    // Try to find Pixi app from the canvas
+                    var canvas = document.querySelector('canvas');
+                    if (!canvas || !canvas.__pixiApplication) return;
+                    // Alternative: scan DOM for player position data
+                } catch(e) {}
+            }, 250);
+        })();
+        </script>
+        <script src="./script.js"></script>
+    </body>
+</html>

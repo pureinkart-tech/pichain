@@ -19,6 +19,7 @@ export class StreetFighterGame {
 	};
 
 	timeStarted = 0;
+	_lastFrameTime = 0;
 	sceneStarted = false;
 	nextScene = undefined;
 	nextMode = null;
@@ -32,6 +33,7 @@ export class StreetFighterGame {
 	// DOM elements
 	lobbyOverlay = document.getElementById('lobby-overlay');
 	resultOverlay = document.getElementById('result-overlay');
+	pvpIndicator = document.getElementById('pvp-indicator');
 
 	changeScene = (SceneClass, mode) => {
 		this.nextMode = mode || null;
@@ -70,7 +72,20 @@ export class StreetFighterGame {
 		}
 		this.initLobbyEvents();
 		this.initResultEvents();
+		this.updatePvPIndicator('PVP: READY', 'warning');
+
+		// Embedded PvP: skip start screen, go directly to lobby + auto-join
+		if (autostart === 'pvp' && (window.__sfMatchId || window.__sfRoomCode)) {
+			this.showLobby();
+		}
 	}
+
+	updatePvPIndicator = (text, level = 'warning') => {
+		if (!this.pvpIndicator) return;
+		this.pvpIndicator.classList.remove('hidden', 'connected', 'warning', 'error');
+		this.pvpIndicator.classList.add(level);
+		this.pvpIndicator.textContent = text;
+	};
 
 	// ============================================
 	// LOBBY
@@ -90,6 +105,8 @@ export class StreetFighterGame {
 		const statusEl = document.getElementById('lobby-status');
 		const roomCodeDisplay = document.getElementById('room-code-display');
 		const roomCodeEl = document.getElementById('room-code');
+		const autoRoomCode = (window.__sfRoomCode || '').toString().trim().toUpperCase();
+		const autoMatchId = (window.__sfMatchId || '').toString().trim();
 
 		// Reset lobby UI
 		roomCodeDisplay.classList.add('hidden');
@@ -104,14 +121,18 @@ export class StreetFighterGame {
 		if (!this.network.connected) {
 			try {
 				statusEl.textContent = 'Connecting...';
+				this.updatePvPIndicator('PVP: CONNECTING...', 'warning');
 				await this.network.connect();
 				statusEl.textContent = 'Connected! Create or join a room.';
+				this.updatePvPIndicator('PVP: CONNECTED', 'connected');
 			} catch {
 				statusEl.textContent = 'Connection failed. Try again.';
+				this.updatePvPIndicator('PVP: CONNECTION FAILED', 'error');
 				return;
 			}
 		} else {
 			statusEl.textContent = 'Create or join a room.';
+			this.updatePvPIndicator('PVP: CONNECTED', 'connected');
 		}
 
 		// Room created
@@ -121,28 +142,34 @@ export class StreetFighterGame {
 			statusEl.textContent = 'Waiting for opponent...';
 			document.getElementById('join-section').classList.add('hidden');
 			document.getElementById('btn-create').classList.add('hidden');
+			this.updatePvPIndicator(`PVP: ROOM ${msg.code} (P1)`, 'connected');
 		});
 
 		// Opponent joined (we are player 1)
 		this.network.on('opponent_joined', () => {
 			statusEl.textContent = 'Opponent found! Starting...';
+			this.updatePvPIndicator('PVP: OPPONENT FOUND', 'connected');
 		});
 
 		// We joined a room (we are player 2)
 		this.network.on('room_joined', () => {
 			statusEl.textContent = 'Joined! Starting...';
+			this.updatePvPIndicator('PVP: JOINED ROOM (P2)', 'connected');
 		});
 
 		// Countdown
 		this.network.on('countdown', (msg) => {
 			statusEl.textContent = `Starting in ${msg.c}...`;
+			this.updatePvPIndicator(`PVP: STARTING IN ${msg.c}`, 'connected');
 		});
 
 		// Game start
 		this.network.on('game_start', (msg) => {
 			const localPlayerId = msg.slot === 'p1' ? 0 : 1;
+			const role = localPlayerId === 0 ? 'P1' : 'P2';
 			this.hideLobby();
 			this.pvpActive = true;
+			this.updatePvPIndicator(`PVP LIVE: ${role}`, 'connected');
 
 			// Clear lobby event listeners
 			this.network.off('room_created', null);
@@ -165,7 +192,34 @@ export class StreetFighterGame {
 
 		this.network.on('error', (msg) => {
 			statusEl.textContent = msg.msg || 'Error occurred';
+			this.updatePvPIndicator(`PVP ERROR: ${msg.msg || 'UNKNOWN'}`, 'error');
 		});
+
+		this.network.on('disconnected', () => {
+			this.updatePvPIndicator('PVP: DISCONNECTED', 'error');
+		});
+
+		// Embedded mode: auto-join the match room so both PVP entrants
+		// land in the same live networked fight without manual room steps.
+		if (autoMatchId) {
+			document.getElementById('join-section').classList.add('hidden');
+			document.getElementById('btn-create').classList.add('hidden');
+			statusEl.textContent = 'Joining match room...';
+			this.updatePvPIndicator('PVP: JOINING MATCH ROOM', 'warning');
+			this.network.joinMatch(autoMatchId);
+			return;
+		}
+
+		if (autoRoomCode) {
+			document.getElementById('join-section').classList.add('hidden');
+			document.getElementById('btn-create').classList.add('hidden');
+			roomCodeDisplay.classList.remove('hidden');
+			roomCodeEl.textContent = autoRoomCode;
+			statusEl.textContent = 'Joining room...';
+			this.updatePvPIndicator('PVP: JOINING ROOM', 'warning');
+			this.network.createRoom(autoRoomCode);
+			return;
+		}
 	};
 
 	initLobbyEvents = () => {
@@ -196,6 +250,7 @@ export class StreetFighterGame {
 				this.network = null;
 			}
 			this.pvpActive = false;
+			this.updatePvPIndicator('PVP: READY', 'warning');
 			// Reset to start scene
 			this.timeStarted = 0;
 			this.startScene(StartScene);
@@ -207,10 +262,26 @@ export class StreetFighterGame {
 	// ============================================
 	handlePvPGameEnd = (result) => {
 		this.pvpActive = false;
-		const resultText = document.getElementById('pvp-result-text');
-		const rematchStatus = document.getElementById('rematch-status');
-		rematchStatus.textContent = '';
 
+		// In embedded mode, send result to parent frame and let betting page handle it
+		if (window.__autostart === 'pvp') {
+			try {
+				window.parent.postMessage({
+					type: 'sfPvPResult',
+					result: result, // 'win', 'lose', or 'disconnect'
+				}, '*');
+			} catch (_e) {}
+
+			// Disconnect network
+			if (this.network) {
+				this.network.disconnect();
+				this.network = null;
+			}
+			return;
+		}
+
+		// Non-embedded: show result overlay
+		const resultText = document.getElementById('pvp-result-text');
 		if (result === 'win') {
 			resultText.textContent = 'YOU WIN!';
 			resultText.style.color = '#50E661';
@@ -221,57 +292,12 @@ export class StreetFighterGame {
 			resultText.textContent = 'OPPONENT LEFT';
 			resultText.style.color = '#FFD700';
 		}
-
 		this.resultOverlay.classList.remove('hidden');
 		document.querySelector('main').style.display = 'none';
 	};
 
 	initResultEvents = () => {
-		// Rematch
-		document.getElementById('btn-rematch').addEventListener('click', () => {
-			if (!this.network || !this.network.connected) {
-				document.getElementById('rematch-status').textContent = 'Connection lost';
-				return;
-			}
-			this.network.requestRematch();
-			document.getElementById('rematch-status').textContent = 'Waiting for opponent...';
-
-			this.network.on('rematch_request', () => {
-				// Both players want rematch, accept automatically
-				this.network.requestRematch();
-			});
-
-			this.network.on('rematch_accepted', () => {
-				document.getElementById('rematch-status').textContent = 'Rematch starting!';
-			});
-
-			this.network.on('countdown', (msg) => {
-				document.getElementById('rematch-status').textContent = `Starting in ${msg.c}...`;
-			});
-
-			this.network.on('game_start', (msg) => {
-				const localPlayerId = msg.slot === 'p1' ? 0 : 1;
-				this.resultOverlay.classList.add('hidden');
-				document.querySelector('main').style.display = '';
-
-				this.network.off('rematch_request', null);
-				this.network.off('rematch_accepted', null);
-				this.network.off('countdown', null);
-				this.network.off('game_start', null);
-
-				this.pvpActive = true;
-				this.contextHandler.startDimDown();
-				this.sceneStarted = false;
-				this.nextScene = BattleScene;
-				this._pvpConfig = {
-					network: this.network,
-					localPlayerId,
-					onGameEnd: this.handlePvPGameEnd,
-				};
-			});
-		});
-
-		// Main menu
+		// Main menu (non-embedded only)
 		document.getElementById('btn-main-menu').addEventListener('click', () => {
 			this.resultOverlay.classList.add('hidden');
 			document.querySelector('main').style.display = '';
@@ -280,6 +306,7 @@ export class StreetFighterGame {
 				this.network = null;
 			}
 			this.pvpActive = false;
+			this.updatePvPIndicator('PVP: READY', 'warning');
 			this.timeStarted = 0;
 			this.startScene(StartScene);
 		});
@@ -299,27 +326,37 @@ export class StreetFighterGame {
 	};
 
 	frame = (time) => {
-		window.requestAnimationFrame(this.frame.bind(this));
+		window.requestAnimationFrame(this._boundFrame);
 
 		if (this.timeStarted === 0) {
 			this.timeStarted = time;
 		}
+
+		// Cap at 60fps — skip rendering on high-refresh displays (120Hz/144Hz)
+		if (time - this._lastFrameTime < 15) return;
+		this._lastFrameTime = time;
+
 		time -= this.timeStarted;
 		time = time * GAME_SPEED;
 
-		this.frameTime = {
-			secondsPassed: (time - this.frameTime.previous) / 1000,
-			previous: time,
-		};
+		this.frameTime.secondsPassed = (time - this.frameTime.previous) / 1000;
+		this.frameTime.previous = time;
 		updateGamePads();
 		this.contextHandler.update(this.frameTime);
-		this.context.filter = `brightness(${this.contextHandler.brightness}) contrast(${this.contextHandler.contrast})`;
+		// Only apply expensive CSS filter when brightness/contrast are not default (1.0)
+		// Canvas filters force software rendering and kill performance when set every frame
+		if (this.contextHandler.brightness !== 1 || this.contextHandler.contrast !== 1) {
+			this.context.filter = `brightness(${this.contextHandler.brightness}) contrast(${this.contextHandler.contrast})`;
+		} else if (this.context.filter !== 'none') {
+			this.context.filter = 'none';
+		}
 		this.updateScenes();
 	};
 
 	start() {
+		if (!this._boundFrame) this._boundFrame = this.frame.bind(this);
 		registerKeyboardEvents();
 		registerGamepadEvents();
-		window.requestAnimationFrame(this.frame.bind(this));
+		window.requestAnimationFrame(this._boundFrame);
 	}
 }

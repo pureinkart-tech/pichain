@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#06080d">
+<link rel="manifest" href="/player/manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%2306080d' width='100' height='100' rx='20'/><text x='50' y='65' text-anchor='middle' font-size='50'>🎵</text></svg>">
+<title>PIChain Player</title>
+<style>
+:root {
+  --bg: #06080d; --bg-2: #0d1117; --surface: #161b22; --surface-2: #1c2333;
+  --border: #30363d; --text: #e6edf3; --muted: #8b949e; --dim: #484f58;
+  --accent: #6366f1; --accent-glow: rgba(99,102,241,0.3);
+  --green: #2dd4bf; --rose: #f43f5e; --gold: #f59e0b;
+  --neon-pink: #ec4899; --neon-blue: #3b82f6;
+  --radius: 16px; --radius-sm: 10px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; overflow:hidden; }
+
+/* Layout */
+.app { display:flex; flex-direction:column; height:100vh; padding-top:var(--safe-top); }
+.header { padding:12px 20px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.header h1 { font-size:18px; font-weight:800; background:linear-gradient(135deg, var(--accent), var(--neon-pink)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.content { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.player-bar { flex-shrink:0; border-top:1px solid var(--border); background:var(--surface); padding-bottom:var(--safe-bottom); }
+
+/* Tabs */
+.tabs { display:flex; border-bottom:1px solid var(--border); background:var(--bg-2); }
+.tab { flex:1; padding:10px 0; text-align:center; font-size:12px; font-weight:600; color:var(--muted); background:none; border:none; cursor:pointer; transition:all 0.2s; }
+.tab.active { color:var(--accent); border-bottom:2px solid var(--accent); }
+.tab-content { display:none; height:100%; } .tab-content.active { display:block; }
+
+/* Song list */
+.song-item { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid rgba(48,54,61,0.5); cursor:pointer; transition:background 0.15s; }
+.song-item:active { background:var(--surface); }
+.song-item.playing { background:rgba(99,102,241,0.1); }
+.song-num { width:24px; text-align:center; font-size:12px; color:var(--dim); flex-shrink:0; }
+.song-item.playing .song-num { color:var(--accent); }
+.song-info { flex:1; min-width:0; }
+.song-title { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.song-artist { font-size:12px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.song-dur { font-size:11px; color:var(--dim); flex-shrink:0; }
+.song-actions { flex-shrink:0; }
+.song-actions button { background:none; border:none; color:var(--muted); font-size:18px; padding:4px 8px; cursor:pointer; }
+
+/* Player bar */
+.player-bar .now-playing { display:flex; align-items:center; gap:12px; padding:10px 16px 6px; }
+.player-art { width:42px; height:42px; border-radius:8px; background:linear-gradient(135deg, var(--accent), var(--neon-pink)); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+.player-info { flex:1; min-width:0; }
+.player-title { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.player-artist { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.player-controls { display:flex; align-items:center; justify-content:center; gap:16px; padding:4px 16px; }
+.player-controls button { background:none; border:none; color:var(--text); font-size:22px; cursor:pointer; padding:6px; transition:transform 0.1s; }
+.player-controls button:active { transform:scale(0.9); }
+.player-controls .play-btn { width:44px; height:44px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; font-size:20px; color:white; }
+.progress-container { display:flex; align-items:center; gap:8px; padding:0 16px 8px; }
+.progress-track { flex:1; height:4px; background:var(--border); border-radius:2px; position:relative; cursor:pointer; }
+.progress-fill { height:100%; background:var(--accent); border-radius:2px; transition:width 0.1s linear; }
+.progress-time { font-size:10px; color:var(--dim); width:36px; text-align:center; }
+
+/* Browse tab */
+.section-title { padding:16px 20px 8px; font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+.browse-card { display:flex; gap:12px; padding:12px 20px; border-bottom:1px solid rgba(48,54,61,0.3); align-items:center; cursor:pointer; }
+.browse-card:active { background:var(--surface); }
+.browse-art { width:50px; height:50px; border-radius:10px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+.browse-info { flex:1; min-width:0; }
+.browse-title { font-size:14px; font-weight:600; }
+.browse-sub { font-size:12px; color:var(--muted); margin-top:2px; }
+.browse-btn { padding:6px 14px; background:var(--accent); border:none; border-radius:20px; color:white; font-size:12px; font-weight:600; cursor:pointer; flex-shrink:0; }
+
+/* Empty state */
+.empty-state { text-align:center; padding:60px 20px; color:var(--dim); }
+.empty-state .icon { font-size:48px; margin-bottom:12px; }
+.empty-state h3 { font-size:18px; color:var(--muted); margin-bottom:8px; }
+.empty-state p { font-size:13px; line-height:1.5; }
+
+/* Search */
+.search-bar { display:flex; gap:8px; padding:12px 16px; }
+.search-bar input { flex:1; padding:10px 14px; background:var(--bg-2); border:1px solid var(--border); border-radius:20px; color:var(--text); font-size:14px; outline:none; }
+.search-bar input:focus { border-color:var(--accent); }
+.search-bar button { padding:10px 16px; background:var(--accent); border:none; border-radius:20px; color:white; font-weight:600; font-size:13px; cursor:pointer; }
+
+/* Settings */
+.setting-row { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid rgba(48,54,61,0.3); }
+.setting-label { font-size:14px; }
+.setting-value { font-size:13px; color:var(--accent); }
+
+/* Spinner */
+.spinner { width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin:0 auto; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Toast */
+.toast { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:var(--surface-2); color:var(--text); padding:10px 20px; border-radius:20px; font-size:13px; font-weight:600; z-index:9999; opacity:0; transition:opacity 0.3s; pointer-events:none; border:1px solid var(--border); }
+.toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>PIChain Player</h1>
+    <div style="flex:1;"></div>
+    <span id="connection-status" style="font-size:11px;color:var(--dim);">Offline</span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('library')">Library</button>
+    <button class="tab" onclick="switchTab('browse')">Browse</button>
+    <button class="tab" onclick="switchTab('search')">Search</button>
+    <button class="tab" onclick="switchTab('playlists')">Playlists</button>
+    <button class="tab" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <!-- Install Banner -->
+    <div id="install-banner" style="display:none;padding:12px 16px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(236,72,153,0.1));border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-size:28px;">📲</div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">Install PIChain Player</div>
+          <div style="font-size:11px;color:var(--muted);" id="install-hint">Add to home screen for offline music</div>
+        </div>
+        <button id="install-btn" onclick="installApp()" style="padding:8px 16px;background:var(--accent);border:none;border-radius:20px;color:white;font-size:12px;font-weight:700;cursor:pointer;">Install</button>
+        <button onclick="dismissInstall()" style="background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:4px;">✕</button>
+      </div>
+      <div id="install-instructions" style="display:none;margin-top:8px;padding:8px 12px;background:var(--surface);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.6;"></div>
+    </div>
+
+    <!-- Library Tab -->
+    <div class="tab-content active" id="tab-library">
+      <div id="library-list"></div>
+      <div id="library-empty" class="empty-state">
+        <div class="icon">🎵</div>
+        <h3>No Songs Yet</h3>
+        <p>Go to <b>Browse</b> to get songs from AI Music Studio, or <b>Search</b> to find and download music.<br><br>Songs are saved <b>on your device</b> for offline playback — no internet needed after download.</p>
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+          <button class="browse-btn" onclick="switchTab('browse')">Browse Studio</button>
+          <button class="browse-btn" onclick="switchTab('search')" style="background:var(--neon-pink);">Search Music</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browse Tab (connect to studio) -->
+    <div class="tab-content" id="tab-browse">
+      <div class="section-title">From AI Music Studio</div>
+      <div id="studio-songs"></div>
+      <div style="padding:16px 20px;">
+        <button class="browse-btn" onclick="loadStudioSongs()" style="width:100%;padding:12px;">Refresh from Studio</button>
+      </div>
+      <div class="section-title">Published Songs</div>
+      <div id="published-songs"></div>
+    </div>
+
+    <!-- Search Tab -->
+    <div class="tab-content" id="tab-search">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search songs online..." onkeydown="if(event.key==='Enter')searchOnline()">
+        <button onclick="searchOnline()">Search</button>
+      </div>
+      <div id="search-results-player"></div>
+    </div>
+
+    <!-- Playlists Tab -->
+    <div class="tab-content" id="tab-playlists">
+      <div style="padding:16px 20px;">
+        <button class="browse-btn" onclick="createPlaylist()" style="width:100%;padding:12px;">+ New Playlist</button>
+      </div>
+      <div id="playlist-list"></div>
+      <div id="playlist-empty" class="empty-state">
+        <div class="icon">📋</div>
+        <h3>No Playlists</h3>
+        <p>Create playlists to organize your music.</p>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-content" id="tab-settings">
+      <div class="section-title">Connection</div>
+      <div class="setting-row">
+        <span class="setting-label">Studio URL</span>
+        <span class="setting-value" id="studio-url-display">pichain.net</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Status</span>
+        <span class="setting-value" id="studio-status">Checking...</span>
+      </div>
+      <div class="section-title">Storage</div>
+      <div class="setting-row">
+        <span class="setting-label">Downloaded Songs</span>
+        <span class="setting-value" id="storage-count">0</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Storage Used</span>
+        <span class="setting-value" id="storage-size">0 MB</span>
+      </div>
+      <div class="section-title">Playback</div>
+      <div class="setting-row" onclick="toggleSetting('crossfade')">
+        <span class="setting-label">Crossfade</span>
+        <span class="setting-value" id="crossfade-value">Off</span>
+      </div>
+      <div class="setting-row" onclick="toggleSetting('equalizer')">
+        <span class="setting-label">Bass Boost</span>
+        <span class="setting-value" id="eq-value">Off</span>
+      </div>
+      <div class="section-title">Download App</div>
+      <div class="setting-row" onclick="window.open('/player/app.apk','_blank')">
+        <span class="setting-label">Android APK</span>
+        <span class="setting-value">Download (3.2 MB)</span>
+      </div>
+      <div class="setting-row" id="pwa-install-row" style="display:none;" onclick="installApp()">
+        <span class="setting-label">Install as App</span>
+        <span class="setting-value">Add to Home Screen</span>
+      </div>
+      <div class="section-title">About</div>
+      <div class="setting-row">
+        <span class="setting-label">Version</span>
+        <span class="setting-value">1.0.0</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Powered by</span>
+        <span class="setting-value">PIChain Music Studio</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Player Bar (always visible when a song is loaded) -->
+  <div class="player-bar" id="player-bar" style="display:none;">
+    <div class="now-playing" onclick="expandPlayer()">
+      <div class="player-art" id="player-art">🎵</div>
+      <div class="player-info">
+        <div class="player-title" id="player-title">Not Playing</div>
+        <div class="player-artist" id="player-artist">—</div>
+      </div>
+    </div>
+    <div class="progress-container">
+      <span class="progress-time" id="time-current">0:00</span>
+      <div class="progress-track" onclick="seekTo(event)" id="progress-track">
+        <div class="progress-fill" id="progress-fill" style="width:0%;"></div>
+      </div>
+      <span class="progress-time" id="time-total">0:00</span>
+    </div>
+    <div class="player-controls">
+      <button onclick="toggleShuffle()" id="btn-shuffle" style="font-size:16px;opacity:0.5;">🔀</button>
+      <button onclick="prevSong()">⏮</button>
+      <button class="play-btn" onclick="togglePlay()" id="btn-play">▶</button>
+      <button onclick="nextSong()">⏭</button>
+      <button onclick="toggleRepeat()" id="btn-repeat" style="font-size:16px;opacity:0.5;">🔁</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Audio Element -->
+<audio id="audio" preload="auto"></audio>
+
+<script>
+// ═══════════════════════════════════════════
+// PIChain Player — Core Logic
+// ═══════════════════════════════════════════
+
+const API = 'https://pichain.net/music-api';
+const audio = document.getElementById('audio');
+let library = []; // {id, title, artist, duration, filename, blobUrl, size, addedAt}
+let playlists = []; // {id, name, songs:[songId,...]}
+let queue = [];
+let currentIndex = -1;
+let shuffle = false;
+let repeat = 0; // 0=off, 1=all, 2=one
+let isPlaying = false;
+
+// ═══════════════════════════════════════════
+// IndexedDB — stores audio blobs for offline
+// ═══════════════════════════════════════════
+let db = null;
+const DB_NAME = 'pichain_player';
+const DB_VERSION = 1;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains('songs')) d.createObjectStore('songs', { keyPath: 'id' });
+      if(!d.objectStoreNames.contains('audio')) d.createObjectStore('audio', { keyPath: 'id' });
+      if(!d.objectStoreNames.contains('meta'))  d.createObjectStore('meta',  { keyPath: 'key' });
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function saveLibrary() {
+  if(!db) return;
+  const tx = db.transaction('meta', 'readwrite');
+  tx.objectStore('meta').put({ key: 'library', value: library.map(s => ({...s, blobUrl: undefined})) });
+}
+
+async function loadLibrary() {
+  if(!db) await openDB();
+  return new Promise(resolve => {
+    const tx = db.transaction('meta', 'readonly');
+    const req = tx.objectStore('meta').get('library');
+    req.onsuccess = async () => {
+      library = req.result?.value || [];
+      // Restore blob URLs from stored audio
+      for(const song of library) {
+        try {
+          const atx = db.transaction('audio', 'readonly');
+          const areq = atx.objectStore('audio').get(song.id);
+          await new Promise(r => { areq.onsuccess = r; areq.onerror = r; });
+          if(areq.result?.blob) {
+            song.blobUrl = URL.createObjectURL(areq.result.blob);
+          }
+        } catch(e) {}
+      }
+      resolve();
+    };
+    req.onerror = () => { library = []; resolve(); };
+  });
+}
+
+async function saveAudioBlob(songId, blob) {
+  if(!db) return;
+  const tx = db.transaction('audio', 'readwrite');
+  tx.objectStore('audio').put({ id: songId, blob: blob });
+}
+
+async function deleteAudioBlob(songId) {
+  if(!db) return;
+  const tx = db.transaction('audio', 'readwrite');
+  tx.objectStore('audio').delete(songId);
+}
+
+async function getStorageSize() {
+  if(!db) return 0;
+  return new Promise(resolve => {
+    let total = 0;
+    const tx = db.transaction('audio', 'readonly');
+    const store = tx.objectStore('audio');
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if(cursor) { total += cursor.value.blob?.size || 0; cursor.continue(); }
+      else resolve(total);
+    };
+    req.onerror = () => resolve(0);
+  });
+}
+
+function savePlaylists() {
+  if(!db) return;
+  const tx = db.transaction('meta', 'readwrite');
+  tx.objectStore('meta').put({ key: 'playlists', value: playlists });
+}
+
+async function loadPlaylists() {
+  if(!db) await openDB();
+  return new Promise(resolve => {
+    const tx = db.transaction('meta', 'readonly');
+    const req = tx.objectStore('meta').get('playlists');
+    req.onsuccess = () => { playlists = req.result?.value || []; resolve(); };
+    req.onerror = () => { playlists = []; resolve(); };
+  });
+}
+
+// ─── Service Worker (offline app shell) ───
+if('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/player/sw.js').catch(() => {});
+}
+
+// ─── PWA Install Prompt ───
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner('pwa');
+});
+
+function showInstallBanner(type) {
+  const banner = document.getElementById('install-banner');
+  const hint = document.getElementById('install-hint');
+  const btn = document.getElementById('install-btn');
+  const instructions = document.getElementById('install-instructions');
+
+  if(localStorage.getItem('install_dismissed')) return;
+  banner.style.display = 'block';
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/.test(navigator.userAgent);
+
+  if(type === 'pwa' && deferredInstallPrompt) {
+    hint.textContent = 'Install for offline music playback';
+    btn.textContent = 'Install';
+    btn.onclick = installApp;
+  } else if(isIOS) {
+    hint.textContent = 'Add to Home Screen for offline music';
+    btn.textContent = 'How?';
+    btn.onclick = () => {
+      instructions.style.display = instructions.style.display === 'none' ? 'block' : 'none';
+      instructions.innerHTML = '<b>To install on iPhone/iPad:</b><br>1. Tap the <b>Share</b> button (box with arrow) at the bottom of Safari<br>2. Scroll down and tap <b>"Add to Home Screen"</b><br>3. Tap <b>"Add"</b><br><br>The app will work offline after installation.';
+    };
+  } else if(isAndroid) {
+    hint.textContent = 'Get the native app for best experience';
+    btn.textContent = 'Download APK';
+    btn.onclick = () => window.open('/player/app.apk', '_blank');
+  }
+
+  document.getElementById('pwa-install-row').style.display = '';
+}
+
+async function installApp() {
+  if(deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const result = await deferredInstallPrompt.userChoice;
+    if(result.outcome === 'accepted') { toast('App installed!'); }
+    deferredInstallPrompt = null;
+    document.getElementById('install-banner').style.display = 'none';
+  } else {
+    // Show manual instructions
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if(isIOS) {
+      document.getElementById('install-instructions').style.display = 'block';
+      document.getElementById('install-instructions').innerHTML = '<b>To install on iPhone/iPad:</b><br>1. Tap the <b>Share</b> button (box with arrow) at the bottom of Safari<br>2. Scroll down and tap <b>"Add to Home Screen"</b><br>3. Tap <b>"Add"</b><br><br>The app will work offline!';
+    } else {
+      window.open('/player/app.apk', '_blank');
+    }
+  }
+}
+
+function dismissInstall() {
+  document.getElementById('install-banner').style.display = 'none';
+  localStorage.setItem('install_dismissed', '1');
+}
+
+// Show install banner on first visit
+setTimeout(() => {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if(!isStandalone && !localStorage.getItem('install_dismissed')) {
+    showInstallBanner('auto');
+  }
+}, 2000);
+
+// ─── Tabs ───
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', t.textContent.toLowerCase().includes(name)));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-'+name)?.classList.add('active');
+  if(name === 'library') renderLibrary();
+  if(name === 'browse') loadStudioSongs();
+  if(name === 'playlists') renderPlaylists();
+  if(name === 'settings') updateSettings();
+}
+
+// ─── Library ───
+function renderLibrary() {
+  const list = document.getElementById('library-list');
+  const empty = document.getElementById('library-empty');
+  if(library.length === 0) { list.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  list.innerHTML = library.map((s, i) => `
+    <div class="song-item ${currentIndex === i ? 'playing' : ''}" onclick="playSong(${i})">
+      <div class="song-num">${currentIndex === i ? '♫' : i+1}</div>
+      <div class="song-info">
+        <div class="song-title">${esc(s.title)}</div>
+        <div class="song-artist">${esc(s.artist || 'Unknown')}</div>
+      </div>
+      <div class="song-dur">${formatTime(s.duration||0)}</div>
+      <div class="song-actions">
+        <button onclick="event.stopPropagation();songMenu(${i})">⋯</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── Play/Pause/Skip ───
+function playSong(index) {
+  if(index < 0 || index >= library.length) return;
+  currentIndex = index;
+  const song = library[index];
+  queue = library.map((_,i) => i);
+  if(shuffle) queue = shuffleArray([...queue]);
+
+  // Load audio
+  if(song.blobUrl) {
+    audio.src = song.blobUrl;
+  } else if(song.remoteUrl) {
+    audio.src = song.remoteUrl;
+  }
+
+  audio.play().then(() => {
+    isPlaying = true;
+    updatePlayerUI();
+    renderLibrary();
+    // Media Session API for lock screen controls
+    if('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.title,
+        artist: song.artist || 'PIChain Player',
+        album: 'PIChain Music',
+      });
+      navigator.mediaSession.setActionHandler('play', () => togglePlay());
+      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+      navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
+      navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
+    }
+  }).catch(e => toast('Playback failed: ' + e.message));
+}
+
+function togglePlay() {
+  if(!audio.src) { if(library.length) playSong(0); return; }
+  if(audio.paused) { audio.play(); isPlaying = true; }
+  else { audio.pause(); isPlaying = false; }
+  updatePlayerUI();
+}
+
+function nextSong() {
+  if(library.length === 0) return;
+  if(repeat === 2) { audio.currentTime = 0; audio.play(); return; }
+  let next = currentIndex + 1;
+  if(next >= library.length) next = repeat === 1 ? 0 : library.length - 1;
+  playSong(next);
+}
+
+function prevSong() {
+  if(audio.currentTime > 3) { audio.currentTime = 0; return; }
+  let prev = currentIndex - 1;
+  if(prev < 0) prev = repeat === 1 ? library.length - 1 : 0;
+  playSong(prev);
+}
+
+function toggleShuffle() {
+  shuffle = !shuffle;
+  document.getElementById('btn-shuffle').style.opacity = shuffle ? '1' : '0.5';
+  toast(shuffle ? 'Shuffle on' : 'Shuffle off');
+}
+
+function toggleRepeat() {
+  repeat = (repeat + 1) % 3;
+  const btn = document.getElementById('btn-repeat');
+  btn.style.opacity = repeat > 0 ? '1' : '0.5';
+  btn.textContent = repeat === 2 ? '🔂' : '🔁';
+  toast(['Repeat off', 'Repeat all', 'Repeat one'][repeat]);
+}
+
+function seekTo(e) {
+  const track = document.getElementById('progress-track');
+  const rect = track.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  if(audio.duration) audio.currentTime = pct * audio.duration;
+}
+
+// ─── Player UI Updates ───
+function updatePlayerUI() {
+  const bar = document.getElementById('player-bar');
+  bar.style.display = 'block';
+  document.getElementById('btn-play').textContent = isPlaying ? '⏸' : '▶';
+  if(currentIndex >= 0 && currentIndex < library.length) {
+    const s = library[currentIndex];
+    document.getElementById('player-title').textContent = s.title;
+    document.getElementById('player-artist').textContent = s.artist || 'Unknown';
+  }
+}
+
+audio.addEventListener('timeupdate', () => {
+  if(!audio.duration) return;
+  const pct = (audio.currentTime / audio.duration) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('time-current').textContent = formatTime(audio.currentTime);
+  document.getElementById('time-total').textContent = formatTime(audio.duration);
+});
+
+audio.addEventListener('ended', () => {
+  isPlaying = false;
+  nextSong();
+});
+
+audio.addEventListener('error', (e) => {
+  toast('Playback error');
+  isPlaying = false;
+  updatePlayerUI();
+});
+
+// ─── Browse (connect to studio) ───
+async function loadStudioSongs() {
+  const container = document.getElementById('studio-songs');
+  const pubContainer = document.getElementById('published-songs');
+  container.innerHTML = '<div style="padding:20px;text-align:center;"><div class="spinner"></div></div>';
+
+  try {
+    // Load history from studio
+    const r = await fetch(API + '/api/history?limit=20');
+    if(!r.ok) throw new Error('Studio offline');
+    const data = await r.json();
+    document.getElementById('connection-status').textContent = 'Connected';
+    document.getElementById('connection-status').style.color = 'var(--green)';
+
+    if(data.songs?.length) {
+      container.innerHTML = data.songs.map(s => `
+        <div class="browse-card">
+          <div class="browse-art">🎵</div>
+          <div class="browse-info">
+            <div class="browse-title">${esc(s.title || s.tags || 'Song')}</div>
+            <div class="browse-sub">${s.duration || '?'}s · ${s.created_at ? new Date(s.created_at*1000).toLocaleDateString() : ''}</div>
+          </div>
+          <button class="browse-btn" onclick="downloadFromStudio('${s.id}','${esc(s.title||s.tags||'Song').replace(/'/g,"\\'")}')">Get</button>
+        </div>
+      `).join('');
+    } else {
+      container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dim);">No songs in studio history.</div>';
+    }
+
+    // Load published songs
+    const pr = await fetch(API + '/api/discover?sort=newest&limit=20');
+    const pd = await pr.json();
+    if(pd.songs?.length) {
+      pubContainer.innerHTML = pd.songs.map(s => `
+        <div class="browse-card">
+          <div class="browse-art">${s.plays > 10 ? '🔥' : '🎵'}</div>
+          <div class="browse-info">
+            <div class="browse-title">${esc(s.title)}</div>
+            <div class="browse-sub">${s.artist||'Unknown'} · ${s.plays||0} plays</div>
+          </div>
+          <button class="browse-btn" onclick="downloadPublished('${s.id}','${esc(s.title).replace(/'/g,"\\'")}')">Get</button>
+        </div>
+      `).join('');
+    } else {
+      pubContainer.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dim);">No published songs yet.</div>';
+    }
+  } catch(e) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--rose);">Could not connect to AI Music Studio.<br><span style="font-size:12px;color:var(--dim);">Make sure pichain.net is reachable.</span></div>';
+    document.getElementById('connection-status').textContent = 'Offline';
+    document.getElementById('connection-status').style.color = 'var(--rose)';
+  }
+}
+
+// ─── Download and save locally ───
+async function downloadAndSave(songId, title, artist, audioUrl) {
+  toast('Downloading: ' + title + '...');
+  try {
+    const resp = await fetch(audioUrl);
+    if(!resp.ok) throw new Error('Download failed (' + resp.status + ')');
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    // Get duration
+    const tempAudio = new Audio(blobUrl);
+    await new Promise(resolve => { tempAudio.onloadedmetadata = resolve; tempAudio.onerror = resolve; });
+
+    const song = {
+      id: songId,
+      title: title,
+      artist: artist,
+      duration: tempAudio.duration || 0,
+      filename: title.replace(/[^a-zA-Z0-9 ]/g, '') + '.m4a',
+      blobUrl: blobUrl,
+      size: blob.size,
+      addedAt: Date.now(),
+    };
+
+    // Save audio blob to IndexedDB for offline playback
+    await saveAudioBlob(songId, blob);
+
+    // Add to library if not already there
+    if(!library.find(s => s.id === songId)) {
+      library.push(song);
+    } else {
+      // Update existing entry
+      const idx = library.findIndex(s => s.id === songId);
+      library[idx] = {...library[idx], ...song};
+    }
+    await saveLibrary();
+    toast('Saved offline: ' + title);
+    renderLibrary();
+  } catch(e) {
+    toast('Download failed: ' + e.message);
+  }
+}
+
+async function downloadFromStudio(songId, title) {
+  await downloadAndSave(songId, title, 'AI Music Studio', API + '/api/library/' + songId + '/audio');
+}
+
+async function downloadPublished(songId, title) {
+  await downloadAndSave('pub-' + songId, title, 'Published', API + '/api/published/' + songId + '/audio');
+}
+
+// ─── Online Search & Download ───
+async function searchOnline() {
+  const q = document.getElementById('search-input').value.trim();
+  if(!q) return;
+  const container = document.getElementById('search-results-player');
+  container.innerHTML = '<div style="padding:20px;text-align:center;"><div class="spinner"></div></div>';
+
+  try {
+    const r = await fetch(API + '/api/search?q=' + encodeURIComponent(q) + '&max_results=10');
+    const data = await r.json();
+    if(!data.results?.length) {
+      container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dim);">No results found.</div>';
+      return;
+    }
+    container.innerHTML = data.results.map(item => {
+      const dur = item.duration_string || '';
+      return `<div class="browse-card">
+        <img src="${item.thumbnail||''}" style="width:50px;height:50px;border-radius:8px;object-fit:cover;background:var(--surface-2);" onerror="this.style.display='none'">
+        <div class="browse-info">
+          <div class="browse-title" style="font-size:13px;">${esc(item.title)}</div>
+          <div class="browse-sub">${esc(item.channel||'')} ${dur ? '· '+dur : ''}</div>
+        </div>
+        <button class="browse-btn" onclick="downloadOnline('${item.id}','${esc(item.title).replace(/'/g,"\\'")}')">Get</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--rose);">Search failed.</div>';
+  }
+}
+
+async function downloadOnline(videoId, title) {
+  toast('Downloading: ' + title + '...');
+  try {
+    const fd = new FormData();
+    fd.append('video_id', videoId);
+    fd.append('format', 'm4a');
+    const r = await fetch(API + '/api/download', { method: 'POST', body: fd });
+    const data = await r.json();
+    if(!data.file) throw new Error(data.detail || 'Download failed');
+
+    await downloadAndSave('yt-' + videoId, title, 'Downloaded', API + data.file);
+  } catch(e) {
+    toast('Download failed: ' + e.message);
+  }
+}
+
+// ─── Song Menu ───
+function songMenu(index) {
+  const song = library[index];
+  const action = prompt(
+    `${song.title}\n\n1. Play\n2. Add to Playlist\n3. Remove from Library\n\nEnter number:`,
+    '1'
+  );
+  if(action === '1') playSong(index);
+  else if(action === '2') addToPlaylist(index);
+  else if(action === '3') {
+    if(song.blobUrl) URL.revokeObjectURL(song.blobUrl);
+    deleteAudioBlob(song.id);
+    library.splice(index, 1);
+    saveLibrary();
+    if(currentIndex === index) { audio.pause(); currentIndex = -1; }
+    else if(currentIndex > index) currentIndex--;
+    renderLibrary();
+    toast('Removed: ' + song.title);
+  }
+}
+
+// ─── Playlists ───
+function createPlaylist() {
+  const name = prompt('Playlist name:');
+  if(!name) return;
+  playlists.push({ id: Date.now().toString(), name, songs: [] });
+  savePlaylists();
+  renderPlaylists();
+  toast('Created: ' + name);
+}
+
+function addToPlaylist(songIndex) {
+  if(!playlists.length) { toast('Create a playlist first'); return; }
+  const names = playlists.map((p,i) => `${i+1}. ${p.name}`).join('\n');
+  const choice = prompt('Add to which playlist?\n\n' + names + '\n\nEnter number:', '1');
+  const idx = parseInt(choice) - 1;
+  if(idx >= 0 && idx < playlists.length) {
+    const songId = library[songIndex].id;
+    if(!playlists[idx].songs.includes(songId)) {
+      playlists[idx].songs.push(songId);
+      savePlaylists();
+      toast('Added to ' + playlists[idx].name);
+    } else { toast('Already in playlist'); }
+  }
+}
+
+function renderPlaylists() {
+  const list = document.getElementById('playlist-list');
+  const empty = document.getElementById('playlist-empty');
+  if(!playlists.length) { list.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  list.innerHTML = playlists.map((p, i) => `
+    <div class="browse-card" onclick="playPlaylist(${i})">
+      <div class="browse-art">📋</div>
+      <div class="browse-info">
+        <div class="browse-title">${esc(p.name)}</div>
+        <div class="browse-sub">${p.songs.length} songs</div>
+      </div>
+      <button class="browse-btn" onclick="event.stopPropagation();deletePlaylist(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function playPlaylist(idx) {
+  const pl = playlists[idx];
+  // Reorder library to match playlist order, play first
+  const playlistSongs = pl.songs.map(id => library.findIndex(s => s.id === id)).filter(i => i >= 0);
+  if(playlistSongs.length) playSong(playlistSongs[0]);
+  else toast('Playlist is empty');
+}
+
+function deletePlaylist(idx) {
+  if(confirm('Delete playlist "' + playlists[idx].name + '"?')) {
+    playlists.splice(idx, 1);
+    savePlaylists();
+    renderPlaylists();
+  }
+}
+
+// ─── Settings ───
+async function updateSettings() {
+  document.getElementById('storage-count').textContent = library.length;
+  const totalBytes = await getStorageSize();
+  const totalMB = totalBytes / 1024 / 1024;
+  document.getElementById('storage-size').textContent = totalMB.toFixed(1) + ' MB';
+
+  // Check studio connection
+  fetch(API + '/api/health').then(r => r.json()).then(d => {
+    document.getElementById('studio-status').textContent = 'Connected';
+    document.getElementById('studio-status').style.color = 'var(--green)';
+  }).catch(() => {
+    document.getElementById('studio-status').textContent = 'Offline';
+    document.getElementById('studio-status').style.color = 'var(--rose)';
+  });
+}
+
+function toggleSetting(name) {
+  if(name === 'crossfade') {
+    const el = document.getElementById('crossfade-value');
+    el.textContent = el.textContent === 'Off' ? '3s' : 'Off';
+  }
+  if(name === 'equalizer') {
+    const el = document.getElementById('eq-value');
+    el.textContent = el.textContent === 'Off' ? 'On' : 'Off';
+  }
+}
+
+// ─── Utils ───
+function formatTime(s) {
+  if(!s || isNaN(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+
+function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+function shuffleArray(arr) {
+  for(let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ─── Init ───
+(async () => {
+  await openDB();
+  await loadLibrary();
+  await loadPlaylists();
+  renderLibrary();
+  updateSettings();
+})();
+</script>
+</body>
+</html>

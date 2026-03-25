@@ -395,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
 
             // --- 3. Initialize Transaction Pool (Mempool) ---
             // PQ signature enforcement: ALWAYS enabled.
-            // Ed25519 transactions are rejected on ALL chains (mainnet + devnet).
+            // All transactions require PQ signatures (ML-DSA-65 + SLH-DSA).
             // Browser-based signing uses the PQ wallet connector.
             let mempool_config = pichain_execution::MempoolConfig {
                 max_transactions: cfg.max_mempool_size,
@@ -1782,7 +1782,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::Keygen => {
-            // Generate Ed25519 keypair
+            // Generate P2P identity keypair (libp2p requires ed25519 for peer identity)
             let ed_kp = pichain_crypto::Keypair::generate();
             println!("=== PIChain Validator Keypair ===");
             println!("Address:     {}", ed_kp.address());

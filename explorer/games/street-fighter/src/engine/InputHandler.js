@@ -18,7 +18,8 @@ const pressedKeys = new Set();
 const pressedKeysControlHistory = [new Set(), new Set()];
 const mappedKeys = controls
 	.map(({ keyboard }) => Object.values(keyboard))
-	.flat();
+	.flat()
+	.concat(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'Space']);
 
 // ============================================
 // PvP Remote Input Support
@@ -132,9 +133,17 @@ const isPressedControlHistory = (id, code) => {
 	return false;
 };
 
-// Map Space to the same key code as ArrowUp (jump alias)
+// Map Space and WASD to their arrow key equivalents
+const keyAliases = {
+	'KeyA': 'ArrowLeft',
+	'KeyD': 'ArrowRight',
+	'KeyW': 'ArrowUp',
+	'KeyS': 'ArrowDown',
+};
+
 const resolveKey = (code) => {
 	if (JUMP_ALIAS && code === JUMP_ALIAS) return controls[0].keyboard[Control.UP];
+	if (keyAliases[code]) return keyAliases[code];
 	return code;
 };
 
@@ -153,9 +162,14 @@ const handleKeyUp = (event) => {
 	if (heldKeys.has(code)) {
 		heldKeys.delete(code);
 		pressedKeys.delete(code);
-		if (Object.values(controls[0].keyboard).includes(code))
-			pressedKeysControlHistory[0].delete(code);
-		else pressedKeysControlHistory[1].delete(code);
+		// In PvP, only clear the local player's history
+		if (pvpMode) {
+			pressedKeysControlHistory[localPlayerId].delete(code);
+		} else {
+			if (Object.values(controls[0].keyboard).includes(code))
+				pressedKeysControlHistory[0].delete(code);
+			else pressedKeysControlHistory[1].delete(code);
+		}
 	}
 };
 
@@ -164,8 +178,11 @@ export const registerKeyboardEvents = () => {
 	window.addEventListener('keyup', handleKeyUp);
 };
 
+let gamepadsConnected = 0;
+
 const handleGamepadConnected = (event) => {
 	const gamepad = event.gamepad;
+	gamepadsConnected++;
 	console.log(
 		`gamepad named ${gamepad.id} connected for player ${gamepad.index + 1}`
 	);
@@ -173,6 +190,7 @@ const handleGamepadConnected = (event) => {
 
 const handleGamepadDisconnected = (event) => {
 	const gamepad = event.gamepad;
+	gamepadsConnected = Math.max(0, gamepadsConnected - 1);
 	console.log(
 		`gamepad named ${gamepad.id} disconnected for player ${gamepad.index + 1}`
 	);
@@ -199,6 +217,7 @@ const updateGamepadAxes = (gamePadIndex, gamePad) => {
 };
 
 export const updateGamePads = () => {
+	if (gamepadsConnected === 0) return;
 	const gamepadList = navigator.getGamepads();
 
 	for (const [gamePadIndex, gamePad] of gamepadList.entries()) {

@@ -27,12 +27,13 @@ export class Camera {
 	};
 
 	updateX = (time) => {
-		const lowX = Math.min(
-			...this.fighters.map((fighter) => fighter.position.x)
-		);
-		const highX = Math.max(
-			...this.fighters.map((fighter) => fighter.position.x)
-		);
+		let lowX = this.fighters[0].position.x;
+		let highX = lowX;
+		for (let i = 1; i < this.fighters.length; i++) {
+			const x = this.fighters[i].position.x;
+			if (x < lowX) lowX = x;
+			if (x > highX) highX = x;
+		}
 
 		if (highX - lowX > SCENE_WIDTH - SCROLL_BOUNDARY * 2) {
 			const midPoint = (highX - lowX) / 2;

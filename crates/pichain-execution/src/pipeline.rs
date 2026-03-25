@@ -7,7 +7,7 @@
 //! Block N+1:                      [Fetch+SigVerify] → [Banking] → [Ledger Write]
 //! ```
 //!
-//! Stage 1 — **Fetch + SigVerify**: Pull txs from mempool, batch-verify Ed25519 signatures.
+//! Stage 1 — **Fetch + SigVerify**: Pull txs from mempool, verify PQ signatures.
 //! Stage 2 — **Banking**: Execute transactions via Sealevel scheduler, build block.
 //! Stage 3 — **Ledger Write**: Persist block + state (handled externally by NodeState).
 

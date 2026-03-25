@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Bomberman Mayhem</title>
+        <link rel="stylesheet" href="styles.css"></link>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+    </head>
+    <body class="disable-selection">
+        <canvas id="renderCanvas"></canvas>
+        <script rel="dns-prefetch" src="./lib/pep.js"></script>
+        <script src="./js/bundle.js"></script>
+        <script>
+        (function() {
+            if (!window.location.search.includes('room=')) return;
+            var unlockTimer = setInterval(function() {
+                try {
+                    var eng = typeof BABYLON !== 'undefined' && BABYLON.Engine;
+                    if (!eng || !eng.audioEngine) return;
+                    eng.audioEngine.unlocked = true;
+                    if (eng.audioEngine.audioContext && eng.audioEngine.audioContext.state === 'suspended') {
+                        eng.audioEngine.audioContext.resume().catch(function(){});
+                    }
+                    eng.audioEngine.unlock();
+                    clearInterval(unlockTimer);
+                } catch(e) {}
+            }, 300);
+            var focusTimer = setInterval(function() {
+                try {
+                    var c = document.getElementById('renderCanvas');
+                    if (c && c.offsetWidth > 0) {
+                        c.focus();
+                        c.click();
+                        clearInterval(focusTimer);
+                    }
+                } catch(e) {}
+            }, 500);
+        })();
+        </script>
+    </body>
+</html>

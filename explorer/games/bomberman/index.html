@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Bomberman Mayhem</title>
+        <link rel="stylesheet" href="styles.css"></link> 
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        <!-- Google tag (gtag.js) -->
+        <!--
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-JYH151E26D"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-JYH151E26D');s
+        </script>
+        -->
+    </head>
+    <body class="disable-selection">
+        <canvas id="renderCanvas"></canvas>
+        <script rel="dns-prefetch" src="./lib/pep.js"></script>
+        <script>
+        // Bot API: Intercept Colyseus WebSocket to expose room state
+        // This hooks into the Colyseus client to make game state readable
+        (function() {
+            if (!window.location.search.includes('room=')) return;
+            window._bmState = { players: {}, cells: {}, bombs: {}, powers: {}, myId: null, status: 'loading' };
+            // Poll for Colyseus room state via BabylonJS scene
+            setInterval(function() {
+                try {
+                    var eng = window.__bmEngine;
+                    if (!eng || !eng.scenes) return;
+                    var scenes = eng.scenes;
+                    if (!scenes.length) return;
+                    // Find Colyseus room via __bmGame.game.joinedRoom
+                    var room = null;
+                    if (window.__bmGame && window.__bmGame.game) {
+                        room = window.__bmGame.game.joinedRoom;
+                    }
+                    if (!room && window.__bmGame) {
+                        room = window.__bmGame.joinedRoom || window.__bmGame._room;
+                    }
+                    if (room) {
+                        window._bmRoom = room;
+                        var st = window._bmState;
+                        st.status = room.state ? room.state.status : 'unknown';
+                        st.myId = room.sessionId;
+                        if (room.state && room.state.players) {
+                            st.players = {};
+                            room.state.players.forEach(function(p, id) {
+                                st.players[id] = { col: p.col, row: p.row, health: p.health, bombs: p.bombs, speed: p.speed, eliminated: p.eliminated, name: p.name, color: p.color };
+                            });
+                        }
+                        if (room.state && room.state.cells) {
+                            st.cells = {};
+                            room.state.cells.forEach(function(c, key) {
+                                st.cells[key] = { col: c.col, row: c.row, type: c.type, bombId: c.bombId, playerId: c.playerId };
+                            });
+                        }
+                        if (room.state && room.state.bombs) {
+                            st.bombs = {};
+                            room.state.bombs.forEach(function(b, key) {
+                                st.bombs[key] = { col: b.col, row: b.row, size: b.size };
+                            });
+                        }
+                        if (room.state && room.state.powers) {
+                            st.powers = {};
+                            room.state.powers.forEach(function(p, key) {
+                                st.powers[key] = { col: p.col, row: p.row, power: p.power };
+                            });
+                        }
+                    }
+                } catch(e) {}
+            }, 200);
+        })();
+        </script>
+        <script src="./js/bundle.js"></script>
+        <script>
+        // PVP mode: auto-unlock BabylonJS audio engine and focus canvas
+        // Browsers block AudioContext.resume() without user gesture, so we
+        // bypass by directly unlocking the engine state and silencing errors.
+        (function() {
+            if (!window.location.search.includes('room=')) return;
+            var unlockTimer = setInterval(function() {
+                try {
+                    var eng = typeof BABYLON !== 'undefined' && BABYLON.Engine;
+                    if (!eng || !eng.audioEngine) return;
+                    // Force-unlock audio engine without user gesture
+                    eng.audioEngine.unlocked = true;
+                    if (eng.audioEngine.audioContext && eng.audioEngine.audioContext.state === 'suspended') {
+                        eng.audioEngine.audioContext.resume().catch(function(){});
+                    }
+                    eng.audioEngine.unlock();
+                    clearInterval(unlockTimer);
+                } catch(e) {}
+            }, 300);
+            // Auto-focus canvas for keyboard input
+            var focusTimer = setInterval(function() {
+                try {
+                    var c = document.getElementById('renderCanvas');
+                    if (c && c.offsetWidth > 0) {
+                        c.focus();
+                        c.click();
+                        clearInterval(focusTimer);
+                    }
+                } catch(e) {}
+            }, 500);
+            // Override camera ONLY for spectators — normal players keep default camera
+            if (window.location.search.includes('spectate=')) {
+                setInterval(function() {
+                    try {
+                        var eng = window.__bmEngine;
+                        if (!eng || !eng.scenes) return;
+                        for (var i = 0; i < eng.scenes.length; i++) {
+                            var c = eng.scenes[i].activeCamera;
+                            if (!c) continue;
+                            var V3 = c.position.constructor;
+                            c.lockedTarget = null;
+                            c.position = new V3(12, 42, -2);
+                            c.setTarget(new V3(12, -8, 12));
+                            c.fov = 0.7;
+                            c.upVector = new V3(0, -1, 0);
+                        }
+                    } catch(e) {}
+                }, 16);
+            }
+        })();
+        // Spectator mode: join as spectator (no player entity), full 3D overhead view
+        (function() {
+            if (!window.location.search.includes('spectate=')) return;
+            window._isSpectator = true;
+
+            // Suppress errors from missing player entity — the game client expects
+            // to find its own player in room.state.players but spectators don't have one.
+            // This prevents the black screen crash.
+            window.addEventListener('error', function(e) {
+                if (window._isSpectator) { e.preventDefault(); return true; }
+            });
+            window.addEventListener('unhandledrejection', function(e) {
+                if (window._isSpectator) e.preventDefault();
+            });
+
+            // Intercept ALL HTTP methods to inject spectator flag into Colyseus matchmaking
+            // Colyseus uses httpie which uses XMLHttpRequest internally
+            var _origXHROpen = XMLHttpRequest.prototype.open;
+            var _origXHRSend = XMLHttpRequest.prototype.send;
+            var _lastXHRUrl = '';
+            XMLHttpRequest.prototype.open = function(method, url) {
+                _lastXHRUrl = url || '';
+                return _origXHROpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function(body) {
+                if (_lastXHRUrl.includes('matchmake') && body && typeof body === 'string') {
+                    try {
+                        var obj = JSON.parse(body);
+                        obj.spectator = true;
+                        body = JSON.stringify(obj);
+                        console.log('[BM-SPECTATE] Injected spectator=true via XHR:', _lastXHRUrl);
+                    } catch(e) {}
+                }
+                return _origXHRSend.call(this, body);
+            };
+            // Also intercept fetch just in case
+            var _origFetch = window.fetch;
+            window.fetch = function(url, opts) {
+                if (opts && opts.body && typeof url === 'string' && url.includes('matchmake')) {
+                    try {
+                        var body = JSON.parse(opts.body);
+                        body.spectator = true;
+                        opts = Object.assign({}, opts, { body: JSON.stringify(body) });
+                        console.log('[BM-SPECTATE] Injected spectator=true via fetch');
+                    } catch(e) {}
+                }
+                return _origFetch.call(this, url, opts);
+            };
+
+            // Camera is handled by the PVP camera code above (ArcRotateCamera replacement)
+            // For spectators, just make sure it's set and that keyboard is blocked
+
+            // Block keyboard input so spectator doesn't interfere
+            document.addEventListener('keydown', function(e) {
+                if (window._isSpectator) { e.stopPropagation(); e.preventDefault(); }
+            }, true);
+            document.addEventListener('keyup', function(e) {
+                if (window._isSpectator) { e.stopPropagation(); e.preventDefault(); }
+            }, true);
+
+            // === SPECTATOR HUD: show eliminations and winner ===
+            // Create overlay elements
+            var specHud = document.createElement('div');
+            specHud.id = 'specHud';
+            specHud.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;font-family:sans-serif;';
+            specHud.innerHTML =
+                '<div id="specTitle" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#22d3ee;font-size:16px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,0.8);">SPECTATING</div>' +
+                '<div id="specPlayers" style="position:absolute;top:40px;left:12px;color:#fff;font-size:13px;text-shadow:0 1px 4px rgba(0,0,0,0.9);"></div>' +
+                '<div id="specEvents" style="position:absolute;bottom:12px;right:12px;text-align:right;font-size:14px;text-shadow:0 1px 4px rgba(0,0,0,0.9);max-height:300px;overflow:hidden;"></div>' +
+                '<div id="specWinner" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:none;text-align:center;"></div>';
+            document.body.appendChild(specHud);
+
+            var specEvents = [];
+            var specPlayerList = {};
+            var specAliveCount = 0;
+
+            function addSpecEvent(text, color) {
+                specEvents.push({ text: text, color: color || '#fff', time: Date.now() });
+                if (specEvents.length > 12) specEvents.shift();
+                var el = document.getElementById('specEvents');
+                if (el) el.innerHTML = specEvents.map(function(e) {
+                    return '<div style="color:' + e.color + ';margin:3px 0;">' + e.text + '</div>';
+                }).join('');
+            }
+
+            function updatePlayerList() {
+                var el = document.getElementById('specPlayers');
+                if (!el) return;
+                var html = '<div style="color:#22d3ee;font-weight:bold;margin-bottom:6px;">Players (' + specAliveCount + ' alive)</div>';
+                for (var id in specPlayerList) {
+                    var p = specPlayerList[id];
+                    var icon = p.eliminated ? '💀' : '🟢';
+                    var color = p.eliminated ? '#666' : (p.color || '#fff');
+                    var style = p.eliminated ? 'text-decoration:line-through;' : 'font-weight:bold;';
+                    html += '<div style="color:' + color + ';' + style + 'margin:2px 0;">' + icon + ' ' + (p.name || 'Player') + '</div>';
+                }
+                el.innerHTML = html;
+            }
+
+            // Hook into Colyseus room messages via the __bmEngine polling
+            var specHooked = false;
+            var specHookTimer = setInterval(function() {
+                try {
+                    if (specHooked) return;
+                    var eng = window.__bmEngine;
+                    if (!eng || !eng.scenes || !eng.scenes.length) return;
+
+                    // Find the Colyseus room — it's stored somewhere in the game
+                    // Poll _bmState which tracks room state
+                    var st = window._bmState;
+                    if (!st || !st.players) return;
+
+                    // Track players from state
+                    specAliveCount = 0;
+                    for (var id in st.players) {
+                        var p = st.players[id];
+                        if (!specPlayerList[id]) {
+                            specPlayerList[id] = { name: p.name, color: p.color || '#fff', eliminated: false };
+                            addSpecEvent(p.name + ' joined', '#22d3ee');
+                        }
+                        specPlayerList[id].eliminated = p.eliminated;
+                        if (!p.eliminated && p.health > 0) specAliveCount++;
+                    }
+                    updatePlayerList();
+                } catch(e) {}
+            }, 500);
+
+            // Also listen for postMessages from the game bundle
+            window.addEventListener('message', function(event) {
+                if (!event.data || !event.data.type) return;
+                if (event.data.type === 'bomberman_player_eliminated') {
+                    var name = event.data.name || 'Player';
+                    addSpecEvent('💀 ' + name + ' — DEFEATED', '#ef4444');
+                    if (specPlayerList[event.data.sessionId]) {
+                        specPlayerList[event.data.sessionId].eliminated = true;
+                    }
+                    specAliveCount = Math.max(0, specAliveCount - 1);
+                    updatePlayerList();
+                }
+                if (event.data.type === 'bomberman_game_over') {
+                    var winner = event.data.winner || 'Unknown';
+                    var isLocalWinner = event.data.isLocalWinner;
+                    addSpecEvent('🏆 ' + winner + ' — VICTORY!', '#39ff14');
+                    var winEl = document.getElementById('specWinner');
+                    if (winEl) {
+                        winEl.style.display = 'block';
+                        winEl.innerHTML =
+                            '<div style="color:#39ff14;font-size:48px;font-weight:900;text-shadow:0 0 30px rgba(57,255,20,0.5);">VICTORY!</div>' +
+                            '<div style="color:#fbbf24;font-size:24px;margin-top:8px;">' + winner + ' wins!</div>' +
+                            '<div style="color:#aaa;font-size:14px;margin-top:12px;">Last one standing</div>';
+                    }
+                }
+            });
+
+            // Hook directly into Colyseus room for GAME_OVER and PLAYER_ELIMINATED messages
+            var specRoomHooked = false;
+            var lastKnownEliminated = new Set();
+            var specGameOver = false;
+            setInterval(function() {
+                // Try to hook room messages if not already done
+                if (!specRoomHooked && window.__bmGame && window.__bmGame.game && window.__bmGame.game.joinedRoom) {
+                    var room = window.__bmGame.game.joinedRoom;
+                    // Hook elimination messages (type 9 and '9')
+                    [9, '9'].forEach(function(t) {
+                        room.onMessage(t, function(data) {
+                            var name = data.name || 'Player';
+                            addSpecEvent('💀 ' + name + ' — DEFEATED', '#ef4444');
+                            if (specPlayerList[data.sessionId]) specPlayerList[data.sessionId].eliminated = true;
+                            updatePlayerList();
+                        });
+                    });
+                    // Hook game over messages (type 10 and '10')
+                    [10, '10'].forEach(function(t) {
+                        room.onMessage(t, function(data) {
+                            if (specGameOver) return;
+                            specGameOver = true;
+                            var winner = data.winner || 'Nobody';
+                            addSpecEvent('🏆 ' + winner + ' — VICTORY!', '#39ff14');
+                            var winEl = document.getElementById('specWinner');
+                            if (winEl) {
+                                winEl.style.display = 'block';
+                                winEl.innerHTML =
+                                    '<div style="color:#39ff14;font-size:48px;font-weight:900;text-shadow:0 0 30px rgba(57,255,20,0.5);">VICTORY!</div>' +
+                                    '<div style="color:#fbbf24;font-size:24px;margin-top:8px;">' + winner + ' wins!</div>' +
+                                    '<div style="color:#aaa;font-size:14px;margin-top:12px;">Last one standing</div>';
+                            }
+                            // Also notify parent for match completion
+                            try { window.parent.postMessage({ type: 'bomberman_game_over', winner: winner, isLocalWinner: false }, '*'); } catch(_e) {}
+                        });
+                    });
+                    specRoomHooked = true;
+                    console.log('[BM-SPECTATE] Hooked room messages for eliminations and game over');
+                }
+
+                // Poll state for player tracking
+                var st = window._bmState;
+                if (!st || !st.players || Object.keys(st.players).length === 0) return;
+                specAliveCount = 0;
+                var totalRealPlayers = 0;
+                for (var id in st.players) {
+                    var p = st.players[id];
+                    // Skip spectator's own entry (if it exists — it shouldn't since server skips)
+                    if (id === st.myId && p.col === -99) continue;
+                    totalRealPlayers++;
+                    if (p.eliminated && !lastKnownEliminated.has(id)) {
+                        lastKnownEliminated.add(id);
+                        addSpecEvent('💀 ' + (p.name || 'Player') + ' — DEFEATED', '#ef4444');
+                    }
+                    if (specPlayerList[id]) {
+                        specPlayerList[id].eliminated = p.eliminated;
+                        specPlayerList[id].name = p.name || specPlayerList[id].name;
+                        specPlayerList[id].color = p.color || specPlayerList[id].color;
+                    } else {
+                        specPlayerList[id] = { name: p.name || 'Player', color: p.color || '#fff', eliminated: p.eliminated };
+                    }
+                    if (!p.eliminated && p.health > 0) specAliveCount++;
+                }
+                // Winner detection via state polling (backup if room message missed)
+                if (!specGameOver && specAliveCount === 1 && totalRealPlayers >= 2) {
+                    for (var wid in st.players) {
+                        if (!st.players[wid].eliminated && st.players[wid].health > 0) {
+                            specGameOver = true;
+                            var winName = st.players[wid].name || 'Player';
+                            addSpecEvent('🏆 ' + winName + ' — VICTORY!', '#39ff14');
+                            var winEl = document.getElementById('specWinner');
+                            if (winEl) {
+                                winEl.style.display = 'block';
+                                winEl.innerHTML =
+                                    '<div style="color:#39ff14;font-size:48px;font-weight:900;text-shadow:0 0 30px rgba(57,255,20,0.5);">VICTORY!</div>' +
+                                    '<div style="color:#fbbf24;font-size:24px;margin-top:8px;">' + winName + ' wins!</div>' +
+                                    '<div style="color:#aaa;font-size:14px;margin-top:12px;">Last one standing</div>';
+                            }
+                            break;
+                        }
+                    }
+                }
+                updatePlayerList();
+            }, 300);
+        })();
+        </script>
+    </body>
+</html>

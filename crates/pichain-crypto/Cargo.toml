@@ -2,7 +2,7 @@
 name = "pichain-crypto"
 version.workspace = true
 edition.workspace = true
-description = "Cryptographic primitives for PIChain: Ed25519, BLS12-381, Blake3, Poseidon, ML-DSA, SLH-DSA"
+description = "Cryptographic primitives for PIChain: ML-DSA-65, SLH-DSA-SHAKE-128f, BLS12-381, Blake3, Poseidon"
 
 [dependencies]
 ed25519-dalek.workspace = true

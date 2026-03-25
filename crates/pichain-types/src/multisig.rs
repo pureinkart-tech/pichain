@@ -43,7 +43,7 @@ pub struct MultisigProposal {
 pub struct MultisigSignature {
     /// Signer address.
     pub signer: Address,
-    /// Ed25519 signature over the proposal ID.
+    /// Signature over the proposal ID.
     pub signature: Signature,
     /// Public key for verification.
     pub public_key: PublicKey,

@@ -6,7 +6,7 @@ use pichain_crypto::keys::Address;
 /// A validator in the PIChain network.
 #[derive(Clone, Debug)]
 pub struct Validator {
-    /// Validator address (derived from Ed25519 key).
+    /// Validator address (derived from PQ keypair).
     pub address: Address,
     /// BLS public key for consensus attestations.
     pub bls_public_key: BlsPublicKey,

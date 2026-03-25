@@ -1,20 +1,13 @@
 export const drawFrame = (context, image, dimensions, x, y, direction = 1) => {
 	const [sourceX, sourceY, sourceWidth, sourceHeight] = dimensions;
 
-	context.scale(direction, 1);
-	context.drawImage(
-		image,
-		sourceX,
-		sourceY,
-		sourceWidth,
-		sourceHeight,
-		x * direction,
-		y,
-		sourceWidth,
-		sourceHeight
-	);
-
-	context.setTransform(1, 0, 0, 1, 0, 0);
+	if (direction === -1) {
+		context.scale(-1, 1);
+		context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, -x, y, sourceWidth, sourceHeight);
+		context.setTransform(1, 0, 0, 1, 0, 0);
+	} else {
+		context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, sourceWidth, sourceHeight);
+	}
 };
 
 export const getContext = () => {

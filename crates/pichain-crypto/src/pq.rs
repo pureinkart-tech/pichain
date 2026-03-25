@@ -418,7 +418,7 @@ impl PqKeypair {
     /// Reconstruct a keypair from raw key bytes.
     ///
     /// Requires both secret AND public key bytes because ML-DSA's secret key
-    /// format does not embed the full public key (unlike Ed25519).
+    /// format does not embed the full public key.
     pub fn from_bytes(
         ml_dsa_sk_bytes: &[u8],
         ml_dsa_pk_bytes: &[u8],

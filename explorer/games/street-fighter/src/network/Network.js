@@ -8,7 +8,10 @@ export class Network {
   connect() {
     return new Promise((resolve, reject) => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      this.ws = new WebSocket(`${proto}//${location.host}`);
+      const relayUrl = location.hostname.includes('pichain.net')
+        ? `${proto}//${location.hostname}/ws/relay`
+        : `${proto}//${location.hostname}:8403`;
+      this.ws = new WebSocket(relayUrl);
 
       this.ws.onopen = () => {
         this.connected = true;
@@ -55,16 +58,30 @@ export class Network {
     }
   }
 
-  createRoom() {
-    this.send({ t: 'create_room' });
+  createRoom(code = null) {
+    const payload = { t: 'create_room' };
+    if (code) payload.code = code;
+    this.send(payload);
   }
 
   joinRoom(code) {
     this.send({ t: 'join_room', code });
   }
 
+  joinMatch(matchId) {
+    this.send({ t: 'sf_join_match', match_id: String(matchId || '') });
+  }
+
   sendInput(heldControls) {
     this.send({ t: 'input', h: heldControls });
+  }
+
+  sendHealthSync(hp0, hp1) {
+    this.send({ t: 'hs', hp: [hp0, hp1] });
+  }
+
+  sendGameResult(winnerId) {
+    this.send({ t: 'gr', winner: winnerId });
   }
 
   requestRematch() {
