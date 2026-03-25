@@ -80,14 +80,39 @@ async fn check_wallet_format(path: String) -> Result<wallet::WalletFormatInfo, S
 async fn create_wallet(
     save_path: String,
     password: String,
+    state: State<'_, AppState>,
 ) -> Result<wallet::CreateWalletResult, String> {
     // PQ keygen is CPU-intensive (~500ms for SLH-DSA) — run on blocking thread
     // to avoid stalling the Tokio runtime and freezing the UI.
-    tokio::task::spawn_blocking(move || {
-        wallet::create_pq_wallet(&save_path, &password)
+    let path_clone = save_path.clone();
+    let pw_clone = password.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        wallet::create_pq_wallet(&path_clone, &pw_clone)
     })
     .await
-    .map_err(|e| format!("Wallet creation thread failed: {e}"))?
+    .map_err(|e| format!("Wallet creation thread failed: {e}"))??;
+
+    // Auto-load the newly created wallet so PQ keys are cached for mining
+    let (export, _load_result) = tokio::task::spawn_blocking(move || {
+        wallet::load_pq_wallet(&save_path, Some(&password))
+    })
+    .await
+    .map_err(|e| format!("Wallet load thread failed: {e}"))??;
+
+    *state.cached_pq_keys.lock().await = Some(CachedPqKeys {
+        ml_dsa_sk: hex::decode(&export.ml_dsa_secret_key)
+            .map_err(|e| format!("Invalid ML-DSA SK: {e}"))?,
+        ml_dsa_pk: hex::decode(&export.ml_dsa_public_key)
+            .map_err(|e| format!("Invalid ML-DSA PK: {e}"))?,
+        slh_dsa_sk: hex::decode(&export.slh_dsa_secret_key)
+            .map_err(|e| format!("Invalid SLH-DSA SK: {e}"))?,
+        slh_dsa_pk: hex::decode(&export.slh_dsa_public_key)
+            .map_err(|e| format!("Invalid SLH-DSA PK: {e}"))?,
+    });
+    *state.wallet_path.lock().await = Some(result.path.clone());
+    *state.wallet_encrypted.lock().await = true;
+
+    Ok(result)
 }
 
 #[tauri::command]
