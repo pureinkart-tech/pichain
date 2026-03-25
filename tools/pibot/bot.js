@@ -242,6 +242,9 @@ try { db.exec('ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT \'\''); } c
 try { db.exec('ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN daily_withdrawn INTEGER DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN daily_withdrawn_reset TEXT DEFAULT \'\''); } catch {}
+// PQ wallet migration
+try { db.exec('ALTER TABLE users ADD COLUMN pi_address TEXT DEFAULT \'\''); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN wallet_address TEXT DEFAULT \'\''); } catch {}
 
 const Q = {
   getUser:    db.prepare('SELECT * FROM users WHERE telegram_id = ?'),
@@ -313,7 +316,7 @@ async function getUser(tid, refId = 0) {
   }
 
   // Set PIChain wallet info (keys managed by vault, not in Node.js)
-  const addr = u.pi_address || u.wallet_address || '';
+  const addr = u.pi_address || u.wallet_address || u.address || '';
   u.wallet = { address: addr };
   u.wallet_address = addr;
 
@@ -326,8 +329,9 @@ async function getUser(tid, refId = 0) {
         // Create new PQ wallet in vault (old Ed25519 wallet is abandoned)
         const result = await C.createWallet(String(tid));
         const newAddr = result.address;
-        db.prepare('UPDATE users SET wallet_seed = ?, pi_address = ? WHERE telegram_id = ?')
+        db.prepare('UPDATE users SET wallet_seed = ?, address = ? WHERE telegram_id = ?')
           .run('vault:' + tid, newAddr, tid);
+        try { db.prepare('UPDATE users SET pi_address = ?, wallet_address = ? WHERE telegram_id = ?').run(newAddr, newAddr, tid); } catch {}
         u.wallet = { address: newAddr };
         u.wallet_address = newAddr;
         console.log(`Migrated user ${tid} from Ed25519 to PQ vault wallet: ${newAddr}`);
@@ -412,7 +416,7 @@ async function mainMenu(ctx, u) {
   const chainIcon = isPi ? '\u{1F7E3}' : '\u{1F7E2}';
   const chainName = isPi ? 'PIChain' : 'Solana';
   const balStr = isPi ? esc(fPI(bal)) + ' PI' : esc((bal / LAMPORTS_PER_SOL).toFixed(4)) + ' SOL';
-  const addr = isPi ? u.address : (u.solWallet?.publicKey || 'N/A');
+  const addr = isPi ? 'Pi314' + u.address : (u.solWallet?.publicKey || 'N/A');
 
   // Fetch positions overview like BonkBot
   const solPrice = isPi ? 0 : cachedSolPrice;
@@ -1366,7 +1370,7 @@ bot.callbackQuery('settings', async (ctx) => { ctx.answerCallbackQuery().catch((
 bot.callbackQuery('wallet', async (ctx) => {
   const u = await getUser(ctx.from.id);
   const isPi = u.chain === 'pi';
-  const addr = isPi ? u.address : (u.solWallet?.publicKey || 'N/A');
+  const addr = isPi ? 'Pi314' + u.address : (u.solWallet?.publicKey || 'N/A');
   const bal = isPi
     ? await pi.getBalance(u.address).catch(()=>0)
     : await sol.getBalance(u.solWallet?.publicKey || '').catch(()=>0);
@@ -1385,7 +1389,8 @@ bot.callbackQuery('xkey', async (ctx) => {
   const u = await getUser(ctx.from.id);
   // PIChain: PQ wallet keys are managed by the vault — cannot be exported via Telegram.
   // Users export via pichain-signer CLI: pichain-signer --wallet wallet.json
-  let text = 'PIChain wallet: ' + (u.wallet_address || u.wallet?.address || 'not set') + '\n';
+  const piAddr = u.wallet_address || u.wallet?.address || 'not set';
+  let text = 'PIChain wallet: Pi314' + piAddr + '\n';
   text += '(PQ keys managed by pichain-signer — export via CLI)\n';
   if (u.solWallet?.secretKey) text += '\nSolana key (Phantom/MetaMask):\n' + u.solWallet.secretKey + '\n';
   text += '\nDelete after saving!';
