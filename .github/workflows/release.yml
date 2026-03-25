@@ -204,9 +204,46 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           mkdir -p dist
-          DMG_SRC=$(ls target/${{ matrix.target }}/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
-          if [ -n "$DMG_SRC" ]; then
-            cp "$DMG_SRC" "dist/${{ matrix.artifact }}.dmg"
+          # Find the .app built by Tauri
+          APP_PATH=$(find target/${{ matrix.target }}/release/bundle/macos -name "*.app" -maxdepth 1 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found, falling back to Tauri DMG"
+            DMG_SRC=$(ls target/${{ matrix.target }}/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
+            if [ -n "$DMG_SRC" ]; then cp "$DMG_SRC" "dist/${{ matrix.artifact }}.dmg"; fi
+          else
+            # Ad-hoc sign the app inside the build environment
+            codesign --sign - --force --deep "$APP_PATH"
+            # Create custom DMG with the app + install script
+            DMG_STAGING=$(mktemp -d)
+            cp -R "$APP_PATH" "$DMG_STAGING/"
+            ln -s /Applications "$DMG_STAGING/Applications"
+            # Create install helper script inside the DMG
+            cat > "$DMG_STAGING/Install PIChain Miner.command" << 'SCRIPT'
+          #!/bin/bash
+          # PIChain Miner — macOS Install Helper
+          # Double-click this to install and fix macOS security blocks.
+          set -e
+          cd "$(dirname "$0")"
+          APP_NAME="PIChain Miner.app"
+          if [ ! -d "$APP_NAME" ]; then
+            echo "Error: $APP_NAME not found. Open the DMG first."
+            exit 1
+          fi
+          echo ""
+          echo "  Installing PIChain Miner..."
+          # Remove old version
+          [ -d "/Applications/$APP_NAME" ] && rm -rf "/Applications/$APP_NAME"
+          # Copy to Applications
+          cp -R "$APP_NAME" "/Applications/$APP_NAME"
+          # Remove quarantine + ad-hoc sign
+          xattr -cr "/Applications/$APP_NAME" 2>/dev/null || true
+          codesign --sign - --force --deep "/Applications/$APP_NAME" 2>/dev/null || true
+          echo "  Done! Opening PIChain Miner..."
+          open "/Applications/$APP_NAME"
+          SCRIPT
+            chmod +x "$DMG_STAGING/Install PIChain Miner.command"
+            hdiutil create -volname "PIChain Miner" -srcfolder "$DMG_STAGING" -ov -format UDZO "dist/${{ matrix.artifact }}.dmg"
+            rm -rf "$DMG_STAGING"
           fi
 
       - name: Collect Windows artifacts

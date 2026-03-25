@@ -408,13 +408,12 @@ pre .c { color: var(--dim); }
         </div>
         <h3>macOS</h3>
         <div class="arch">Apple Silicon &amp; Intel</div>
-        <a class="dl-btn" href="https://github.com/pureinkart-tech/pichain/releases/latest/download/install-mac.command" target="_blank">
+        <a class="dl-btn" href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-gui-macos-arm64.dmg" target="_blank">
           <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12zM3 14h10v-1H3v1z"/></svg>
-          Download Installer
+          Download DMG
         </a>
         <div class="dl-variants">
-          <a href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-gui-macos-arm64.dmg" target="_blank">DMG (Apple Silicon)</a> &middot;
-          <a href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-gui-macos-x86_64.dmg" target="_blank">DMG (Intel)</a> &middot;
+          <a href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-gui-macos-x86_64.dmg" target="_blank">Intel Mac</a> &middot;
           <a href="https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-miner-macos-arm64" target="_blank">CLI</a>
         </div>
       </div>
@@ -484,18 +483,24 @@ chmod +x pichain-miner-linux-x86_64</pre>
     <div class="os-content" id="os-macos">
       <h4 style="margin-bottom:12px;color:var(--accent);">Option A — Desktop App (easiest)</h4>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">1</span><h4>Download &amp; run installer</h4></div>
-        <p>Click <strong>Download Installer</strong> above, then open <strong>Terminal</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "Terminal") and run:</p>
-        <pre>chmod +x ~/Downloads/install-mac.command && ~/Downloads/install-mac.command</pre>
-        <p style="margin-top:8px;">Automatically downloads the app, installs to Applications, and removes macOS security blocks.</p>
+        <div class="step-header"><span class="step-num">1</span><h4>Download &amp; open the DMG</h4></div>
+        <p>Click <strong>Download DMG</strong> above and open the downloaded file.</p>
       </div>
       <div class="step-card">
-        <div class="step-header"><span class="step-num">2</span><h4>Open and mine</h4></div>
-        <p>Find PIChain Miner in <strong>Launchpad</strong> or <strong>Spotlight</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "PIChain"). Create a wallet and start mining.</p>
+        <div class="step-header"><span class="step-num">2</span><h4>Run the installer inside the DMG</h4></div>
+        <p>Inside the DMG you'll see the app and an <strong>"Install PIChain Miner"</strong> script. Double-click the script — it copies the app to Applications and removes macOS security blocks automatically.</p>
+        <div class="note" style="margin-top:8px;">
+          <strong>If the script is also blocked:</strong> Open <strong>Terminal</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "Terminal") and paste:<br>
+          <pre style="margin-top:6px;margin-bottom:0;font-size:12px;">xattr -cr "/Volumes/PIChain Miner/Install PIChain Miner.command" && "/Volumes/PIChain Miner/Install PIChain Miner.command"</pre>
+        </div>
+        <div class="note" style="margin-top:8px;">
+          <strong>Or install manually:</strong> Drag the app to Applications, then run in Terminal:<br>
+          <pre style="margin-top:6px;margin-bottom:0;font-size:12px;">xattr -cr "/Applications/PIChain Miner.app" && codesign --sign - --force --deep "/Applications/PIChain Miner.app"</pre>
+        </div>
       </div>
-      <div class="step-card" style="opacity:0.7;">
-        <div class="step-header"><h4 style="font-size:14px;">Installed DMG manually and macOS says "move to trash"?</h4></div>
-        <pre style="font-size:12px;">xattr -cr "/Applications/PIChain Miner.app" && codesign --sign - --force --deep "/Applications/PIChain Miner.app"</pre>
+      <div class="step-card">
+        <div class="step-header"><span class="step-num">3</span><h4>Open and mine</h4></div>
+        <p>Open PIChain Miner from <strong>Applications</strong>, <strong>Launchpad</strong>, or <strong>Spotlight</strong> (<code style="color:var(--cyan);">Cmd + Space</code> &rarr; "PIChain"). Create a wallet and start mining.</p>
       </div>
 
       <h4 style="margin-top:24px;margin-bottom:12px;color:var(--green);">Option B — Terminal Mining (fastest)</h4>
