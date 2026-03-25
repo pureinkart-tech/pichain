@@ -152,8 +152,10 @@ pub struct ExecutionResult {
     pub pi_burned: PiAmount,
     /// Amount of new PI minted (mining rewards — inflationary).
     pub pi_minted: PiAmount,
-    /// Fee reward for the block proposer (priority fees + staker share of base fees).
+    /// Fee reward for the block proposer (18.59% of base fees + 100% priority fees).
     pub proposer_reward: PiAmount,
+    /// Fee reward for stakers (31.41% of base fees, distributed proportionally).
+    pub staker_reward: PiAmount,
     /// Miner fee income (18.59% of base fees) flowing back to mining pool.
     pub miner_fee: PiAmount,
     /// Addresses read during execution (for conflict detection).
@@ -792,6 +794,7 @@ impl TransactionExecutor {
                         pi_burned: 0,
                         pi_minted: 0,
                         proposer_reward: 0,
+                    staker_reward: 0,
                         miner_fee: 0,
                         state_reads: vec![],
                     }
@@ -878,6 +881,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -911,6 +915,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -938,6 +943,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -964,6 +970,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -1000,6 +1007,7 @@ impl TransactionExecutor {
                     pi_burned: 0,
                     pi_minted: 0,
                     proposer_reward: 0,
+                    staker_reward: 0,
                     miner_fee: 0,
                     state_reads: vec![],
                 };
@@ -1024,6 +1032,7 @@ impl TransactionExecutor {
                     pi_burned: 0,
                     pi_minted: 0,
                     proposer_reward: 0,
+                    staker_reward: 0,
                     miner_fee: 0,
                     state_reads: vec![],
                 };
@@ -1071,6 +1080,7 @@ impl TransactionExecutor {
                     pi_burned: 0,
                     pi_minted: 0,
                     proposer_reward: 0,
+                    staker_reward: 0,
                     miner_fee: 0,
                     state_reads: vec![],
                 };
@@ -1135,6 +1145,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -1164,6 +1175,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
+                    staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![tx.data.sender],
             };
@@ -1206,6 +1218,7 @@ impl TransactionExecutor {
                         pi_burned: 0,
                         pi_minted: 0,
                         proposer_reward: 0,
+                    staker_reward: 0,
                         miner_fee: 0,
                         state_reads: vec![],
                     };
@@ -1276,9 +1289,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split
-                                    .proposer
-                                    .saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                                 miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender, *recipient],
                             };
@@ -1373,9 +1385,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split
-                                    .proposer
-                                    .saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                                 miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
@@ -1423,7 +1434,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
@@ -1451,7 +1463,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
@@ -1484,7 +1497,8 @@ impl TransactionExecutor {
                                     state_changes,
                                     pi_burned,
                                     pi_minted: 0,
-                                    proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                    proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                                     state_reads: vec![tx.data.sender],
                                 };
@@ -1578,9 +1592,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split
-                                    .proposer
-                                    .saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                                 miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
@@ -1682,7 +1695,8 @@ impl TransactionExecutor {
                             state_changes,
                             pi_burned,
                             pi_minted: 0,
-                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                            proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![tx.data.sender],
                         };
@@ -2229,10 +2243,9 @@ impl TransactionExecutor {
                                         state_changes,
                                         pi_burned,
                                         pi_minted: 0,
-                                        proposer_reward: fee_split
-                                            .proposer
-                                            .saturating_add(fee_split.stakers),
-                                        miner_fee: fee_split.miners,
+                                        proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
+                                miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2287,7 +2300,8 @@ impl TransactionExecutor {
                                                 state_changes,
                                                 pi_burned,
                                                 pi_minted: 0,
-                                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                                                 state_reads: vec![],
                                             };
@@ -2328,10 +2342,9 @@ impl TransactionExecutor {
                                         state_changes,
                                         pi_burned,
                                         pi_minted: 0,
-                                        proposer_reward: fee_split
-                                            .proposer
-                                            .saturating_add(fee_split.stakers),
-                                        miner_fee: fee_split.miners,
+                                        proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
+                                miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2476,9 +2489,8 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split
-                                    .proposer
-                                    .saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                                 miner_fee: fee_split.miners,
                                 state_reads: vec![],
                             };
@@ -2620,7 +2632,8 @@ impl TransactionExecutor {
                             state_changes,
                             pi_burned,
                             pi_minted: 0,
-                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                            proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![],
                         };
@@ -2652,7 +2665,8 @@ impl TransactionExecutor {
                             state_changes,
                             pi_burned,
                             pi_minted: 0,
-                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                            proposer_reward: fee_split.proposer,
+                                staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![],
                         };
@@ -3123,7 +3137,8 @@ impl TransactionExecutor {
             (pi_burned, fee_split)
         };
 
-        let proposer_reward = fee_split.proposer.saturating_add(fee_split.stakers);
+        let proposer_reward = fee_split.proposer;
+        let staker_reward = fee_split.stakers;
         let miner_fee = fee_split.miners;
         ExecutionResult {
             tx_hash,
@@ -3141,6 +3156,7 @@ impl TransactionExecutor {
             pi_burned,
             pi_minted,
             proposer_reward,
+            staker_reward,
             miner_fee,
             state_reads: vec![tx.data.sender],
         }

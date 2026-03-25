@@ -840,6 +840,18 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
 
+                    // Credit the proposer with their fee share (18.59% base + priority)
+                    // before persist_block, which only handles staker distribution.
+                    let proposer_total: u64 = produced.execution_results.iter()
+                        .map(|r| r.proposer_reward)
+                        .fold(0u64, |a, v| a.saturating_add(v));
+                    if proposer_total > 0 {
+                        persist_state.executor.credit_account(
+                            produced.block.header.proposer,
+                            proposer_total,
+                        );
+                    }
+
                     // Persist block + state changes to RocksDB
                     let computed_state_root = match persist_state.persist_block(&produced).await {
                         Ok(root) => root,
