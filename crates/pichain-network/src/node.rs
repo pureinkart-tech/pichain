@@ -17,6 +17,25 @@ pub struct NetworkNode {
 
 impl NetworkNode {
     /// Create a new network node with a random identity.
+    ///
+    /// # P2P Identity — libp2p ed25519 (NOT transaction signing)
+    ///
+    /// libp2p requires ed25519 keys for peer identity (PeerId derivation).
+    /// This is a **network routing** identity only — it does NOT sign transactions,
+    /// blocks, or any chain state. All PIChain transaction and consensus signing
+    /// uses post-quantum ML-DSA-65 + SLH-DSA-SHAKE-128f exclusively.
+    ///
+    /// Even if a quantum computer could forge a libp2p PeerId, it could NOT:
+    /// - Sign any transaction (requires PQ dual signatures)
+    /// - Produce a valid block (requires PQ consensus signatures)
+    /// - Steal any wallet (PQ keys only)
+    ///
+    /// ## Future upgrade path
+    ///
+    /// When libp2p adds post-quantum identity support (active IETF research),
+    /// replace `generate_ed25519()` here with the PQ equivalent. The rest of the
+    /// PIChain stack is already PQ-native and requires no changes.
+    /// Track: <https://github.com/libp2p/specs/issues/608>
     pub fn new(listen_addr: &str) -> Result<Self, NetworkError> {
         let local_key = identity::Keypair::generate_ed25519();
         let peer_id = PeerId::from(local_key.public());

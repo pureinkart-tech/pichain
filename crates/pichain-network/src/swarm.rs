@@ -321,6 +321,19 @@ pub struct PiChainSwarm {
 
 impl PiChainSwarm {
     /// Create and start a new P2P swarm.
+    ///
+    /// # P2P Identity — libp2p ed25519 (NOT transaction signing)
+    ///
+    /// libp2p uses ed25519 keys for peer identity only. This is a network routing
+    /// concern — it identifies which computer is talking to which. It does NOT
+    /// sign transactions, blocks, or any on-chain data.
+    ///
+    /// PIChain transaction and consensus signing is entirely post-quantum
+    /// (ML-DSA-65 + SLH-DSA-SHAKE-128f). A forged PeerId cannot produce valid
+    /// blocks or transactions — the PQ consensus layer rejects them.
+    ///
+    /// When libp2p adds PQ identity support, swap `generate_ed25519()` and
+    /// `ed25519::SecretKey` below with the PQ equivalents. No other changes needed.
     pub async fn start(config: SwarmConfig) -> Result<Self, NetworkError> {
         let local_key = if let Some(mut secret) = config.identity_secret {
             let mut ed_bytes = secret;
@@ -998,10 +1011,13 @@ fn is_routable_address(addr: &Multiaddr) -> bool {
     has_ip
 }
 
-/// Compute the deterministic libp2p PeerId for a given Ed25519 secret key.
+/// Compute the deterministic libp2p PeerId for a given secret key.
 ///
-/// This allows pre-computing peer IDs for validators so bootstrap addresses
-/// can include the `/p2p/<peer_id>` suffix in configuration files.
+/// Uses ed25519 because libp2p requires it for peer identity (network routing only).
+/// This does NOT sign transactions or chain state — all signing is PQ.
+///
+/// When libp2p supports PQ identity keys, this function should be updated to use
+/// the PQ equivalent. The PeerId is only used for P2P gossip routing.
 pub fn peer_id_from_ed25519(secret: &[u8; 32]) -> Result<PeerId, NetworkError> {
     let mut bytes = *secret;
     let ed_key = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut bytes)

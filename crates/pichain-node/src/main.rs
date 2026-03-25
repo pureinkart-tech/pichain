@@ -16,8 +16,20 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// Validator key file persisted to {data_dir}/validator.key.
+///
+/// `p2p_secret` is used ONLY for libp2p peer identity (network routing).
+/// It does NOT sign transactions or blocks — all signing is post-quantum
+/// (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+///
+/// ## PQ upgrade path
+///
+/// When libp2p adds PQ identity support, add a `p2p_pq_secret` field here
+/// and update `PiChainSwarm::start()` to use it. The old `p2p_secret` field
+/// can be kept for migration. All other PIChain signing is already PQ-native.
 #[derive(Serialize, Deserialize)]
 struct ValidatorKeyFile {
+    /// libp2p P2P identity key (network routing only, NOT transaction signing).
+    /// Uses ed25519 because libp2p requires it. Will be replaced with PQ when available.
     #[serde(alias = "ed25519_secret")]
     p2p_secret: String,
     bls_secret: String,

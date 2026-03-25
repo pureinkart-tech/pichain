@@ -2,6 +2,21 @@
 //!
 //! libp2p + QUIC transport with GossipSub for transaction propagation
 //! and Turbine-style erasure-coded block streaming.
+//!
+//! # Post-Quantum Status
+//!
+//! All PIChain transaction and consensus signing is post-quantum
+//! (ML-DSA-65 + SLH-DSA-SHAKE-128f). The ONLY non-PQ component is
+//! libp2p's peer identity, which requires ed25519 (a library limitation).
+//!
+//! libp2p peer identity is used for **network routing only** — it does NOT
+//! sign transactions, blocks, or any chain state. A forged PeerId cannot
+//! produce valid blocks or transactions because the PQ consensus layer
+//! rejects anything without valid PQ signatures.
+//!
+//! When libp2p adds PQ identity support (tracked in libp2p/specs#608),
+//! update `PiChainSwarm::start()` and `peer_id_from_ed25519()` to use
+//! the PQ equivalent. No other changes needed — the rest is PQ-native.
 
 pub mod bridge;
 pub mod gossip;
