@@ -339,21 +339,31 @@ impl MiningProcessor {
         cap.min(u64::MAX as u128) as u64
     }
 
-    /// Calculate the effective per-miner cap based on network size.
+    /// Calculate the effective per-miner cap.
     ///
-    /// Progressive strengthening (all π-derived):
-    /// - Bootstrap (< 9 miners / π²): 31.41% (π × 1000 bps)
-    /// - Early (9-30 miners): 6.28% (2π × 100 bps)
-    /// - Mature (31+ miners / π decades): 3.14% (π × 100 bps)
+    /// Uses the STRICTER of two caps:
+    /// 1. Miner count cap: fewer miners → looser cap (bootstrap)
+    /// 2. Chain age cap: 31.41% ÷ year, floor 3.14% (tightens every year)
+    ///
+    /// Formula: effective = min(count_cap, max(314, 3141 / chain_age_years))
+    /// All constants derived from π.
     fn effective_miner_cap_bps(&self) -> u32 {
+        // Count-based cap
         let unique_miners = self.registry.stats().unique_miners as usize;
-        if unique_miners < MIN_MINERS_FOR_TIGHT_CAP {
+        let count_cap = if unique_miners < MIN_MINERS_FOR_TIGHT_CAP {
             BOOTSTRAP_MINER_REWARD_PCT_BPS // 31.41%
         } else if unique_miners < 31 {
             628 // 6.28% (2π)
         } else {
             MAX_MINER_REWARD_PCT_BPS // 3.14%
-        }
+        };
+
+        // Age-based cap: 3141 / chain_age_years, floor at 314 (3.14%)
+        let chain_age_years = (self.current_height / reward::BLOCKS_PER_YEAR).max(1) as u32;
+        let age_cap = (BOOTSTRAP_MINER_REWARD_PCT_BPS / chain_age_years).max(MAX_MINER_REWARD_PCT_BPS);
+
+        // Use the STRICTER (lower) of the two
+        count_cap.min(age_cap)
     }
 
     /// Advance the mining epoch if the current block height has crossed a boundary.
