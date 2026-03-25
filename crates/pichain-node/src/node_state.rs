@@ -293,6 +293,11 @@ impl NodeState {
             let genesis_block = Block::genesis(self.chain_id, timestamp);
             store.put_block(0, &genesis_block)?;
             store.set_latest_height(0)?;
+            // Set genesis timestamp on mining processor so emission year is correct from block 1
+            self.executor
+                .mining_processor()
+                .lock()
+                .set_genesis_timestamp(timestamp);
             info!(timestamp, "Genesis block created at height 0");
         }
 

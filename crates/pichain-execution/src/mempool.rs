@@ -184,8 +184,12 @@ impl TransactionPool {
             }
         }
 
-        // Fee check
-        if tx.data.max_base_fee < self.config.min_base_fee {
+        // Fee check (mining proofs are exempt — PoW serves as anti-spam)
+        let is_mining_proof = matches!(
+            tx.data.kind,
+            pichain_types::TransactionKind::MiningProof { .. }
+        );
+        if !is_mining_proof && tx.data.max_base_fee < self.config.min_base_fee {
             return Err(MempoolError::FeeTooLow {
                 provided: tx.data.max_base_fee,
                 minimum: self.config.min_base_fee,

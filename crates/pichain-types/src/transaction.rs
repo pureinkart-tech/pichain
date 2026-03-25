@@ -860,11 +860,12 @@ impl SignedTransaction {
             }
             TransactionKind::Stake { .. } => 25_000,
             TransactionKind::Unstake { .. } => 25_000,
-            TransactionKind::MiningProof { digits, .. } => {
-                // Gas scales with digit count so small miners stay profitable.
-                // At base_fee=1000: 10 digits → 550 gas → 0.00055 PI fee (3.3% of reward)
-                // 2000 digits → 10,500 gas → 0.0105 PI fee (0.3% of reward)
-                500u64.saturating_add((digits.len() as Gas).saturating_mul(5))
+            TransactionKind::MiningProof { .. } => {
+                // Mining proofs are fee-exempt. Miners already prove work via PoW
+                // (8+ bit difficulty = ~256 nonce attempts) which serves as anti-spam.
+                // Fee exemption solves the bootstrap problem: new miners need PI to pay
+                // gas, but can only earn PI by mining. Without this, fresh chains can't start.
+                0
             }
             // Token operations
             TransactionKind::CreateToken { .. } => 50_000,

@@ -596,10 +596,9 @@ pub async fn mining_loop(
                     pow_nonce: pn,
                     anchor_block_hash: anchor_block_hash.to_vec(),
                 },
-                gas_limit: 200_000u64
-                    .saturating_add((batch_digit_count as u64).saturating_mul(100)),
-                max_base_fee: 1_000,
-                max_priority_fee: 100,
+                gas_limit: 0, // Mining proofs are fee-exempt (PoW is anti-spam)
+                max_base_fee: 0,
+                max_priority_fee: 0,
                 chain_id: config.chain_id,
             };
 
