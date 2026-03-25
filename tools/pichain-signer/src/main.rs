@@ -25,7 +25,7 @@ use pichain_crypto::PqKeypair;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tracing::{error, info, warn};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(name = "pichain-signer")]
@@ -412,7 +412,7 @@ async fn main() -> anyhow::Result<()> {
 ///
 /// Creates the JSON manifest file that tells the browser where to find
 /// the pichain-signer binary for native messaging communication.
-fn install_native_host_manifest(wallet_path: &str) -> anyhow::Result<()> {
+fn install_native_host_manifest(_wallet_path: &str) -> anyhow::Result<()> {
     let exe_path = std::env::current_exe()
         .map_err(|e| anyhow::anyhow!("cannot determine executable path: {e}"))?;
     let exe_str = exe_path.to_string_lossy().to_string();

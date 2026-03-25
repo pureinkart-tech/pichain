@@ -8,7 +8,7 @@
 //!   pichain-miner --keypair wallet.json --rpc-url https://pichain.net
 
 use clap::Parser;
-use pichain_crypto::PqKeypair;
+
 use pichain_mining::bbp::BbpComputer;
 use pichain_types::transaction::{Transaction, TransactionData, TransactionKind};
 use serde::{Deserialize, Serialize};

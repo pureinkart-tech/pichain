@@ -21,6 +21,7 @@ struct NativeRequest {
     #[serde(default)]
     tx_data: Option<serde_json::Value>,
     #[serde(default)]
+    #[allow(dead_code)]
     password: Option<String>,
 }
 

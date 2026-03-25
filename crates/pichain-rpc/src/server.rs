@@ -7086,7 +7086,7 @@ async fn relay_quake_ws(
     let upstream_url = format!("ws://{}:{}/", host, port);
     let (upstream, _) = tokio_tungstenite::connect_async(&upstream_url).await?;
 
-    let (mut client_tx, mut client_rx) = client_socket.split();
+    let (client_tx, mut client_rx) = client_socket.split();
     let (mut upstream_tx, mut upstream_rx) = upstream.split();
 
     // Wrap client_tx in Arc<Mutex> so the keepalive task can also send pings

@@ -25,6 +25,7 @@ pub struct WalletFile {
     /// Legacy field — ignored, kept only so old wallet files can be deserialized
     /// without error (they'll fail at the PQ key validation step instead).
     #[serde(default, skip_serializing)]
+    #[allow(dead_code)]
     pub secret_key: Option<String>,
 }
 
@@ -35,12 +36,6 @@ impl WalletFile {
 }
 
 // ---------- Return types ----------
-
-#[derive(Serialize, Clone)]
-pub struct WalletInfo {
-    pub address: String,
-    pub path: String,
-}
 
 #[derive(Serialize, Clone)]
 pub struct CreateWalletResult {

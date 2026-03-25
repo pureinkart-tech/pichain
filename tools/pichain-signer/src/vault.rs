@@ -16,9 +16,9 @@
 //! - No key material exposed via API — only addresses and signed transactions
 
 use axum::{extract::State, http::StatusCode, response::Json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Vault state shared across handlers.
 /// Max sign requests per user per minute.
@@ -188,6 +188,7 @@ impl VaultState {
     }
 
     /// Check if a user has a wallet.
+    #[allow(dead_code)]
     pub fn has_wallet(&self, user_id: &str) -> bool {
         self.wallet_path(user_id).exists()
     }
@@ -211,6 +212,7 @@ impl VaultState {
     }
 
     /// Delete a user's wallet (for account deletion).
+    #[allow(dead_code)]
     pub fn delete_wallet(&self, user_id: &str) -> Result<(), String> {
         let path = self.wallet_path(user_id);
         if !path.exists() {
