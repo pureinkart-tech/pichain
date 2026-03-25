@@ -6688,8 +6688,7 @@ async fn get_quake_session(
             }
 
             if !all_players.is_empty() || game_ended {
-                eprintln!("[Quake Status] match={} alive={} game_ended={} reason={} all_slots={:?} elim_slots={:?} disc_slots={:?} slot_names={:?} reg_order={:?} begin_order={:?} q3_to_addr={:?} all_q3={:?} eliminated={:?} eliminated_addrs={:?} disconnected={:?} disconnected_addrs={:?} winner_name={:?} winner_addr={:?}",
-                    key, alive, game_ended, game_end_reason, all_slots, eliminated_slots, disconnected_slots, slot_names, s.registration_order, client_begin_order, q3_to_addr, all_players_list, eliminated_list, eliminated_addrs, disconnected_list, disconnected_addrs, winner_name, winner_addr);
+                tracing::debug!(match_id=%key, alive, game_ended, reason=%game_end_reason, "quake match status");
             }
             (
                 StatusCode::OK,

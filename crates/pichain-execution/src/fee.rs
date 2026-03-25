@@ -1,9 +1,9 @@
 //! EIP-1559-style fee calculation with PI burn mechanism.
 //!
-//! Base fee distribution:
-//!   25% burned permanently (deflationary pressure)
-//!   25% flows to mining pool (miner sustainability)
-//!   50% to block proposer/stakers
+//! Base fee distribution (π-native):
+//!   31.41% burned permanently (π × 1000 bps — deflationary pressure)
+//!   18.59% flows to mining pool (miner sustainability)
+//!   50.00% to block proposer/stakers
 //!
 //! Priority fee distribution:
 //!   100% to block producer (incentivizes including transactions)

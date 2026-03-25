@@ -300,10 +300,8 @@ async fn main() -> anyhow::Result<()> {
             };
             // LIMITATION: These comparisons against hardcoded default values are fragile.
             // If the default_value in #[arg(...)] above changes, these must be updated too.
-            // Ideally we would use clap's `value_source()` to detect user-provided vs default,
-            // but clap derive mode does not expose ArgMatches for enum variant fields.
-            // TODO: Refactor to use Cli::command().get_matches() + manual extraction, or
-            // use Option<T> for these fields and treat None as "use config file value".
+            // CLI args override config file values. If the CLI arg equals its default,
+            // we assume it wasn't explicitly set and defer to the config file.
             let d = if *data_dir != "./pichain-data" {
                 data_dir.clone()
             } else {

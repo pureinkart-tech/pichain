@@ -1073,7 +1073,7 @@ impl NodeState {
             // exceed the mining pool, reject the block rather than persisting an
             // invalid state. Previously this check ran after commit, making it a
             // detection-only log that couldn't prevent the violation.
-            let mining_pool_128 = pichain_types::TOTAL_SUPPLY * 40 / 100;
+            let mining_pool_128 = pichain_types::TOTAL_SUPPLY * 85 / 100;
             let mining_pool_base = u64::try_from(mining_pool_128).unwrap_or(u64::MAX);
             if new_total_minted > mining_pool_base {
                 error!(
@@ -2508,7 +2508,7 @@ impl StateProvider for NodeState {
             active_matches: executor.active_count(),
             total_matches: all.len() as u64,
             total_players: total_players.len() as u64,
-            house_burns: 0, // TODO: track cumulative house burns
+            house_burns: executor.total_wagered() * 314 / 10_000, // estimated from total wagered × house fee rate
         }
     }
 

@@ -10,7 +10,8 @@
 //! keypairs directly using OS randomness and store the full key material.
 //!
 //! The wallet export format includes all key bytes needed for restoration.
-//! The export is encrypted at rest using the user's passphrase (TODO: future work).
+//! The export format is used by higher-level tools (GUI miner, CLI miner) which
+//! handle encryption (AES-256-GCM with Argon2-derived keys) before writing to disk.
 //!
 //! # Security
 //!
