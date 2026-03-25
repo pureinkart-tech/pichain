@@ -72,7 +72,6 @@ struct Args {
     #[arg(long)]
     generate_keypair: bool,
 
-
     /// Position offset for multi-miner operation.
     /// Each miner should use a different offset (e.g., 0, 1, 2...)
     /// to avoid computing the same range as other miners.
@@ -252,7 +251,6 @@ struct AccountResponse {
     locked_balance: Option<u64>,
 }
 
-
 fn load_wallet(path: &PathBuf) -> anyhow::Result<LoadedWallet> {
     let contents = std::fs::read_to_string(path)?;
     let wallet: WalletFile = serde_json::from_str(&contents)?;
@@ -281,6 +279,16 @@ fn load_wallet(path: &PathBuf) -> anyhow::Result<LoadedWallet> {
     let pq_keypair = pichain_crypto::restore_pq_wallet(&export)
         .map_err(|e| anyhow::anyhow!("Failed to restore PQ wallet: {e}"))?;
     Ok(LoadedWallet { pq_keypair })
+}
+
+/// On Windows, pause so the user can read the output before the terminal closes.
+/// Does nothing on Unix (terminal stays open).
+fn wait_for_key_on_windows() {
+    #[cfg(target_os = "windows")]
+    {
+        eprintln!("Press Enter to close...");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
 }
 
 fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
@@ -314,7 +322,6 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -328,11 +335,55 @@ async fn main() -> anyhow::Result<()> {
 
     // Handle keypair generation
     if args.generate_keypair {
-        return generate_and_save_keypair(&args.keypair);
+        let result = generate_and_save_keypair(&args.keypair);
+        if result.is_err() {
+            eprintln!("\nError: {}", result.as_ref().unwrap_err());
+            wait_for_key_on_windows();
+        }
+        return result;
+    }
+
+    // Check if wallet file exists — give helpful message if not
+    if !std::path::Path::new(&args.keypair.to_string_lossy().to_string()).exists() {
+        eprintln!();
+        eprintln!("  ╔══════════════════════════════════════════════╗");
+        eprintln!("  ║         PIChain Miner — Getting Started      ║");
+        eprintln!("  ╠══════════════════════════════════════════════╣");
+        eprintln!("  ║                                              ║");
+        eprintln!("  ║  No wallet found at '{}'", args.keypair.display());
+        eprintln!("  ║                                              ║");
+        eprintln!("  ║  Step 1: Open a terminal (PowerShell/CMD)    ║");
+        eprintln!("  ║  Step 2: Navigate to this folder             ║");
+        eprintln!("  ║  Step 3: Run:                                ║");
+        eprintln!("  ║                                              ║");
+        #[cfg(target_os = "windows")]
+        eprintln!("  ║  .\\pichain-miner-windows-x86_64.exe `        ║");
+        #[cfg(not(target_os = "windows"))]
+        eprintln!("  ║  ./pichain-miner \\                           ║");
+        eprintln!("  ║    --keypair wallet.json --generate-keypair  ║");
+        eprintln!("  ║                                              ║");
+        eprintln!("  ║  Then run the miner:                         ║");
+        #[cfg(target_os = "windows")]
+        eprintln!("  ║  .\\pichain-miner-windows-x86_64.exe `        ║");
+        #[cfg(not(target_os = "windows"))]
+        eprintln!("  ║  ./pichain-miner \\                           ║");
+        eprintln!("  ║    --keypair wallet.json                     ║");
+        eprintln!("  ║                                              ║");
+        eprintln!("  ╚══════════════════════════════════════════════╝");
+        eprintln!();
+        wait_for_key_on_windows();
+        std::process::exit(1);
     }
 
     // Load PQ wallet
-    let loaded = load_wallet(&args.keypair)?;
+    let loaded = match load_wallet(&args.keypair) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("\nError loading wallet: {e}");
+            wait_for_key_on_windows();
+            return Err(e);
+        }
+    };
     let address = loaded.address();
     let address_hex = hex::encode(address.0);
     info!(%address, "Post-quantum wallet loaded (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
@@ -357,7 +408,10 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // SECURITY: Warn if RPC URL uses HTTP (unencrypted — signed transactions visible to network)
-    if args.rpc_url.starts_with("http://") && !args.rpc_url.contains("127.0.0.1") && !args.rpc_url.contains("localhost") {
+    if args.rpc_url.starts_with("http://")
+        && !args.rpc_url.contains("127.0.0.1")
+        && !args.rpc_url.contains("localhost")
+    {
         eprintln!();
         eprintln!("  ⚠ WARNING: RPC URL uses HTTP (unencrypted).");
         eprintln!("  Signed transactions may be visible to network observers.");
@@ -381,11 +435,17 @@ async fn main() -> anyhow::Result<()> {
     let total_cores = num_cpus::get();
 
     // CPU usage warning
-    let cpu_pct = if total_cores > 0 { num_threads * 100 / total_cores } else { 100 };
+    let cpu_pct = if total_cores > 0 {
+        num_threads * 100 / total_cores
+    } else {
+        100
+    };
     eprintln!();
     eprintln!("  ====================== WARNING ======================");
     eprintln!("  Mining uses significant CPU resources.");
-    eprintln!("  Profile: {profile_name} — {num_threads} / {total_cores} CPU threads (~{cpu_pct}% CPU)");
+    eprintln!(
+        "  Profile: {profile_name} — {num_threads} / {total_cores} CPU threads (~{cpu_pct}% CPU)"
+    );
     if cpu_pct > 75 {
         eprintln!("  This will heavily load your system and may cause");
         eprintln!("  slowdowns, high temperatures, and increased power");
@@ -574,10 +634,7 @@ async fn main() -> anyhow::Result<()> {
             n
         } else {
             match client
-                .get(format!(
-                    "{}/api/v1/account/{}",
-                    args.rpc_url, address_hex
-                ))
+                .get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex))
                 .send()
                 .await
             {
@@ -627,8 +684,10 @@ async fn main() -> anyhow::Result<()> {
             (0..effective_batch_count)
                 .into_par_iter()
                 .map(|i| {
-                    let batch_pos = position.saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
-                    let digits = BbpComputer::compute_hex_digits_parallel(batch_pos, effective_batch_size);
+                    let batch_pos = position
+                        .saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
+                    let digits =
+                        BbpComputer::compute_hex_digits_parallel(batch_pos, effective_batch_size);
                     (batch_pos, effective_batch_size, digits)
                 })
                 .collect()
@@ -661,8 +720,10 @@ async fn main() -> anyhow::Result<()> {
             let nonce_start = std::time::Instant::now();
             let max_nonce_attempts = if mining_status.difficulty_bits < 60 {
                 8u64.saturating_mul(
-                    1u64.checked_shl(mining_status.difficulty_bits).unwrap_or(u64::MAX)
-                ).max(10_000_000) // floor: 10M
+                    1u64.checked_shl(mining_status.difficulty_bits)
+                        .unwrap_or(u64::MAX),
+                )
+                .max(10_000_000) // floor: 10M
             } else {
                 u64::MAX // extremely high difficulty, search until found
             };
@@ -707,7 +768,8 @@ async fn main() -> anyhow::Result<()> {
                     pow_nonce: pn,
                     anchor_block_hash: anchor_block_hash.to_vec(),
                 },
-                gas_limit: 200_000u64.saturating_add((batch_digit_count as u64).saturating_mul(100)),
+                gas_limit: 200_000u64
+                    .saturating_add((batch_digit_count as u64).saturating_mul(100)),
                 max_base_fee: 1_000,
                 max_priority_fee: 100,
                 chain_id: args.chain_id,
@@ -779,7 +841,8 @@ async fn main() -> anyhow::Result<()> {
         // This prevents re-computing the same ranges on the next round
         // before the server has registered our proofs.
         if current_nonce > nonce {
-            let total_digits_this_round = effective_batch_count as u64 * effective_batch_size as u64;
+            let total_digits_this_round =
+                effective_batch_count as u64 * effective_batch_size as u64;
             local_position = Some(position.saturating_add(total_digits_this_round));
         }
 
@@ -834,7 +897,10 @@ mod tests {
         let result = load_wallet(&path);
         assert!(result.is_err(), "legacy wallet should be rejected");
         let err = result.err().unwrap().to_string();
-        assert!(err.contains("no longer supported"), "expected rejection message, got: {err}");
+        assert!(
+            err.contains("no longer supported"),
+            "expected rejection message, got: {err}"
+        );
     }
 
     #[test]

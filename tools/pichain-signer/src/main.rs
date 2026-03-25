@@ -116,7 +116,10 @@ async fn sign_transaction(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let mut timestamps = state.sign_timestamps.lock().unwrap_or_else(|e| e.into_inner());
+        let mut timestamps = state
+            .sign_timestamps
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         timestamps.retain(|&t| now.saturating_sub(t) < 60_000);
         if timestamps.len() >= MAX_SIGNS_PER_MINUTE {
             return (
@@ -148,10 +151,12 @@ async fn sign_transaction(
                 let arr: Vec<u8> = bytes;
                 tx_value["sender"] = serde_json::json!(arr);
             }
-            _ => return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "invalid sender address" })),
-            ),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "invalid sender address" })),
+                )
+            }
         }
     }
 
@@ -161,13 +166,16 @@ async fn sign_transaction(
     convert_hex_strings_to_arrays(&mut tx_value);
 
     // Deserialize into TransactionData
-    let tx_data: pichain_types::transaction::TransactionData = match serde_json::from_value(tx_value) {
-        Ok(td) => td,
-        Err(e) => return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("invalid tx_data: {e}") })),
-        ),
-    };
+    let tx_data: pichain_types::transaction::TransactionData =
+        match serde_json::from_value(tx_value) {
+            Ok(td) => td,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": format!("invalid tx_data: {e}") })),
+                )
+            }
+        };
 
     // Verify sender matches wallet
     let sender_hex = hex::encode(tx_data.sender.0);
@@ -201,10 +209,13 @@ async fn sign_transaction(
     let signed = pichain_types::transaction::Transaction::sign_pq(tx_data, &state.pq_keypair);
 
     match serde_json::to_value(&signed) {
-        Ok(v) => (StatusCode::OK, Json(serde_json::json!({
-            "signed_tx": v,
-            "tx_hash": hex::encode(signed.hash().as_bytes()),
-        }))),
+        Ok(v) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "signed_tx": v,
+                "tx_hash": hex::encode(signed.hash().as_bytes()),
+            })),
+        ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("serialization failed: {e}") })),
@@ -255,11 +266,30 @@ async fn main() -> anyhow::Result<()> {
         eprintln!();
     }
 
+    // Check wallet exists — helpful message if not
+    if !std::path::Path::new(&args.wallet).exists() && !args.generate {
+        eprintln!();
+        eprintln!("  No wallet found at '{}'", args.wallet);
+        eprintln!();
+        eprintln!("  To create a new wallet:");
+        eprintln!("    pichain-signer --wallet wallet.json --generate");
+        eprintln!();
+        eprintln!("  Then start the signing proxy:");
+        eprintln!("    pichain-signer --wallet wallet.json");
+        eprintln!();
+        #[cfg(target_os = "windows")]
+        {
+            eprintln!("Press Enter to close...");
+            let _ = std::io::stdin().read_line(&mut String::new());
+        }
+        std::process::exit(1);
+    }
+
     // Load wallet
     let contents = std::fs::read_to_string(&args.wallet)
         .map_err(|e| anyhow::anyhow!("Failed to read wallet '{}': {e}", args.wallet))?;
-    let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
-        .map_err(|e| anyhow::anyhow!("Invalid wallet JSON: {e}"))?;
+    let export: pichain_crypto::pq_wallet::PqWalletExport =
+        serde_json::from_str(&contents).map_err(|e| anyhow::anyhow!("Invalid wallet JSON: {e}"))?;
     let pq_keypair = pichain_crypto::restore_pq_wallet(&export)
         .map_err(|e| anyhow::anyhow!("Failed to restore PQ wallet: {e}"))?;
 
@@ -298,15 +328,29 @@ async fn main() -> anyhow::Result<()> {
             let after_scheme = s.split("://").nth(1).unwrap_or("");
             let host = if after_scheme.starts_with('[') {
                 // IPv6: extract between brackets
-                after_scheme.split(']').next().unwrap_or("").strip_prefix('[').unwrap_or("")
+                after_scheme
+                    .split(']')
+                    .next()
+                    .unwrap_or("")
+                    .strip_prefix('[')
+                    .unwrap_or("")
             } else {
                 after_scheme.split(':').next().unwrap_or("")
             };
             // Explicit domain whitelist — no wildcard subdomains
-            matches!(host,
-                "pichain.net" | "www.pichain.net" | "app.pichain.net" | "explorer.pichain.net"
-                | "pichain.io" | "www.pichain.io" | "app.pichain.io" | "explorer.pichain.io"
-                | "localhost" | "127.0.0.1" | "::1"
+            matches!(
+                host,
+                "pichain.net"
+                    | "www.pichain.net"
+                    | "app.pichain.net"
+                    | "explorer.pichain.net"
+                    | "pichain.io"
+                    | "www.pichain.io"
+                    | "app.pichain.io"
+                    | "explorer.pichain.io"
+                    | "localhost"
+                    | "127.0.0.1"
+                    | "::1"
             )
         }))
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
@@ -346,7 +390,10 @@ async fn main() -> anyhow::Result<()> {
     println!("  ║         PIChain Wallet & Signing Proxy       ║");
     println!("  ╠══════════════════════════════════════════════╣");
     println!("  ║  Address: {}  ║", &address_hex[..20]);
-    println!("  ║  Signing: http://127.0.0.1:{}              ║", args.port);
+    println!(
+        "  ║  Signing: http://127.0.0.1:{}              ║",
+        args.port
+    );
     println!("  ║  Crypto:  ML-DSA-65 + SLH-DSA-SHAKE-128f    ║");
     println!("  ║                                              ║");
     println!("  ║  Open pichain.net to use DEX, staking, etc.  ║");
@@ -402,10 +449,10 @@ fn install_native_host_manifest(wallet_path: &str) -> anyhow::Result<()> {
 
     #[cfg(target_os = "macos")]
     {
-        let chrome_dir = dirs_or_home()
-            .join("Library/Application Support/Google/Chrome/NativeMessagingHosts");
-        let firefox_dir = dirs_or_home()
-            .join("Library/Application Support/Mozilla/NativeMessagingHosts");
+        let chrome_dir =
+            dirs_or_home().join("Library/Application Support/Google/Chrome/NativeMessagingHosts");
+        let firefox_dir =
+            dirs_or_home().join("Library/Application Support/Mozilla/NativeMessagingHosts");
 
         for dir in [&chrome_dir, &firefox_dir] {
             std::fs::create_dir_all(dir)?;
@@ -455,8 +502,14 @@ fn load_or_create_master_secret(path: &str) -> anyhow::Result<[u8; 32]> {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         }
-        info!("vault master secret generated and saved to {}", path.display());
-        println!("WARNING: Keep {} safe! It encrypts all vault wallets.", path.display());
+        info!(
+            "vault master secret generated and saved to {}",
+            path.display()
+        );
+        println!(
+            "WARNING: Keep {} safe! It encrypts all vault wallets.",
+            path.display()
+        );
         Ok(secret)
     }
 }
@@ -473,9 +526,21 @@ fn dirs_or_home() -> std::path::PathBuf {
 /// Only these fields are converted — prevents unintended conversion of
 /// string fields like token names, metadata URIs, etc.
 const HEX_CONVERTIBLE_FIELDS: &[&str] = &[
-    "sender", "recipient", "validator", "contract", "multisig_address",
-    "mint", "mint_a", "mint_b", "mint_in", "mint_out", "target",
-    "nft_id", "collection_id", "match_id", "delegate",
+    "sender",
+    "recipient",
+    "validator",
+    "contract",
+    "multisig_address",
+    "mint",
+    "mint_a",
+    "mint_b",
+    "mint_in",
+    "mint_out",
+    "target",
+    "nft_id",
+    "collection_id",
+    "match_id",
+    "delegate",
     "anchor_block_hash",
 ];
 
@@ -518,4 +583,3 @@ fn convert_hex_recursive(value: &mut serde_json::Value, depth: usize) {
         _ => {}
     }
 }
-
