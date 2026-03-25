@@ -1619,9 +1619,7 @@ async function miningLoop(){
             proofsAccepted++;
             totalProofs=proofsAccepted;
             updateStats();
-            addLog('Proof sent ('+count+' digits), tx: '+txHash.slice(0,16)+'...','info');
-            // Check receipt asynchronously to confirm success
-            checkReceipt(txHash,count);
+            addLog('Proof accepted ('+count+' digits) +'+(((currentStatus.reward_per_digit||0)*count*(parseFloat(currentStatus.frontier_bonus_at_next)||1))/1e9).toFixed(4)+' PI','success');
           }
         }catch(err){addLog('Submit error: '+err.message,'error');}
         pendingWorkers--;checkRoundDone();
@@ -1719,7 +1717,17 @@ async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchor
   });
   if(!res.ok) throw new Error('Submit HTTP '+res.status);
   const result=await res.json();
-  if(result.status==='pending') return result.tx_hash;
+  if(result.status==='pending'){
+    // Pool proofs are processed immediately (no mempool/block pipeline).
+    // Count as confirmed right away.
+    proofsConfirmed++;
+    var bonusM=parseFloat(currentStatus.frontier_bonus_at_next)||1.0;
+    const reward=(currentStatus.reward_per_digit||0)*digitCount*bonusM;
+    totalEarned+=reward;
+    totalProofs=proofsConfirmed;
+    updateStats();
+    return result.tx_hash;
+  }
   throw new Error(result.error||result.status||'rejected');
 }
 
