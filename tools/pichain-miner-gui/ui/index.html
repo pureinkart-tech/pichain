@@ -277,7 +277,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
       </div>
       <div class="wallet-actions">
         <button class="btn btn-secondary btn-sm" id="refresh-btn" onclick="refreshBalance()" aria-label="Refresh balance">Refresh</button>
-        <button class="btn btn-secondary btn-sm" onclick="doExportKey()" aria-label="Export secret key">Export Key</button>
+        <button class="btn btn-secondary btn-sm" onclick="doExportKey()" aria-label="View wallet address">View Address</button>
         <button class="btn btn-danger btn-sm" onclick="doResetWallet()" aria-label="Reset wallet">Reset Wallet</button>
       </div>
     </div>
@@ -399,13 +399,13 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
 <!-- Import modal -->
 <div class="modal-overlay" id="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
   <div class="modal">
-    <h3 id="import-modal-title">Import Wallet</h3>
-    <p>Enter your 64-character hex secret key:</p>
-    <input type="password" id="import-key" placeholder="secret key (64 hex characters)" aria-label="Secret key">
+    <h3 id="import-modal-title">Load Existing Wallet</h3>
+    <p>Enter the path to your wallet file (wallet.json):</p>
+    <input type="text" id="import-key" placeholder="e.g. C:\Users\You\.pichain\wallet.json" aria-label="Wallet file path" style="font-size:13px;">
     <div id="import-error" style="color:var(--rose);font-size:12px;margin-bottom:8px;display:none;" role="alert"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="hideImportModal()">Cancel</button>
-      <button class="btn btn-primary" id="import-btn" onclick="doImportWallet()">Import</button>
+      <button class="btn btn-primary" id="import-btn" onclick="doLoadExistingWallet()">Load Wallet</button>
     </div>
   </div>
 </div>
@@ -413,19 +413,23 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
 <!-- Wallet backup warning modal (shown after creation) -->
 <div class="modal-overlay" id="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-modal-title">
   <div class="modal">
-    <h3 id="backup-modal-title" style="color:var(--rose);">Back Up Your Secret Key</h3>
+    <h3 id="backup-modal-title" style="color:var(--rose);">Back Up Your Wallet</h3>
     <div class="warning-box">
-      <strong>IMPORTANT:</strong> This is the ONLY time your secret key will be shown. If you lose it, your wallet and all PI tokens are gone forever. No one can recover it for you.
+      <strong>IMPORTANT:</strong> Your wallet is protected by post-quantum cryptography (ML-DSA-65 + SLH-DSA). Keep your wallet file and password safe — if you lose both, your PI tokens are gone forever.
     </div>
-    <p style="font-size:12px;color:var(--dim);margin-bottom:4px;">Your secret key:</p>
-    <div class="secret-key-box" id="backup-secret-key" aria-label="Secret key"></div>
-    <p style="font-size:12px;">Save this key somewhere safe (password manager, encrypted file, written down). Your wallet file is at <span style="color:var(--cyan);font-family:monospace;font-size:11px;" id="backup-wallet-path"></span></p>
+    <p style="font-size:13px;margin-bottom:6px;">Your wallet address:</p>
+    <div class="secret-key-box" id="backup-secret-key" aria-label="Wallet address" style="font-size:13px;word-break:break-all;"></div>
+    <p style="font-size:13px;margin-top:10px;">Wallet file location:</p>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:10px;">
+      <span style="color:var(--cyan);font-family:monospace;font-size:12px;" id="backup-wallet-path"></span>
+    </div>
+    <p style="font-size:12px;color:var(--dim);">Back up this file and remember your password. Copy it to a USB drive, cloud storage, or another safe location.</p>
     <div style="display:flex;align-items:center;gap:8px;margin:12px 0;">
       <input type="checkbox" id="backup-ack" style="-webkit-app-region:no-drag;cursor:pointer;">
-      <label for="backup-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I have saved my secret key</label>
+      <label for="backup-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand — I will back up my wallet file and remember my password</label>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-secondary btn-sm" onclick="copySecretKey()">Copy Key</button>
+      <button class="btn btn-secondary btn-sm" onclick="copySecretKey()">Copy Address</button>
       <button class="btn btn-primary" id="backup-proceed" onclick="dismissBackupModal()" disabled>Continue</button>
     </div>
   </div>
@@ -778,10 +782,9 @@ async function doCreateWallet() {
     const result = await invoke('create_wallet', { savePath: walletPath, password: password });
     walletAddress = result.address;
     walletEncrypted = true;
-    pendingSecretKey = result.secret_key;
     showMiningScreen();
     appendLog({ timestamp: now(), message: 'New wallet created: ' + walletAddress, level: 'success' });
-    showBackupModal(result.secret_key, result.path);
+    showBackupModal(result.address, result.path);
     await activateWallet();
     await refreshBalance();
   } catch (e) {
@@ -830,7 +833,7 @@ function dismissBackupModal() {
 function copySecretKey() {
   const key = document.getElementById('backup-secret-key').textContent;
   navigator.clipboard.writeText(key);
-  showToast('Secret key copied to clipboard', 'warn');
+  showToast('Address copied to clipboard', 'success');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -854,35 +857,49 @@ function hideImportModal() {
   document.getElementById('import-error').style.display = 'none';
 }
 
-async function doImportWallet() {
-  const key = document.getElementById('import-key').value.trim();
+async function doLoadExistingWallet() {
+  const filePath = document.getElementById('import-key').value.trim();
   const errEl = document.getElementById('import-error');
-  if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
-    errEl.textContent = 'Secret key must be exactly 64 hex characters (0-9, a-f).';
+  if (!filePath) {
+    errEl.textContent = 'Please enter the path to your wallet file.';
     errEl.style.display = 'block';
     return;
   }
 
-  // Ask for encryption password before hiding the import modal
-  const password = await showPasswordModal('create', 'Set Wallet Password', 'Choose a strong password to encrypt your imported wallet.');
-  if (!password) return;
+  // Check if file exists
+  try {
+    const exists = await invoke('check_wallet_exists', { path: filePath });
+    if (!exists) {
+      errEl.textContent = 'File not found: ' + filePath;
+      errEl.style.display = 'block';
+      return;
+    }
+  } catch (e) {
+    errEl.textContent = 'Error checking file: ' + e;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Ask for wallet password
+  const password = await showPasswordModal('unlock', 'Wallet Password', 'Enter the password for this wallet file.');
+  if (password === null) return;
 
   hideImportModal();
-  document.getElementById('setup-status').textContent = 'Importing wallet...';
+  document.getElementById('setup-status').textContent = 'Loading wallet...';
 
   try {
-    walletPath = await invoke('get_wallet_path');
-    const info = await invoke('import_wallet', { secretKey: key, savePath: walletPath, password: password });
-    walletAddress = info.address;
-    walletEncrypted = true;
+    walletPath = filePath;
+    const result = await invoke('load_wallet', { path: filePath, password: password || null });
+    walletAddress = result.address;
+    walletEncrypted = result.encrypted;
     showMiningScreen();
-    appendLog({ timestamp: now(), message: 'Wallet imported: ' + walletAddress, level: 'success' });
-    showToast('Wallet imported and encrypted!', 'success');
+    appendLog({ timestamp: now(), message: 'Wallet loaded: ' + walletAddress, level: 'success' });
+    showToast('Wallet loaded successfully!', 'success');
     await activateWallet();
     await refreshBalance();
   } catch (e) {
-    document.getElementById('setup-status').textContent = 'Import failed: ' + e;
-    showToast('Import failed: ' + e, 'error');
+    document.getElementById('setup-status').textContent = 'Load failed: ' + e;
+    showToast('Load failed: ' + e, 'error');
   }
 }
 
@@ -1211,7 +1228,7 @@ function now() {
 async function doExportKey() {
   let password = null;
   if (walletEncrypted) {
-    password = await showPasswordModal('export', 'Confirm Password', 'Enter your wallet password to view your secret key.');
+    password = await showPasswordModal('export', 'Confirm Password', 'Enter your wallet password to view your wallet details.');
     if (!password) return;
   }
   try {
@@ -1237,7 +1254,7 @@ async function doResetWallet() {
   }
   const ok = await showConfirmModal(
     'Reset Wallet',
-    'Are you sure you want to reset your wallet? This will delete the wallet file from this computer. Make sure you have exported and saved your secret key!'
+    'Are you sure you want to reset your wallet? This will delete the wallet file from this computer. Make sure you have backed up your wallet file!'
   );
   if (!ok) return;
   try {
