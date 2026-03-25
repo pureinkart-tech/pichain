@@ -86,18 +86,16 @@ async fn create_wallet(
     // to avoid stalling the Tokio runtime and freezing the UI.
     let path_clone = save_path.clone();
     let pw_clone = password.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        wallet::create_pq_wallet(&path_clone, &pw_clone)
-    })
-    .await
-    .map_err(|e| format!("Wallet creation thread failed: {e}"))??;
+    let result =
+        tokio::task::spawn_blocking(move || wallet::create_pq_wallet(&path_clone, &pw_clone))
+            .await
+            .map_err(|e| format!("Wallet creation thread failed: {e}"))??;
 
     // Auto-load the newly created wallet so PQ keys are cached for mining
-    let (export, _load_result) = tokio::task::spawn_blocking(move || {
-        wallet::load_pq_wallet(&save_path, Some(&password))
-    })
-    .await
-    .map_err(|e| format!("Wallet load thread failed: {e}"))??;
+    let (export, _load_result) =
+        tokio::task::spawn_blocking(move || wallet::load_pq_wallet(&save_path, Some(&password)))
+            .await
+            .map_err(|e| format!("Wallet load thread failed: {e}"))??;
 
     *state.cached_pq_keys.lock().await = Some(CachedPqKeys {
         ml_dsa_sk: hex::decode(&export.ml_dsa_secret_key)
