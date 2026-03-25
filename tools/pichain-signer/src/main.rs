@@ -232,14 +232,27 @@ async fn main() -> anyhow::Result<()> {
         println!("Generating post-quantum wallet...");
         let (_kp, export) = pichain_crypto::generate_pq_wallet();
         let json = serde_json::to_string_pretty(&export)?;
-        std::fs::write(path, &json)?;
+        // Set permissions BEFORE writing to prevent race condition
+        // (create empty file with 0o600, then write content)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            std::fs::write(path, "")?; // create empty
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::write(path, &json)?;
+        #[cfg(not(unix))]
+        {
+            // On Windows, warn about manual permission setting
+            eprintln!("WARNING: Set file permissions manually — right-click → Properties → Security → restrict to your user only");
         }
         println!("Wallet saved to: {}", args.wallet);
         println!("Address: {}", export.address);
+        eprintln!();
+        eprintln!("  SECURITY: This wallet file is NOT encrypted.");
+        eprintln!("  Protect it like a password — do not share or leave unattended.");
+        eprintln!("  For encrypted wallets, use the GUI miner or vault mode.");
+        eprintln!();
     }
 
     // Load wallet

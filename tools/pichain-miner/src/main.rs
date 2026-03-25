@@ -296,13 +296,13 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
 
     let (kp, export) = pichain_crypto::generate_pq_wallet();
     let json = serde_json::to_string_pretty(&export)?;
-    std::fs::write(path, &json)?;
-
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        std::fs::write(path, "")?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
+    std::fs::write(path, &json)?;
 
     println!("=== New PIChain Mining Wallet ===");
     println!("Address:    {}", kp.address());
@@ -310,6 +310,7 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
     println!("Saved to:   {}", path.display());
     println!("\nQuantum computers cannot break this wallet.");
     println!("Keep this file safe. Your keys cannot be recovered.");
+    eprintln!("\n  SECURITY: Wallet file is NOT encrypted. Protect it like a password.");
     Ok(())
 }
 
@@ -354,6 +355,15 @@ async fn main() -> anyhow::Result<()> {
             .expect("failed to install Ctrl+C handler");
         shutdown_clone.store(true, Ordering::SeqCst);
     });
+
+    // SECURITY: Warn if RPC URL uses HTTP (unencrypted — signed transactions visible to network)
+    if args.rpc_url.starts_with("http://") && !args.rpc_url.contains("127.0.0.1") && !args.rpc_url.contains("localhost") {
+        eprintln!();
+        eprintln!("  ⚠ WARNING: RPC URL uses HTTP (unencrypted).");
+        eprintln!("  Signed transactions may be visible to network observers.");
+        eprintln!("  Use https:// for production mining.");
+        eprintln!();
+    }
 
     // Resolve mining configuration from profile + overrides
     let config = MiningConfig::from_args(&args);
@@ -527,6 +537,7 @@ async fn main() -> anyhow::Result<()> {
                 arr.copy_from_slice(&bytes);
                 arr
             } else {
+                warn!("RPC returned invalid difficulty target — using default. Verify your --rpc-url is correct.");
                 pichain_mining::difficulty::INITIAL_DIFFICULTY
             }
         } else {

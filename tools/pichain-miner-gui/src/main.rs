@@ -14,11 +14,20 @@ use tokio::sync::Mutex;
 
 /// Cached PQ key material for the current session.
 /// All four key components are needed to reconstruct the PqKeypair.
+/// Secret keys are zeroized on drop to prevent memory dump exposure.
 struct CachedPqKeys {
     ml_dsa_sk: Vec<u8>,
     ml_dsa_pk: Vec<u8>,
     slh_dsa_sk: Vec<u8>,
     slh_dsa_pk: Vec<u8>,
+}
+
+impl Drop for CachedPqKeys {
+    fn drop(&mut self) {
+        // Zeroize secret key bytes to prevent memory dump exposure
+        for b in self.ml_dsa_sk.iter_mut() { *b = 0; }
+        for b in self.slh_dsa_sk.iter_mut() { *b = 0; }
+    }
 }
 
 struct AppState {
