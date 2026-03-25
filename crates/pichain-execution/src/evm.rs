@@ -244,7 +244,8 @@ impl EvmExecutor {
                 logs: vec![],
                 state_changes: vec![],
                 revert_reason: Some(format!(
-                    "nonce mismatch: expected {}, got {}", sender.nonce, tx.nonce
+                    "nonce mismatch: expected {}, got {}",
+                    sender.nonce, tx.nonce
                 )),
             };
         }
@@ -290,7 +291,11 @@ impl EvmExecutor {
         match tx.to {
             None => self.execute_create(tx),
             Some(to) => {
-                let code = self.accounts.get(&to).map(|a| a.code.clone()).unwrap_or_default();
+                let code = self
+                    .accounts
+                    .get(&to)
+                    .map(|a| a.code.clone())
+                    .unwrap_or_default();
                 if code.is_empty() {
                     // Simple value transfer
                     self.execute_transfer(tx, to)
@@ -320,7 +325,11 @@ impl EvmExecutor {
                 revert_reason: Some("balance underflow during transfer".to_string()),
             };
         }
-        sender.balance = match sender.balance.checked_sub(tx.value).and_then(|b| b.checked_sub(gas_cost)) {
+        sender.balance = match sender
+            .balance
+            .checked_sub(tx.value)
+            .and_then(|b| b.checked_sub(gas_cost))
+        {
             Some(b) => b,
             None => {
                 // Should be unreachable — total_debit was already validated above.
@@ -350,7 +359,10 @@ impl EvmExecutor {
                     address: tx.from,
                     balance_change: (tx.value.min(i128::MAX as u128) as i128)
                         .wrapping_neg()
-                        .saturating_sub((gas_used as i128).saturating_mul(tx.gas_price.min(i128::MAX as u128) as i128)),
+                        .saturating_sub(
+                            (gas_used as i128)
+                                .saturating_mul(tx.gas_price.min(i128::MAX as u128) as i128),
+                        ),
                     nonce_change: 1,
                     storage_changes: vec![],
                     code: None,
@@ -372,7 +384,7 @@ impl EvmExecutor {
     fn execute_create(&mut self, tx: &EvmTransaction) -> EvmResult {
         use revm::primitives::{
             AccountInfo, Address as RevmAddress, Bytecode, ExecutionResult as RevmExecResult,
-            TxKind, U256 as RevmU256, B256,
+            TxKind, B256, U256 as RevmU256,
         };
         use revm::{Evm, InMemoryDB};
 
@@ -394,7 +406,9 @@ impl EvmExecutor {
                 code: if acct.code.is_empty() {
                     None
                 } else {
-                    Some(Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&acct.code)))
+                    Some(Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(
+                        &acct.code,
+                    )))
                 },
             };
             db.insert_account_info(revm_addr, info);
@@ -456,7 +470,12 @@ impl EvmExecutor {
         };
 
         match result {
-            RevmExecResult::Success { gas_used, output, logs, .. } => {
+            RevmExecResult::Success {
+                gas_used,
+                output,
+                logs,
+                ..
+            } => {
                 let (output_bytes, contract_addr_opt) = match output {
                     revm::primitives::Output::Create(bytes, addr) => (bytes.to_vec(), addr),
                     revm::primitives::Output::Call(bytes) => (bytes.to_vec(), None),
@@ -487,7 +506,11 @@ impl EvmExecutor {
                         storage_changes.push((key, val));
                     }
 
-                    let new_code = db_acct.info.code.as_ref().map(|c| c.original_bytes().to_vec());
+                    let new_code = db_acct
+                        .info
+                        .code
+                        .as_ref()
+                        .map(|c| c.original_bytes().to_vec());
                     if let Some(ref code) = new_code {
                         if !code.is_empty() {
                             acct.code = code.clone();
@@ -498,9 +521,14 @@ impl EvmExecutor {
                         .saturating_sub(old_acct.balance.min(i128::MAX as u128) as i128);
                     // Use i128 intermediate to avoid i64 wrapping for large nonces
                     let nonce_change_128 = new_nonce as i128 - old_acct.nonce as i128;
-                    let nonce_change = nonce_change_128.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+                    let nonce_change =
+                        nonce_change_128.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
 
-                    if balance_change != 0 || nonce_change != 0 || !storage_changes.is_empty() || new_code.is_some() {
+                    if balance_change != 0
+                        || nonce_change != 0
+                        || !storage_changes.is_empty()
+                        || new_code.is_some()
+                    {
                         state_changes.push(EvmStateChange {
                             address: our_addr,
                             balance_change,
@@ -517,19 +545,27 @@ impl EvmExecutor {
                     output_bytes
                 };
 
-                let evm_logs: Vec<EvmLog> = logs.iter().map(|log| {
-                    let mut addr = [0u8; 20];
-                    addr.copy_from_slice(log.address.as_slice());
-                    EvmLog {
-                        address: addr,
-                        topics: log.data.topics().iter().map(|t| {
-                            let mut topic = [0u8; 32];
-                            topic.copy_from_slice(t.as_slice());
-                            topic
-                        }).collect(),
-                        data: log.data.data.to_vec(),
-                    }
-                }).collect();
+                let evm_logs: Vec<EvmLog> = logs
+                    .iter()
+                    .map(|log| {
+                        let mut addr = [0u8; 20];
+                        addr.copy_from_slice(log.address.as_slice());
+                        EvmLog {
+                            address: addr,
+                            topics: log
+                                .data
+                                .topics()
+                                .iter()
+                                .map(|t| {
+                                    let mut topic = [0u8; 32];
+                                    topic.copy_from_slice(t.as_slice());
+                                    topic
+                                })
+                                .collect(),
+                            data: log.data.data.to_vec(),
+                        }
+                    })
+                    .collect();
 
                 EvmResult {
                     success: true,
@@ -540,26 +576,22 @@ impl EvmExecutor {
                     revert_reason: None,
                 }
             }
-            RevmExecResult::Revert { gas_used, output } => {
-                EvmResult {
-                    success: false,
-                    gas_used,
-                    output: output.to_vec(),
-                    logs: vec![],
-                    state_changes: vec![],
-                    revert_reason: Some("contract creation reverted".to_string()),
-                }
-            }
-            RevmExecResult::Halt { reason, gas_used } => {
-                EvmResult {
-                    success: false,
-                    gas_used,
-                    output: vec![],
-                    logs: vec![],
-                    state_changes: vec![],
-                    revert_reason: Some(format!("contract creation halted: {reason:?}")),
-                }
-            }
+            RevmExecResult::Revert { gas_used, output } => EvmResult {
+                success: false,
+                gas_used,
+                output: output.to_vec(),
+                logs: vec![],
+                state_changes: vec![],
+                revert_reason: Some("contract creation reverted".to_string()),
+            },
+            RevmExecResult::Halt { reason, gas_used } => EvmResult {
+                success: false,
+                gas_used,
+                output: vec![],
+                logs: vec![],
+                state_changes: vec![],
+                revert_reason: Some(format!("contract creation halted: {reason:?}")),
+            },
         }
     }
 
@@ -568,7 +600,7 @@ impl EvmExecutor {
     fn execute_call(&mut self, tx: &EvmTransaction, to: EvmAddress) -> EvmResult {
         use revm::primitives::{
             AccountInfo, Address as RevmAddress, Bytecode, ExecutionResult as RevmExecResult,
-            TxKind, U256 as RevmU256, B256,
+            TxKind, B256, U256 as RevmU256,
         };
         use revm::{Evm, InMemoryDB};
 
@@ -590,7 +622,9 @@ impl EvmExecutor {
                 code: if acct.code.is_empty() {
                     None
                 } else {
-                    Some(Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(&acct.code)))
+                    Some(Bytecode::new_raw(revm::primitives::Bytes::copy_from_slice(
+                        &acct.code,
+                    )))
                 },
             };
 
@@ -657,25 +691,38 @@ impl EvmExecutor {
 
         // Convert revm result to our EvmResult
         match result {
-            RevmExecResult::Success { gas_used, logs, output, .. } => {
+            RevmExecResult::Success {
+                gas_used,
+                logs,
+                output,
+                ..
+            } => {
                 let output_bytes = match output {
                     revm::primitives::Output::Call(b) => b.to_vec(),
                     revm::primitives::Output::Create(b, _) => b.to_vec(),
                 };
 
-                let evm_logs: Vec<EvmLog> = logs.iter().map(|log| {
-                    let mut addr = [0u8; 20];
-                    addr.copy_from_slice(log.address.as_slice());
-                    EvmLog {
-                        address: addr,
-                        topics: log.data.topics().iter().map(|t| {
-                            let mut topic = [0u8; 32];
-                            topic.copy_from_slice(t.as_slice());
-                            topic
-                        }).collect(),
-                        data: log.data.data.to_vec(),
-                    }
-                }).collect();
+                let evm_logs: Vec<EvmLog> = logs
+                    .iter()
+                    .map(|log| {
+                        let mut addr = [0u8; 20];
+                        addr.copy_from_slice(log.address.as_slice());
+                        EvmLog {
+                            address: addr,
+                            topics: log
+                                .data
+                                .topics()
+                                .iter()
+                                .map(|t| {
+                                    let mut topic = [0u8; 32];
+                                    topic.copy_from_slice(t.as_slice());
+                                    topic
+                                })
+                                .collect(),
+                            data: log.data.data.to_vec(),
+                        }
+                    })
+                    .collect();
 
                 // Apply state changes back to our accounts from the committed DB
                 let committed_db = &evm.context.evm.db;
@@ -704,7 +751,11 @@ impl EvmExecutor {
                     }
 
                     // Apply code if changed
-                    let new_code = db_acct.info.code.as_ref().map(|c| c.original_bytes().to_vec());
+                    let new_code = db_acct
+                        .info
+                        .code
+                        .as_ref()
+                        .map(|c| c.original_bytes().to_vec());
                     if let Some(ref code) = new_code {
                         if !code.is_empty() && code != &old_acct.code {
                             acct.code = code.clone();
@@ -714,7 +765,8 @@ impl EvmExecutor {
                     let balance_change = (new_balance.min(i128::MAX as u128) as i128)
                         .saturating_sub(old_acct.balance.min(i128::MAX as u128) as i128);
                     let nonce_change_128 = new_nonce as i128 - old_acct.nonce as i128;
-                    let nonce_change = nonce_change_128.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+                    let nonce_change =
+                        nonce_change_128.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
 
                     if balance_change != 0 || nonce_change != 0 || !storage_changes.is_empty() {
                         state_changes.push(EvmStateChange {
@@ -736,26 +788,22 @@ impl EvmExecutor {
                     revert_reason: None,
                 }
             }
-            RevmExecResult::Revert { gas_used, output } => {
-                EvmResult {
-                    success: false,
-                    gas_used,
-                    output: output.to_vec(),
-                    logs: vec![],
-                    state_changes: vec![],
-                    revert_reason: Some("execution reverted".to_string()),
-                }
-            }
-            RevmExecResult::Halt { reason, gas_used } => {
-                EvmResult {
-                    success: false,
-                    gas_used,
-                    output: vec![],
-                    logs: vec![],
-                    state_changes: vec![],
-                    revert_reason: Some(format!("execution halted: {reason:?}")),
-                }
-            }
+            RevmExecResult::Revert { gas_used, output } => EvmResult {
+                success: false,
+                gas_used,
+                output: output.to_vec(),
+                logs: vec![],
+                state_changes: vec![],
+                revert_reason: Some("execution reverted".to_string()),
+            },
+            RevmExecResult::Halt { reason, gas_used } => EvmResult {
+                success: false,
+                gas_used,
+                output: vec![],
+                logs: vec![],
+                state_changes: vec![],
+                revert_reason: Some(format!("execution halted: {reason:?}")),
+            },
         }
     }
 
@@ -841,11 +889,14 @@ mod tests {
         // Fund sender
         let sender = [1u8; 20];
         let recipient = [2u8; 20];
-        executor.set_account(sender, EvmAccountState {
-            balance: 10_000_000_000_000_000_000u128, // 10 ETH equivalent
-            nonce: 0,
-            ..Default::default()
-        });
+        executor.set_account(
+            sender,
+            EvmAccountState {
+                balance: 10_000_000_000_000_000_000u128, // 10 ETH equivalent
+                nonce: 0,
+                ..Default::default()
+            },
+        );
 
         let tx = EvmTransaction {
             from: sender,
@@ -871,11 +922,14 @@ mod tests {
         let mut executor = EvmExecutor::new(31415);
 
         let sender = [1u8; 20];
-        executor.set_account(sender, EvmAccountState {
-            balance: 100_000_000_000_000_000_000u128,
-            nonce: 0,
-            ..Default::default()
-        });
+        executor.set_account(
+            sender,
+            EvmAccountState {
+                balance: 100_000_000_000_000_000_000u128,
+                nonce: 0,
+                ..Default::default()
+            },
+        );
 
         // Init code that deploys runtime bytecode [0x00] (STOP):
         //   PUSH1 0x00  - push 0 (the runtime byte = STOP opcode)
@@ -899,12 +953,19 @@ mod tests {
         };
 
         let result = executor.execute(&tx);
-        assert!(result.success, "contract creation failed: {:?}", result.revert_reason);
+        assert!(
+            result.success,
+            "contract creation failed: {:?}",
+            result.revert_reason
+        );
         assert!(!result.output.is_empty(), "no contract address returned");
 
         let contract_addr: EvmAddress = result.output[..20].try_into().unwrap();
         let contract_acct = executor.get_account(&contract_addr);
-        assert_eq!(contract_acct.code, expected_runtime, "deployed runtime code should match");
+        assert_eq!(
+            contract_acct.code, expected_runtime,
+            "deployed runtime code should match"
+        );
     }
 
     #[test]
@@ -912,11 +973,14 @@ mod tests {
         let mut executor = EvmExecutor::new(31415);
 
         let sender = [1u8; 20];
-        executor.set_account(sender, EvmAccountState {
-            balance: 100, // Very small balance
-            nonce: 0,
-            ..Default::default()
-        });
+        executor.set_account(
+            sender,
+            EvmAccountState {
+                balance: 100, // Very small balance
+                nonce: 0,
+                ..Default::default()
+            },
+        );
 
         let tx = EvmTransaction {
             from: sender,
@@ -939,11 +1003,14 @@ mod tests {
         let mut executor = EvmExecutor::new(31415);
 
         let sender = [1u8; 20];
-        executor.set_account(sender, EvmAccountState {
-            balance: 100_000_000_000_000_000_000u128,
-            nonce: 5,
-            ..Default::default()
-        });
+        executor.set_account(
+            sender,
+            EvmAccountState {
+                balance: 100_000_000_000_000_000_000u128,
+                nonce: 5,
+                ..Default::default()
+            },
+        );
 
         let tx = EvmTransaction {
             from: sender,
@@ -1015,11 +1082,14 @@ mod tests {
         let gas_cost = 21_000u128 * 1_000_000_000u128; // 21000 * 1 Gwei
         let total_needed = value + gas_cost;
 
-        executor.set_account(sender, EvmAccountState {
-            balance: total_needed, // Exactly enough
-            nonce: 0,
-            ..Default::default()
-        });
+        executor.set_account(
+            sender,
+            EvmAccountState {
+                balance: total_needed, // Exactly enough
+                nonce: 0,
+                ..Default::default()
+            },
+        );
 
         let tx = EvmTransaction {
             from: sender,
@@ -1037,7 +1107,10 @@ mod tests {
 
         // Sender balance should be exactly 0 (no underflow)
         let sender_acct = executor.get_account(&sender);
-        assert_eq!(sender_acct.balance, 0, "Sender balance should be exactly 0 after exact spend");
+        assert_eq!(
+            sender_acct.balance, 0,
+            "Sender balance should be exactly 0 after exact spend"
+        );
 
         // Recipient should have received the value
         let recipient_acct = executor.get_account(&recipient);

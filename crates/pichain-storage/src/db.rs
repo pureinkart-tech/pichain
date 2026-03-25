@@ -1,8 +1,7 @@
 //! RocksDB wrapper with column families optimized for blockchain workloads.
 
 use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options,
-    WriteBatch,
+    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, MultiThreaded, Options, WriteBatch,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -110,7 +109,8 @@ impl PiChainDB {
     /// Get a column family handle. Column families are created during `open()` with
     /// `create_missing_column_families(true)`, so this only fails if the DB is corrupted.
     pub(crate) fn cf(&self, name: &str) -> Arc<BoundColumnFamily<'_>> {
-        self.db.cf_handle(name)
+        self.db
+            .cf_handle(name)
             .unwrap_or_else(|| panic!("column family '{name}' missing — database may be corrupted"))
     }
 
@@ -138,8 +138,9 @@ impl PiChainDB {
     /// SECURITY: Uses a mutex to serialize block writes, preventing the TOCTOU
     /// race where two threads both pass the get_cf check and one overwrites the other.
     pub fn put_block(&self, height: u64, data: &[u8]) -> Result<(), StorageError> {
-        let _guard = self.block_write_lock.lock()
-            .map_err(|e| StorageError::IntegrityViolation(format!("block write lock poisoned: {e}")))?;
+        let _guard = self.block_write_lock.lock().map_err(|e| {
+            StorageError::IntegrityViolation(format!("block write lock poisoned: {e}"))
+        })?;
         let key = height.to_be_bytes();
         if self.db.get_cf(&self.cf(CF_BLOCKS), key)?.is_some() {
             return Err(StorageError::IntegrityViolation(format!(
@@ -157,8 +158,7 @@ impl PiChainDB {
     // --- Transaction operations ---
 
     pub fn put_transaction(&self, tx_hash: &[u8; 32], data: &[u8]) -> Result<(), StorageError> {
-        self.db
-            .put_cf(&self.cf(CF_TRANSACTIONS), tx_hash, data)?;
+        self.db.put_cf(&self.cf(CF_TRANSACTIONS), tx_hash, data)?;
         Ok(())
     }
 
@@ -232,7 +232,9 @@ impl PiChainDB {
         let mut count = 0u64;
         let mut batch = WriteBatch::default();
 
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
         for item in iter {
             let (key, _) = item?;
             if !key.starts_with(prefix) {
@@ -287,7 +289,12 @@ impl PiChainDB {
 
     /// Add a block write to a batch (for atomic commits).
     /// AUDIT-FIX H-6: Check for existing block to prevent overwrites.
-    pub fn batch_put_block(&self, batch: &mut WriteBatch, height: u64, data: &[u8]) -> Result<(), StorageError> {
+    pub fn batch_put_block(
+        &self,
+        batch: &mut WriteBatch,
+        height: u64,
+        data: &[u8],
+    ) -> Result<(), StorageError> {
         let key = height.to_be_bytes();
         if self.db.get_cf(&self.cf(CF_BLOCKS), key)?.is_some() {
             return Err(StorageError::IntegrityViolation(format!(
@@ -323,7 +330,8 @@ impl PiChainDB {
         let mut key = Vec::with_capacity(33);
         key.push(b't'); // prefix for tx→height namespace
         key.extend_from_slice(tx_hash);
-        self.db.put_cf(&self.cf(CF_METADATA), &key, height.to_be_bytes())?;
+        self.db
+            .put_cf(&self.cf(CF_METADATA), &key, height.to_be_bytes())?;
         Ok(())
     }
 
@@ -334,8 +342,9 @@ impl PiChainDB {
         key.extend_from_slice(tx_hash);
         match self.db.get_cf(&self.cf(CF_METADATA), &key)? {
             Some(bytes) => {
-                let arr: [u8; 8] = bytes.try_into()
-                    .map_err(|_| StorageError::Serialization("tx_block_height is not 8 bytes".into()))?;
+                let arr: [u8; 8] = bytes.try_into().map_err(|_| {
+                    StorageError::Serialization("tx_block_height is not 8 bytes".into())
+                })?;
                 Ok(Some(u64::from_be_bytes(arr)))
             }
             _ => Ok(None),
@@ -361,7 +370,9 @@ impl PiChainDB {
         use rocksdb::IteratorMode;
         let cf = self.cf(CF_STATE);
         let mut result = Vec::new();
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
         for item in iter {
             let (key, value) = item?;
             if !key.starts_with(prefix) {
@@ -392,7 +403,9 @@ impl PiChainDB {
         use rocksdb::IteratorMode;
         let cf = self.cf(CF_METADATA);
         let mut result = Vec::new();
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
         for item in iter {
             let (key, value) = item?;
             if !key.starts_with(prefix) {
@@ -448,7 +461,9 @@ impl PiChainDB {
         seek_key.extend_from_slice(&u16::MAX.to_be_bytes());
 
         let mut results = Vec::with_capacity(limit);
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
         for item in iter {
             let (key, value) = item?;
             if key.len() != 30 || !key.starts_with(address) {
@@ -459,7 +474,12 @@ impl PiChainDB {
             let height = u64::from_be_bytes(height_bytes);
             let tx_idx = u16::from_be_bytes(idx_bytes);
             if value.len() != 32 {
-                tracing::warn!(height, tx_idx, value_len = value.len(), "corrupted tx index entry, skipping");
+                tracing::warn!(
+                    height,
+                    tx_idx,
+                    value_len = value.len(),
+                    "corrupted tx index entry, skipping"
+                );
                 continue;
             }
             let mut tx_hash = [0u8; 32];
@@ -527,22 +547,31 @@ impl PiChainDB {
 
         let prefix_len = 34; // "t:" + 32-byte topic
         let mut results = Vec::with_capacity(limit);
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
         for item in iter {
             let (key, value) = item?;
             if key.len() != 44 || !key[..prefix_len].starts_with(&seek_key[..prefix_len]) {
                 break;
             }
-            let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
-            let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            let height = u64::from_be_bytes(key[prefix_len..prefix_len + 8].try_into().unwrap());
+            let idx = u16::from_be_bytes(key[prefix_len + 8..prefix_len + 10].try_into().unwrap());
             if value.len() != 32 {
-                tracing::warn!(height, idx, value_len = value.len(), "corrupted topic event index, skipping");
+                tracing::warn!(
+                    height,
+                    idx,
+                    value_len = value.len(),
+                    "corrupted topic event index, skipping"
+                );
                 continue;
             }
             let mut tx_hash = [0u8; 32];
             tx_hash.copy_from_slice(&value);
             results.push((tx_hash, height, idx));
-            if results.len() >= limit { break; }
+            if results.len() >= limit {
+                break;
+            }
         }
         Ok(results)
     }
@@ -564,22 +593,31 @@ impl PiChainDB {
 
         let prefix_len = 22; // "a:" + 20-byte address
         let mut results = Vec::with_capacity(limit);
-        let iter = self.db.iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(&seek_key, Direction::Reverse));
         for item in iter {
             let (key, value) = item?;
             if key.len() != 32 || !key[..prefix_len].starts_with(&seek_key[..prefix_len]) {
                 break;
             }
-            let height = u64::from_be_bytes(key[prefix_len..prefix_len+8].try_into().unwrap());
-            let idx = u16::from_be_bytes(key[prefix_len+8..prefix_len+10].try_into().unwrap());
+            let height = u64::from_be_bytes(key[prefix_len..prefix_len + 8].try_into().unwrap());
+            let idx = u16::from_be_bytes(key[prefix_len + 8..prefix_len + 10].try_into().unwrap());
             if value.len() != 32 {
-                tracing::warn!(height, idx, value_len = value.len(), "corrupted address event index, skipping");
+                tracing::warn!(
+                    height,
+                    idx,
+                    value_len = value.len(),
+                    "corrupted address event index, skipping"
+                );
                 continue;
             }
             let mut tx_hash = [0u8; 32];
             tx_hash.copy_from_slice(&value);
             results.push((tx_hash, height, idx));
-            if results.len() >= limit { break; }
+            if results.len() >= limit {
+                break;
+            }
         }
         Ok(results)
     }

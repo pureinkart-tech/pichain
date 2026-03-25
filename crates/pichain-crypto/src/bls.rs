@@ -110,8 +110,7 @@ pub struct BlsPublicKey {
 
 impl BlsPublicKey {
     pub fn from_bytes(bytes: &[u8; 48]) -> Result<Self, CryptoError> {
-        let pk = BlstPubKey::from_bytes(bytes)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+        let pk = BlstPubKey::from_bytes(bytes).map_err(|_| CryptoError::InvalidPublicKey)?;
         Ok(Self { inner: pk })
     }
 
@@ -120,7 +119,9 @@ impl BlsPublicKey {
     }
 
     pub fn verify(&self, message: &[u8], signature: &BlsSignature) -> Result<(), CryptoError> {
-        let result = signature.inner.verify(true, message, DST, &[], &self.inner, true);
+        let result = signature
+            .inner
+            .verify(true, message, DST, &[], &self.inner, true);
         if result == BLST_ERROR::BLST_SUCCESS {
             Ok(())
         } else {
@@ -134,7 +135,9 @@ impl BlsPublicKey {
     /// preventing rogue key attacks in BLS aggregate signature schemes.
     pub fn verify_proof_of_possession(&self, pop: &BlsSignature) -> Result<(), CryptoError> {
         let pk_bytes = self.to_bytes();
-        let result = pop.inner.verify(true, &pk_bytes, POP_DST, &[], &self.inner, true);
+        let result = pop
+            .inner
+            .verify(true, &pk_bytes, POP_DST, &[], &self.inner, true);
         if result == BLST_ERROR::BLST_SUCCESS {
             Ok(())
         } else {
@@ -157,8 +160,7 @@ pub struct BlsSignature {
 
 impl BlsSignature {
     pub fn from_bytes(bytes: &[u8; 96]) -> Result<Self, CryptoError> {
-        let sig = BlstSig::from_bytes(bytes)
-            .map_err(|_| CryptoError::InvalidSignature)?;
+        let sig = BlstSig::from_bytes(bytes).map_err(|_| CryptoError::InvalidSignature)?;
         Ok(Self { inner: sig })
     }
 
@@ -211,7 +213,9 @@ impl AggregateSignature {
     /// Aggregate multiple signatures into one.
     pub fn aggregate(signatures: &[&BlsSignature]) -> Result<BlsSignature, CryptoError> {
         if signatures.is_empty() {
-            return Err(CryptoError::BlsAggregation("no signatures to aggregate".into()));
+            return Err(CryptoError::BlsAggregation(
+                "no signatures to aggregate".into(),
+            ));
         }
 
         let refs: Vec<&BlstSig> = signatures.iter().map(|s| &s.inner).collect();
@@ -238,14 +242,10 @@ impl AggregateSignature {
         let agg_pk = AggregatePublicKey::aggregate(&pk_refs, true)
             .map_err(|e| CryptoError::BlsAggregation(format!("{:?}", e)))?;
 
-        let result = aggregate_sig.inner.verify(
-            true,
-            message,
-            DST,
-            &[],
-            &agg_pk.to_public_key(),
-            true,
-        );
+        let result =
+            aggregate_sig
+                .inner
+                .verify(true, message, DST, &[], &agg_pk.to_public_key(), true);
 
         if result == BLST_ERROR::BLST_SUCCESS {
             Ok(())
@@ -351,12 +351,18 @@ mod tests {
         // 3. A heap-allocated key's memory is zeroed after drop
         let sk = BlsSecretKey::generate();
         let bytes_before = sk.to_bytes();
-        assert_ne!(bytes_before, [0u8; 32], "key bytes should be non-zero before drop");
+        assert_ne!(
+            bytes_before, [0u8; 32],
+            "key bytes should be non-zero before drop"
+        );
 
         // Use a Box to put the key on the heap where we can observe zeroization
         let sk = Box::new(BlsSecretKey::generate());
         let bytes_before = sk.to_bytes();
-        assert_ne!(bytes_before, [0u8; 32], "boxed key bytes should be non-zero");
+        assert_ne!(
+            bytes_before, [0u8; 32],
+            "boxed key bytes should be non-zero"
+        );
 
         // Get a pointer to the raw_bytes field on the heap.
         // The raw_bytes field is at a fixed offset within BlsSecretKey.
@@ -373,8 +379,10 @@ mod tests {
             // The key should be zeroed by our Drop impl.
             // On some allocators this may not be observable, so we just verify
             // it doesn't match the original key (at minimum).
-            assert_ne!(bytes_after, bytes_before,
-                "key bytes should not remain intact after drop (zeroize should have cleared them)");
+            assert_ne!(
+                bytes_after, bytes_before,
+                "key bytes should not remain intact after drop (zeroize should have cleared them)"
+            );
         }
     }
 }

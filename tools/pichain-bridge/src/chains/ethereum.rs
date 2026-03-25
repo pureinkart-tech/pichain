@@ -128,8 +128,7 @@ impl EthereumMonitor {
 
     async fn get_block_number_with(client: &reqwest::Client, rpc_url: &str) -> anyhow::Result<u64> {
         let hex_str: String =
-            Self::rpc_call_with(client, rpc_url, "eth_blockNumber", serde_json::json!([]))
-                .await?;
+            Self::rpc_call_with(client, rpc_url, "eth_blockNumber", serde_json::json!([])).await?;
         parse_hex_u64(&hex_str)
     }
 
@@ -209,10 +208,7 @@ impl ChainMonitor for EthereumMonitor {
         for block_num in from_block..=to_block {
             let block_hex = format!("0x{:x}", block_num);
             let block: EthBlock = match self
-                .rpc_call(
-                    "eth_getBlockByNumber",
-                    serde_json::json!([block_hex, true]),
-                )
+                .rpc_call("eth_getBlockByNumber", serde_json::json!([block_hex, true]))
                 .await
             {
                 Ok(b) => b,
@@ -225,10 +221,7 @@ impl ChainMonitor for EthereumMonitor {
             for tx in &block.transactions {
                 // Check if this transaction sends to our custodial address
                 let to_addr = match &tx.to {
-                    Some(addr) => addr
-                        .strip_prefix("0x")
-                        .unwrap_or(addr)
-                        .to_lowercase(),
+                    Some(addr) => addr.strip_prefix("0x").unwrap_or(addr).to_lowercase(),
                     None => continue,
                 };
 

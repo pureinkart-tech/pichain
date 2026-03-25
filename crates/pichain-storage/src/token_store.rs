@@ -7,7 +7,7 @@
 //! This avoids creating new column families while maintaining clean separation.
 
 use pichain_crypto::ed25519::Address;
-use pichain_types::token::{MintId, TokenAccount, TokenMint, token_account_key};
+use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};
 
 use crate::db::PiChainDB;
 use crate::StorageError;
@@ -46,8 +46,8 @@ impl<'a> TokenStore<'a> {
     /// Store a token mint.
     pub fn put_mint(&self, mint: &TokenMint) -> Result<(), StorageError> {
         let key = mint_key(&mint.id);
-        let data = serde_json::to_vec(mint)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(mint).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_state(&key, &data)
     }
 
@@ -89,27 +89,35 @@ impl<'a> TokenStore<'a> {
     /// Store a token account.
     pub fn put_token_account(&self, account: &TokenAccount) -> Result<(), StorageError> {
         let key = account_storage_key(&account.owner, &account.mint);
-        let data = serde_json::to_vec(account)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(account).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_state(&key, &data)
     }
 
     /// Add a mint write to a batch (for atomic commits).
-    pub fn batch_put_mint(&self, batch: &mut rocksdb::WriteBatch, mint: &TokenMint) -> Result<(), StorageError> {
+    pub fn batch_put_mint(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        mint: &TokenMint,
+    ) -> Result<(), StorageError> {
         let mut key = vec![MINT_PREFIX];
         key.extend_from_slice(&mint.id.0);
-        let data = serde_json::to_vec(mint)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(mint).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }
 
     /// Add a token account write to a batch (for atomic commits).
-    pub fn batch_put_token_account(&self, batch: &mut rocksdb::WriteBatch, account: &TokenAccount) -> Result<(), StorageError> {
+    pub fn batch_put_token_account(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        account: &TokenAccount,
+    ) -> Result<(), StorageError> {
         let mut key = vec![TOKEN_ACCOUNT_PREFIX];
         key.extend_from_slice(&account.key);
-        let data = serde_json::to_vec(account)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(account).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }
@@ -133,9 +141,13 @@ impl<'a> TokenStore<'a> {
         let entries = self.db.scan_state_prefix(prefix)?;
         let mut result = Vec::new();
         for (_, value) in entries {
-            let account: TokenAccount = serde_json::from_slice(&value)
-                .map_err(|e| StorageError::Serialization(e.to_string()))?;
-            result.push(account);
+            match serde_json::from_slice::<TokenAccount>(&value) {
+                Ok(account) => result.push(account),
+                Err(e) => {
+                    tracing::warn!("skipping malformed token account entry: {e}");
+                    continue;
+                }
+            }
         }
         Ok(result)
     }

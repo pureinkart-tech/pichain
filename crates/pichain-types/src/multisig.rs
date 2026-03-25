@@ -110,9 +110,9 @@ impl MultisigProposal {
 
     /// Verify all collected signatures.
     pub fn verify_signatures(&self) -> bool {
-        self.signatures.iter().all(|sig| {
-            sig.public_key.verify(&self.id, &sig.signature).is_ok()
-        })
+        self.signatures
+            .iter()
+            .all(|sig| sig.public_key.verify(&self.id, &sig.signature).is_ok())
     }
 }
 
@@ -142,11 +142,9 @@ mod tests {
         let kp2 = Keypair::generate();
         let kp3 = Keypair::generate();
 
-        let wallet = MultisigWallet::new(
-            vec![kp1.address(), kp2.address(), kp3.address()],
-            2,
-            1000,
-        ).unwrap();
+        let wallet =
+            MultisigWallet::new(vec![kp1.address(), kp2.address(), kp3.address()], 2, 1000)
+                .unwrap();
 
         assert_eq!(wallet.threshold, 2);
         assert_eq!(wallet.signers.len(), 3);

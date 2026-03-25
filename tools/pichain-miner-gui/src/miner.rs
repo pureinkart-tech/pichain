@@ -235,7 +235,11 @@ pub async fn mining_loop(
                     let delay = 5u64.min(2u64.saturating_pow(consecutive_errors)).max(2);
                     emit_log(
                         &app,
-                        &format!("Node returned HTTP {} — retrying in {}s", resp.status(), delay),
+                        &format!(
+                            "Node returned HTTP {} — retrying in {}s",
+                            resp.status(),
+                            delay
+                        ),
                         "error",
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -248,7 +252,10 @@ pub async fn mining_loop(
                         let delay = 5u64.min(2u64.saturating_pow(consecutive_errors)).max(2);
                         emit_log(
                             &app,
-                            &format!("Failed to parse mining status: {e} — retrying in {}s", delay),
+                            &format!(
+                                "Failed to parse mining status: {e} — retrying in {}s",
+                                delay
+                            ),
                             "error",
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -294,7 +301,11 @@ pub async fn mining_loop(
         } else {
             // Query slot endpoint for server-assigned position
             let slot_position = match client
-                .get(format!("{}/api/v1/mining/slot/{}", config.rpc_url, hex::encode(address.0)))
+                .get(format!(
+                    "{}/api/v1/mining/slot/{}",
+                    config.rpc_url,
+                    hex::encode(address.0)
+                ))
                 .send()
                 .await
             {
@@ -322,7 +333,10 @@ pub async fn mining_loop(
                 let stride = effective_min_batch as u64 * config.concurrent_batches as u64;
                 let offset = if stride > 0 {
                     let addr_seed = u32::from_le_bytes([
-                        address.0[0], address.0[1], address.0[2], address.0[3],
+                        address.0[0],
+                        address.0[1],
+                        address.0[2],
+                        address.0[3],
                     ]);
                     let slot = (addr_seed as u64) % 8;
                     slot.saturating_mul(stride)
@@ -344,17 +358,37 @@ pub async fn mining_loop(
             let min_required = mining_status.min_batch_size.max(10) as u64;
             let effective = if max_gap < min_required {
                 // Gap too small for minimum proof size
-                if pos != mining_status.next_position && mining_status.max_batch_at_position >= min_required {
-                    emit_log(&app, &format!("Jumping to server position {} (local gap too small)", mining_status.next_position), "info");
+                if pos != mining_status.next_position
+                    && mining_status.max_batch_at_position >= min_required
+                {
+                    emit_log(
+                        &app,
+                        &format!(
+                            "Jumping to server position {} (local gap too small)",
+                            mining_status.next_position
+                        ),
+                        "info",
+                    );
                     local_position = Some(mining_status.next_position);
                     continue;
                 }
-                emit_log(&app, &format!("Gap too small ({} < {} min), waiting...", max_gap, min_required), "warn");
+                emit_log(
+                    &app,
+                    &format!(
+                        "Gap too small ({} < {} min), waiting...",
+                        max_gap, min_required
+                    ),
+                    "warn",
+                );
                 local_position = None;
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 continue;
             } else if max_gap < effective_min_batch as u64 {
-                emit_log(&app, &format!("Capping batch to {} digits (gap size)", max_gap), "info");
+                emit_log(
+                    &app,
+                    &format!("Capping batch to {} digits (gap size)", max_gap),
+                    "info",
+                );
                 max_gap as u32
             } else {
                 effective_min_batch
@@ -394,11 +428,22 @@ pub async fn mining_loop(
         let (nonce, balance) = if let Some(n) = local_nonce {
             // Periodic balance check (non-blocking, doesn't reset nonce)
             let bal = if loop_count % 10 == 0 {
-                match client.get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex)).send().await {
-                    Ok(resp) => resp.json::<AccountResponse>().await.ok().map(|a| a.balance + a.locked_balance.unwrap_or(0)).unwrap_or(0),
+                match client
+                    .get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => resp
+                        .json::<AccountResponse>()
+                        .await
+                        .ok()
+                        .map(|a| a.balance + a.locked_balance.unwrap_or(0))
+                        .unwrap_or(0),
                     Err(_) => 0,
                 }
-            } else { 0 };
+            } else {
+                0
+            };
             (n, bal)
         } else {
             match client
@@ -418,7 +463,9 @@ pub async fn mining_loop(
                 Err(_) => (0, 0),
             }
         };
-        if balance > 0 { last_known_balance = balance; }
+        if balance > 0 {
+            last_known_balance = balance;
+        }
 
         emit_log(
             &app,
@@ -457,7 +504,9 @@ pub async fn mining_loop(
         let compute_start = std::time::Instant::now();
 
         let batches: Vec<(u64, u32, Vec<u8>)> = if effective_batch_count == 1 {
-            let digits = pool.install(|| BbpComputer::compute_hex_digits_parallel(position, effective_batch_size));
+            let digits = pool.install(|| {
+                BbpComputer::compute_hex_digits_parallel(position, effective_batch_size)
+            });
             vec![(position, effective_batch_size, digits)]
         } else {
             use rayon::prelude::*;
@@ -465,8 +514,10 @@ pub async fn mining_loop(
                 (0..effective_batch_count)
                     .into_par_iter()
                     .map(|i| {
-                        let pos = position.saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
-                        let digits = BbpComputer::compute_hex_digits_parallel(pos, effective_batch_size);
+                        let pos = position
+                            .saturating_add((i as u64).saturating_mul(effective_batch_size as u64));
+                        let digits =
+                            BbpComputer::compute_hex_digits_parallel(pos, effective_batch_size);
                         (pos, effective_batch_size, digits)
                     })
                     .collect()
@@ -545,7 +596,8 @@ pub async fn mining_loop(
                     pow_nonce: pn,
                     anchor_block_hash: anchor_block_hash.to_vec(),
                 },
-                gas_limit: 200_000u64.saturating_add((batch_digit_count as u64).saturating_mul(100)),
+                gas_limit: 200_000u64
+                    .saturating_add((batch_digit_count as u64).saturating_mul(100)),
                 max_base_fee: 1_000,
                 max_priority_fee: 100,
                 chain_id: config.chain_id,
@@ -574,20 +626,19 @@ pub async fn mining_loop(
                         if result.status == "pending" {
                             proofs_confirmed += 1;
                             total_digits += batch_digit_count as u64;
-                            let frontier_bonus: f64 = mining_status.frontier_bonus_at_next
+                            let frontier_bonus: f64 = mining_status
+                                .frontier_bonus_at_next
                                 .trim_end_matches('x')
                                 .parse()
                                 .unwrap_or(1.0);
-                            let reward =
-                                (mining_status.reward_per_digit as f64 * batch_digit_count as f64 * frontier_bonus) / 1e9;
+                            let reward = (mining_status.reward_per_digit as f64
+                                * batch_digit_count as f64
+                                * frontier_bonus)
+                                / 1e9;
                             let tx_short = &result.tx_hash[..result.tx_hash.len().min(12)];
                             emit_log(
                                 &app,
-                                &format!(
-                                    "Proof submitted! tx:{} +{:.4} PI",
-                                    tx_short,
-                                    reward
-                                ),
+                                &format!("Proof submitted! tx:{} +{:.4} PI", tx_short, reward),
                                 "success",
                             );
                             current_nonce = current_nonce.saturating_add(1);
@@ -627,7 +678,8 @@ pub async fn mining_loop(
 
         // Advance local position past submitted batches to prevent self-collision
         if current_nonce > nonce {
-            let total_digits_this_round = effective_batch_count as u64 * effective_batch_size as u64;
+            let total_digits_this_round =
+                effective_batch_count as u64 * effective_batch_size as u64;
             local_position = Some(position.saturating_add(total_digits_this_round));
         }
 

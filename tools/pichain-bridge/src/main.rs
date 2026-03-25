@@ -81,12 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .await;
 
     // Start relayer
-    let mut relayer = Relayer::new(
-        client,
-        store,
-        monitors,
-        config.general.poll_interval_secs,
-    );
+    let mut relayer = Relayer::new(client, store, monitors, config.general.poll_interval_secs);
 
     info!("=== PIChain Bridge Relayer started ===");
     relayer.run().await

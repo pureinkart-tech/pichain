@@ -21,7 +21,14 @@ use crate::db::PiChainDB;
 use crate::jmt::JellyfishMerkleTree;
 use crate::StorageError;
 
-type PrepareResult = Result<(rocksdb::WriteBatch, pichain_crypto::poseidon::PoseidonHash, Vec<([u8; 32], Vec<u8>)>), StorageError>;
+type PrepareResult = Result<
+    (
+        rocksdb::WriteBatch,
+        pichain_crypto::poseidon::PoseidonHash,
+        Vec<([u8; 32], Vec<u8>)>,
+    ),
+    StorageError,
+>;
 
 /// High-level state store combining JMT for authenticated state and RocksDB for raw data.
 pub struct StateStore {
@@ -71,7 +78,10 @@ impl StateStore {
                 let state: AccountState = serde_json::from_slice(data)
                     .map_err(|e| StorageError::Serialization(e.to_string()))?;
                 if state.staked > 0 {
-                    staked.push(Account { address: addr, state });
+                    staked.push(Account {
+                        address: addr,
+                        state,
+                    });
                 }
             }
         }
@@ -146,8 +156,8 @@ impl StateStore {
     /// Used directly only in tests; production path goes through prepare_block_batch.
     #[allow(dead_code)]
     pub(crate) fn put_object(&mut self, object: &Object) -> Result<(), StorageError> {
-        let data = serde_json::to_vec(object)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(object).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_object(&object.id.0, &data)?;
 
         // Update JMT with domain-separated key: byte 0 = 0x02 (object).
@@ -167,8 +177,8 @@ impl StateStore {
 
     /// Store a block.
     pub fn put_block(&self, height: u64, block: &pichain_types::Block) -> Result<(), StorageError> {
-        let data = serde_json::to_vec(block)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(block).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_block(height, &data)?;
         Ok(())
     }
@@ -186,15 +196,22 @@ impl StateStore {
     }
 
     /// Store a transaction by hash.
-    pub fn put_transaction(&self, tx_hash: &pichain_crypto::Hash, tx: &pichain_types::SignedTransaction) -> Result<(), StorageError> {
-        let data = serde_json::to_vec(tx)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+    pub fn put_transaction(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+        tx: &pichain_types::SignedTransaction,
+    ) -> Result<(), StorageError> {
+        let data =
+            serde_json::to_vec(tx).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_transaction(tx_hash.as_bytes(), &data)?;
         Ok(())
     }
 
     /// Get a transaction by hash.
-    pub fn get_transaction(&self, tx_hash: &pichain_crypto::Hash) -> Result<Option<pichain_types::SignedTransaction>, StorageError> {
+    pub fn get_transaction(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+    ) -> Result<Option<pichain_types::SignedTransaction>, StorageError> {
         match self.db.get_transaction(tx_hash.as_bytes())? {
             Some(data) => {
                 let tx = serde_json::from_slice(&data)
@@ -206,15 +223,22 @@ impl StateStore {
     }
 
     /// Store a transaction receipt.
-    pub fn put_receipt(&self, tx_hash: &pichain_crypto::Hash, effect: &pichain_types::TransactionEffect) -> Result<(), StorageError> {
-        let data = serde_json::to_vec(effect)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+    pub fn put_receipt(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+        effect: &pichain_types::TransactionEffect,
+    ) -> Result<(), StorageError> {
+        let data =
+            serde_json::to_vec(effect).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_receipt(tx_hash.as_bytes(), &data)?;
         Ok(())
     }
 
     /// Get a transaction receipt.
-    pub fn get_receipt(&self, tx_hash: &pichain_crypto::Hash) -> Result<Option<pichain_types::TransactionEffect>, StorageError> {
+    pub fn get_receipt(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+    ) -> Result<Option<pichain_types::TransactionEffect>, StorageError> {
         match self.db.get_receipt(tx_hash.as_bytes())? {
             Some(data) => {
                 let effect = serde_json::from_slice(&data)
@@ -243,8 +267,9 @@ impl StateStore {
     pub fn latest_height(&self) -> Result<u64, StorageError> {
         match self.get_metadata(b"latest_height")? {
             Some(bytes) => {
-                let arr: [u8; 8] = bytes.try_into()
-                    .map_err(|_| StorageError::Serialization("latest_height is not 8 bytes".into()))?;
+                let arr: [u8; 8] = bytes.try_into().map_err(|_| {
+                    StorageError::Serialization("latest_height is not 8 bytes".into())
+                })?;
                 Ok(u64::from_be_bytes(arr))
             }
             // No key found — either first startup (genesis) or metadata was lost.
@@ -340,7 +365,10 @@ impl StateStore {
     }
 
     /// Look up which block height contains a given transaction.
-    pub fn get_tx_block_height(&self, tx_hash: &pichain_crypto::Hash) -> Result<Option<u64>, StorageError> {
+    pub fn get_tx_block_height(
+        &self,
+        tx_hash: &pichain_crypto::Hash,
+    ) -> Result<Option<u64>, StorageError> {
         self.db.get_tx_block_height(tx_hash.as_bytes())
     }
 
@@ -351,10 +379,18 @@ impl StateStore {
         &mut self,
         height: u64,
         block: &pichain_types::Block,
-        txs_and_receipts: &[(pichain_crypto::Hash, &pichain_types::SignedTransaction, Option<&pichain_types::TransactionEffect>)],
-        state_changes: &[(pichain_crypto::ed25519::Address, &pichain_types::account::AccountState)],
+        txs_and_receipts: &[(
+            pichain_crypto::Hash,
+            &pichain_types::SignedTransaction,
+            Option<&pichain_types::TransactionEffect>,
+        )],
+        state_changes: &[(
+            pichain_crypto::ed25519::Address,
+            &pichain_types::account::AccountState,
+        )],
     ) -> Result<pichain_crypto::poseidon::PoseidonHash, StorageError> {
-        let (batch, state_root, pending_jmt_updates) = self.prepare_block_batch(height, block, txs_and_receipts, state_changes, &[])?;
+        let (batch, state_root, pending_jmt_updates) =
+            self.prepare_block_batch(height, block, txs_and_receipts, state_changes, &[])?;
         self.commit_block_batch(batch, pending_jmt_updates, height)?;
         Ok(state_root)
     }
@@ -376,8 +412,15 @@ impl StateStore {
         &mut self,
         height: u64,
         block: &pichain_types::Block,
-        txs_and_receipts: &[(pichain_crypto::Hash, &pichain_types::SignedTransaction, Option<&pichain_types::TransactionEffect>)],
-        state_changes: &[(pichain_crypto::ed25519::Address, &pichain_types::account::AccountState)],
+        txs_and_receipts: &[(
+            pichain_crypto::Hash,
+            &pichain_types::SignedTransaction,
+            Option<&pichain_types::TransactionEffect>,
+        )],
+        state_changes: &[(
+            pichain_crypto::ed25519::Address,
+            &pichain_types::account::AccountState,
+        )],
         object_changes: &[(pichain_types::ObjectId, &[u8])],
     ) -> PrepareResult {
         let mut batch = self.db.new_batch();
@@ -422,26 +465,31 @@ impl StateStore {
 
         // 4. Transactions + receipts + tx→height index
         for (tx_hash, tx, receipt_opt) in txs_and_receipts {
-            let tx_data = serde_json::to_vec(tx)
-                .map_err(|e| StorageError::Serialization(e.to_string()))?;
-            self.db.batch_put_transaction(&mut batch, tx_hash.as_bytes(), &tx_data);
-            self.db.batch_put_tx_height(&mut batch, tx_hash.as_bytes(), height);
+            let tx_data =
+                serde_json::to_vec(tx).map_err(|e| StorageError::Serialization(e.to_string()))?;
+            self.db
+                .batch_put_transaction(&mut batch, tx_hash.as_bytes(), &tx_data);
+            self.db
+                .batch_put_tx_height(&mut batch, tx_hash.as_bytes(), height);
 
             if let Some(receipt) = receipt_opt {
                 let receipt_data = serde_json::to_vec(receipt)
                     .map_err(|e| StorageError::Serialization(e.to_string()))?;
-                self.db.batch_put_receipt(&mut batch, tx_hash.as_bytes(), &receipt_data);
+                self.db
+                    .batch_put_receipt(&mut batch, tx_hash.as_bytes(), &receipt_data);
             }
         }
 
         // 5. Latest height metadata
-        self.db.batch_put_metadata(&mut batch, b"latest_height", &height.to_be_bytes());
+        self.db
+            .batch_put_metadata(&mut batch, b"latest_height", &height.to_be_bytes());
 
         // 6. JMT root hash — written atomically with the block data (Fix STOR-220).
         //    Previously this was a separate put_metadata after write_batch_sync,
         //    meaning a crash between the two left persisted state without the root.
         let root_bytes = state_root.as_bytes().to_vec();
-        self.db.batch_put_metadata(&mut batch, b"jmt_root", &root_bytes);
+        self.db
+            .batch_put_metadata(&mut batch, b"jmt_root", &root_bytes);
 
         Ok((batch, state_root, pending_jmt_updates))
     }
@@ -494,7 +542,8 @@ impl StateStore {
         let count = self.activation_count()?.saturating_add(1);
         let mut batch = rocksdb::WriteBatch::default();
         self.db.batch_put_state(&mut batch, &key, &[1]);
-        self.db.batch_put_state(&mut batch, ACTIVATION_COUNT_KEY, &count.to_le_bytes());
+        self.db
+            .batch_put_state(&mut batch, ACTIVATION_COUNT_KEY, &count.to_le_bytes());
         self.db.write_batch_sync(batch)?;
         Ok(())
     }
@@ -502,9 +551,7 @@ impl StateStore {
     /// Get the total number of activated wallets.
     pub fn activation_count(&self) -> Result<u64, StorageError> {
         match self.db.get_state(ACTIVATION_COUNT_KEY)? {
-            Some(bytes) if bytes.len() == 8 => {
-                Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
-            }
+            Some(bytes) if bytes.len() == 8 => Ok(u64::from_le_bytes(bytes.try_into().unwrap())),
             _ => Ok(0),
         }
     }
@@ -610,7 +657,10 @@ mod tests {
         };
 
         // JMT is empty after "restart"
-        assert_eq!(store2.state_root(), pichain_crypto::poseidon::PoseidonHash::ZERO);
+        assert_eq!(
+            store2.state_root(),
+            pichain_crypto::poseidon::PoseidonHash::ZERO
+        );
 
         // Rebuild JMT
         let count = store2.rebuild_jmt().unwrap();
@@ -648,7 +698,10 @@ mod tests {
         };
 
         // JMT is empty after "restart"
-        assert_eq!(store2.state_root(), pichain_crypto::poseidon::PoseidonHash::ZERO);
+        assert_eq!(
+            store2.state_root(),
+            pichain_crypto::poseidon::PoseidonHash::ZERO
+        );
 
         // Rebuild JMT — should include 1 account + 2 objects = 3 entries
         let count = store2.rebuild_jmt().unwrap();
@@ -684,27 +737,32 @@ mod tests {
         state.balance = 1_000_000;
 
         let block = pichain_types::Block::genesis(31415, 1000);
-        let (batch, state_root, pending_jmt) = store.prepare_block_batch(
-            1,
-            &block,
-            &[],
-            &[(addr, &state)],
-            &[],
-        ).unwrap();
+        let (batch, state_root, pending_jmt) = store
+            .prepare_block_batch(1, &block, &[], &[(addr, &state)], &[])
+            .unwrap();
 
         // Before commit — JMT root should not yet be in metadata
         // (the batch hasn't been written)
         let pre_root = store.db.get_metadata(b"jmt_root").unwrap();
-        assert!(pre_root.is_none(), "jmt_root should not be persisted before commit");
+        assert!(
+            pre_root.is_none(),
+            "jmt_root should not be persisted before commit"
+        );
 
         // Commit the batch
         store.commit_block_batch(batch, pending_jmt, 1).unwrap();
 
         // After commit — JMT root should be in metadata
-        let persisted = store.db.get_metadata(b"jmt_root").unwrap()
+        let persisted = store
+            .db
+            .get_metadata(b"jmt_root")
+            .unwrap()
             .expect("jmt_root must be persisted after commit");
-        assert_eq!(persisted, state_root.as_bytes().to_vec(),
-            "persisted JMT root must match the state root from prepare_block_batch");
+        assert_eq!(
+            persisted,
+            state_root.as_bytes().to_vec(),
+            "persisted JMT root must match the state root from prepare_block_batch"
+        );
     }
 
     /// STOR-223: If commit_block_batch fails, the in-memory JMT must remain unchanged.
@@ -725,25 +783,29 @@ mod tests {
         state.balance = 999_999;
         state.nonce = 5;
         let block = pichain_types::Block::genesis(31415, 1000);
-        let (_batch, new_state_root, _pending_jmt) = store.prepare_block_batch(
-            1,
-            &block,
-            &[],
-            &[(addr, &state)],
-            &[],
-        ).unwrap();
+        let (_batch, new_state_root, _pending_jmt) = store
+            .prepare_block_batch(1, &block, &[], &[(addr, &state)], &[])
+            .unwrap();
 
         // The returned state_root should differ from root_before
-        assert_ne!(new_state_root, root_before,
-            "the proposed state root should reflect the new state change");
+        assert_ne!(
+            new_state_root, root_before,
+            "the proposed state root should reflect the new state change"
+        );
 
         // But the in-memory JMT must NOT have been updated yet
-        assert_eq!(store.state_root(), root_before,
-            "prepare_block_batch must not mutate the in-memory JMT (Fix STOR-223)");
+        assert_eq!(
+            store.state_root(),
+            root_before,
+            "prepare_block_batch must not mutate the in-memory JMT (Fix STOR-223)"
+        );
 
         // If we intentionally do NOT call commit_block_batch, the JMT stays clean
-        assert_eq!(store.state_root(), root_before,
-            "JMT remains unchanged when batch is never committed");
+        assert_eq!(
+            store.state_root(),
+            root_before,
+            "JMT remains unchanged when batch is never committed"
+        );
     }
 
     /// Integration test: sub-executor state (tokens, DEX, NFTs, launchpad, contracts)
@@ -752,10 +814,10 @@ mod tests {
     /// block execution results.
     #[test]
     fn sub_executor_state_persisted_atomically() {
-        use pichain_types::token::{MintId, TokenMint, TokenAccount};
         use pichain_types::dex::LiquidityPool;
-        use pichain_types::nft::{CollectionId, NftCollection, NftId, Nft, NftAttribute};
-        use pichain_types::launchpad::{LaunchId, TokenLaunch, LaunchState, LaunchType};
+        use pichain_types::launchpad::{LaunchId, LaunchState, LaunchType, TokenLaunch};
+        use pichain_types::nft::{CollectionId, Nft, NftAttribute, NftCollection, NftId};
+        use pichain_types::token::{MintId, TokenAccount, TokenMint};
         use std::collections::HashMap;
 
         let (db, _temp_dir) = PiChainDB::open_temp().unwrap();
@@ -782,7 +844,9 @@ mod tests {
         // --- Token account ---
         let mut token_account = TokenAccount::new(owner, mint_id);
         token_account.balance = 42_000;
-        token_store.batch_put_token_account(&mut batch, &token_account).unwrap();
+        token_store
+            .batch_put_token_account(&mut batch, &token_account)
+            .unwrap();
 
         // --- Liquidity pool ---
         let mint_b = MintId::derive(&creator, 1);
@@ -795,7 +859,9 @@ mod tests {
         dex_store.batch_put_pool(&mut batch, &pool).unwrap();
 
         // --- LP balance ---
-        dex_store.batch_put_lp_balance(&mut batch, &pool_id, &owner, 999_000).unwrap();
+        dex_store
+            .batch_put_lp_balance(&mut batch, &pool_id, &owner, 999_000)
+            .unwrap();
 
         // --- NFT collection ---
         let collection_id = CollectionId::derive(&creator, 0);
@@ -810,7 +876,9 @@ mod tests {
             0,
         );
         let nft_store = crate::NftStore::new(&db);
-        nft_store.batch_put_collection(&mut batch, &collection).unwrap();
+        nft_store
+            .batch_put_collection(&mut batch, &collection)
+            .unwrap();
 
         // --- NFT ---
         let nft_id = NftId::derive(&collection_id, 0);
@@ -854,7 +922,9 @@ mod tests {
             token_decimals: 0,
         };
         let launchpad_store = crate::LaunchpadStore::new(&db);
-        launchpad_store.batch_put_launch(&mut batch, &launch).unwrap();
+        launchpad_store
+            .batch_put_launch(&mut batch, &launch)
+            .unwrap();
 
         // --- Contract storage ---
         let contract_addr = Address([3u8; 20]);
@@ -869,7 +939,9 @@ mod tests {
         // --- Read back and verify each entity ---
 
         // Token mint
-        let loaded_mint = token_store.get_mint(&mint_id).unwrap()
+        let loaded_mint = token_store
+            .get_mint(&mint_id)
+            .unwrap()
             .expect("token mint should be persisted");
         assert_eq!(loaded_mint.name, "TestCoin");
         assert_eq!(loaded_mint.symbol, "TST");
@@ -877,13 +949,17 @@ mod tests {
         assert_eq!(loaded_mint.max_supply, 1_000_000_000);
 
         // Token account
-        let loaded_account = token_store.get_token_account(&owner, &mint_id).unwrap()
+        let loaded_account = token_store
+            .get_token_account(&owner, &mint_id)
+            .unwrap()
             .expect("token account should be persisted");
         assert_eq!(loaded_account.balance, 42_000);
         assert_eq!(loaded_account.owner, owner);
 
         // Liquidity pool
-        let loaded_pool = dex_store.get_pool(&pool_id).unwrap()
+        let loaded_pool = dex_store
+            .get_pool(&pool_id)
+            .unwrap()
             .expect("liquidity pool should be persisted");
         assert_eq!(loaded_pool.reserve_a, 1_000_000);
         assert_eq!(loaded_pool.reserve_b, 2_000_000);
@@ -894,14 +970,18 @@ mod tests {
         assert_eq!(loaded_lp, 999_000);
 
         // NFT collection
-        let loaded_collection = nft_store.get_collection(&collection_id).unwrap()
+        let loaded_collection = nft_store
+            .get_collection(&collection_id)
+            .unwrap()
             .expect("NFT collection should be persisted");
         assert_eq!(loaded_collection.name, "TestNFTs");
         assert_eq!(loaded_collection.max_supply, 100);
         assert_eq!(loaded_collection.royalty_bps, 500);
 
         // NFT
-        let loaded_nft = nft_store.get_nft(&nft_id).unwrap()
+        let loaded_nft = nft_store
+            .get_nft(&nft_id)
+            .unwrap()
             .expect("NFT should be persisted");
         assert_eq!(loaded_nft.name, "Test NFT #0");
         assert_eq!(loaded_nft.owner, owner);
@@ -911,7 +991,9 @@ mod tests {
         assert_eq!(loaded_nft.attributes[0].value, "Legendary");
 
         // Token launch
-        let loaded_launch = launchpad_store.get_launch(&launch_id).unwrap()
+        let loaded_launch = launchpad_store
+            .get_launch(&launch_id)
+            .unwrap()
             .expect("token launch should be persisted");
         assert_eq!(loaded_launch.mint, launch_mint);
         assert_eq!(loaded_launch.tokens_for_sale, 1_000_000);
@@ -919,7 +1001,9 @@ mod tests {
         assert_eq!(loaded_launch.created_at_ms, 12345);
 
         // Contract storage
-        let loaded_storage = contract_store.get(&contract_addr, storage_key).unwrap()
+        let loaded_storage = contract_store
+            .get(&contract_addr, storage_key)
+            .unwrap()
             .expect("contract storage should be persisted");
         assert_eq!(loaded_storage, storage_value);
     }

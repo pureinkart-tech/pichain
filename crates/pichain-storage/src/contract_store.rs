@@ -42,25 +42,45 @@ impl<'a> ContractStorageStore<'a> {
     }
 
     /// Get a single contract storage value.
-    pub fn get(&self, contract: &Address, storage_key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(
+        &self,
+        contract: &Address,
+        storage_key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         let key = Self::make_key(contract, storage_key);
         self.db.get_state(&key)
     }
 
     /// Put a single contract storage value.
-    pub fn put(&self, contract: &Address, storage_key: &[u8], value: &[u8]) -> Result<(), StorageError> {
+    pub fn put(
+        &self,
+        contract: &Address,
+        storage_key: &[u8],
+        value: &[u8],
+    ) -> Result<(), StorageError> {
         let key = Self::make_key(contract, storage_key);
         self.db.put_state(&key, value)
     }
 
     /// Add a contract storage write to a batch.
-    pub fn batch_put(&self, batch: &mut rocksdb::WriteBatch, contract: &Address, storage_key: &[u8], value: &[u8]) {
+    pub fn batch_put(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        contract: &Address,
+        storage_key: &[u8],
+        value: &[u8],
+    ) {
         let key = Self::make_key(contract, storage_key);
         self.db.batch_put_state(batch, &key, value);
     }
 
     /// Add a contract storage deletion to a batch.
-    pub fn batch_delete(&self, batch: &mut rocksdb::WriteBatch, contract: &Address, storage_key: &[u8]) {
+    pub fn batch_delete(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        contract: &Address,
+        storage_key: &[u8],
+    ) {
         let key = Self::make_key(contract, storage_key);
         self.db.batch_delete_state(batch, &key);
     }
@@ -92,19 +112,22 @@ impl<'a> ContractStorageStore<'a> {
         let mut result = Vec::new();
         for (key_suffix, value) in entries {
             // Key suffix format: address(20) + key_len(4 BE) + storage_key(N)
-            if key_suffix.len() < 24 { continue; } // 20 addr + 4 len minimum
+            if key_suffix.len() < 24 {
+                continue;
+            } // 20 addr + 4 len minimum
             let mut addr_bytes = [0u8; 20];
             addr_bytes.copy_from_slice(&key_suffix[..20]);
             let contract = Address(addr_bytes);
-            let key_len = u32::from_be_bytes(
-                key_suffix[20..24].try_into().unwrap_or([0; 4])
-            ) as usize;
+            let key_len =
+                u32::from_be_bytes(key_suffix[20..24].try_into().unwrap_or([0; 4])) as usize;
             // Guard against overflow on 32-bit: 24 + key_len could wrap
             let key_end = match 24usize.checked_add(key_len) {
                 Some(end) => end,
                 None => continue, // corrupted length field; skip entry
             };
-            if key_suffix.len() < key_end { continue; }
+            if key_suffix.len() < key_end {
+                continue;
+            }
             let storage_key = key_suffix[24..key_end].to_vec();
             result.push((contract, storage_key, value));
         }

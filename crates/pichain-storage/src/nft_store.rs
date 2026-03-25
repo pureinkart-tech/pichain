@@ -64,7 +64,11 @@ impl<'a> NftStore<'a> {
     }
 
     /// Add a collection write to a batch (for atomic commits).
-    pub fn batch_put_collection(&self, batch: &mut rocksdb::WriteBatch, collection: &NftCollection) -> Result<(), StorageError> {
+    pub fn batch_put_collection(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        collection: &NftCollection,
+    ) -> Result<(), StorageError> {
         let mut key = vec![COLLECTION_PREFIX];
         key.extend_from_slice(&collection.id.0);
         let data = serde_json::to_vec(collection)
@@ -74,11 +78,15 @@ impl<'a> NftStore<'a> {
     }
 
     /// Add an NFT write to a batch (for atomic commits).
-    pub fn batch_put_nft(&self, batch: &mut rocksdb::WriteBatch, nft: &Nft) -> Result<(), StorageError> {
+    pub fn batch_put_nft(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        nft: &Nft,
+    ) -> Result<(), StorageError> {
         let mut key = vec![NFT_PREFIX];
         key.extend_from_slice(&nft.id.0);
-        let data = serde_json::to_vec(nft)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(nft).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }

@@ -279,7 +279,8 @@ impl StakingManager {
             // R37-FIX: Prune epoch_slashed_validators entries older than MAX_EVIDENCE_AGE_EPOCHS
             // to prevent unbounded growth of the correlated slashing tracker.
             let evidence_prune_before = epoch.saturating_sub(MAX_EVIDENCE_AGE_EPOCHS);
-            self.epoch_slashed_validators.retain(|&e, _| e >= evidence_prune_before);
+            self.epoch_slashed_validators
+                .retain(|&e, _| e >= evidence_prune_before);
         }
         self.current_epoch = epoch;
     }
@@ -307,7 +308,8 @@ impl StakingManager {
             MAX_VALIDATOR_STAKE_PCT_BPS as u32
         };
 
-        let current_validator_stake = self.validators
+        let current_validator_stake = self
+            .validators
             .get(validator)
             .map(|e| e.total_stake())
             .unwrap_or(0);
@@ -450,7 +452,9 @@ impl StakingManager {
         // Anti-Sybil: cap maximum active validator count
         let active_count = self.validators.values().filter(|v| v.is_eligible()).count();
         if active_count >= MAX_ACTIVE_VALIDATORS {
-            return Err(StakingError::MaxValidatorsReached { max: MAX_ACTIVE_VALIDATORS });
+            return Err(StakingError::MaxValidatorsReached {
+                max: MAX_ACTIVE_VALIDATORS,
+            });
         }
 
         // Anti-concentration: skip for registration. MAX_ACTIVE_VALIDATORS prevents
@@ -469,7 +473,10 @@ impl StakingManager {
     pub fn add_stake(&mut self, validator: Address, amount: u64) -> Result<(), StakingError> {
         // R36-FIX: Reject zero-amount to prevent no-op transactions.
         if amount == 0 {
-            return Err(StakingError::InsufficientStake { required: 1, provided: 0 });
+            return Err(StakingError::InsufficientStake {
+                required: 1,
+                provided: 0,
+            });
         }
         // Verify validator exists (immutable check)
         if !self.validators.contains_key(&validator) {
@@ -481,7 +488,9 @@ impl StakingManager {
         self.check_address_concentration(&validator, amount)?;
         self.check_stake_velocity(&validator, amount)?;
 
-        let entry = self.validators.get_mut(&validator)
+        let entry = self
+            .validators
+            .get_mut(&validator)
             .ok_or(StakingError::ValidatorNotFound(validator))?;
         entry.self_stake = entry.self_stake.saturating_add(amount);
         self.total_staked = self.total_staked.saturating_add(amount);
@@ -511,7 +520,9 @@ impl StakingManager {
 
         // Immutable checks first (before any state mutation)
         {
-            let entry = self.validators.get(&validator)
+            let entry = self
+                .validators
+                .get(&validator)
                 .ok_or(StakingError::ValidatorNotFound(validator))?;
             if entry.jailed {
                 return Err(StakingError::ValidatorJailed(validator));
@@ -524,12 +535,15 @@ impl StakingManager {
         self.check_stake_velocity(&validator, amount)?;
 
         // All checks passed — now mutate state
-        let entry = self.validators.get_mut(&validator)
+        let entry = self
+            .validators
+            .get_mut(&validator)
             .ok_or(StakingError::ValidatorNotFound(validator))?;
         entry.delegated_stake = entry.delegated_stake.saturating_add(amount);
         self.total_staked = self.total_staked.saturating_add(amount);
 
-        let delegation = self.delegations
+        let delegation = self
+            .delegations
             .entry((delegator, validator))
             .or_insert_with(|| Delegation {
                 delegator,
@@ -552,11 +566,16 @@ impl StakingManager {
     ) -> Result<(), StakingError> {
         // R36-FIX: Reject zero-amount to prevent spam unbonding entries.
         if amount == 0 {
-            return Err(StakingError::InsufficientStake { required: 1, provided: 0 });
+            return Err(StakingError::InsufficientStake {
+                required: 1,
+                provided: 0,
+            });
         }
         // Check if this is a self-unstake or delegation unstake
         if address == validator {
-            let entry = self.validators.get_mut(&validator)
+            let entry = self
+                .validators
+                .get_mut(&validator)
                 .ok_or(StakingError::ValidatorNotFound(validator))?;
             if entry.self_stake < amount {
                 return Err(StakingError::InsufficientStake {
@@ -570,7 +589,8 @@ impl StakingManager {
                 entry.active = false;
             }
         } else {
-            let delegation = self.delegations
+            let delegation = self
+                .delegations
                 .get_mut(&(address, validator))
                 .ok_or(StakingError::DelegationNotFound(address, validator))?;
             if delegation.amount < amount {
@@ -588,7 +608,9 @@ impl StakingManager {
                 self.delegations.remove(&(address, validator));
             }
 
-            let entry = self.validators.get_mut(&validator)
+            let entry = self
+                .validators
+                .get_mut(&validator)
                 .ok_or(StakingError::ValidatorNotFound(validator))?;
             entry.delegated_stake = entry.delegated_stake.saturating_sub(amount);
         }
@@ -607,12 +629,16 @@ impl StakingManager {
     /// Process completed unbonding entries. Returns (address, amount) pairs to credit.
     pub fn process_unbonding(&mut self) -> Vec<(Address, u64)> {
         let epoch = self.current_epoch;
-        let (completed, remaining): (Vec<_>, Vec<_>) = self.unbonding
+        let (completed, remaining): (Vec<_>, Vec<_>) = self
+            .unbonding
             .drain(..)
             .partition(|u| u.completion_epoch <= epoch);
 
         self.unbonding = remaining;
-        completed.into_iter().map(|u| (u.address, u.amount)).collect()
+        completed
+            .into_iter()
+            .map(|u| (u.address, u.amount))
+            .collect()
     }
 
     /// Slash a validator for misbehavior.
@@ -648,21 +674,29 @@ impl StakingManager {
 
         // R36-FIX: Reject duplicate evidence — same evidence cannot slash a validator twice.
         // Without this, a single misbehavior event can be replayed to drain all stake.
-        if self.slash_history.iter().any(|e| e.evidence_hash == evidence_hash && e.validator == validator) {
+        if self
+            .slash_history
+            .iter()
+            .any(|e| e.evidence_hash == evidence_hash && e.validator == validator)
+        {
             return Err(StakingError::DuplicateEvidence(evidence_hash));
         }
 
         // Prevent slashing the last eligible validator — chain liveness must be preserved.
         // Without this check, a coordinated attack could jail all validators, halting the chain.
         let eligible_count = self.eligible_validators().len();
-        let entry_is_eligible = self.validators.get(&validator)
+        let entry_is_eligible = self
+            .validators
+            .get(&validator)
             .map(|e| e.is_eligible())
             .unwrap_or(false);
         if eligible_count <= 1 && entry_is_eligible {
             return Err(StakingError::ValidatorNotFound(validator)); // refuse to slash
         }
 
-        let entry = self.validators.get_mut(&validator)
+        let entry = self
+            .validators
+            .get_mut(&validator)
             .ok_or(StakingError::ValidatorNotFound(validator))?;
 
         let total_stake = entry.total_stake();
@@ -671,13 +705,16 @@ impl StakingManager {
         // Correlated slashing: track unique validators slashed per evidence epoch.
         // R37-FIX: Use HashMap<epoch, HashSet<Address>> so interleaved evidence from
         // different epochs doesn't reset the count for either epoch.
-        let epoch_set = self.epoch_slashed_validators
+        let epoch_set = self
+            .epoch_slashed_validators
             .entry(evidence_epoch)
             .or_default();
 
         // M8-FIX: Collect previously-slashed validators BEFORE inserting the current one.
         // We need this list to retroactively increase their penalties below.
-        let previously_slashed: Vec<Address> = epoch_set.iter().copied()
+        let previously_slashed: Vec<Address> = epoch_set
+            .iter()
+            .copied()
             .filter(|v| *v != validator)
             .collect();
 
@@ -689,8 +726,8 @@ impl StakingManager {
         // Total rate = base + (N * CORRELATED_SLASH_MULTIPLIER_BPS), capped at 10000 (100%).
         // N includes this validator. With 3 Sybil validators slashed:
         //   base 33% + 3 * 33.33% = 33% + 100% → capped at 100%. Total wipeout.
-        let correlated_penalty_bps = epoch_slash_count
-            .saturating_mul(CORRELATED_SLASH_MULTIPLIER_BPS);
+        let correlated_penalty_bps =
+            epoch_slash_count.saturating_mul(CORRELATED_SLASH_MULTIPLIER_BPS);
         let effective_rate = (base_slash_rate as u32)
             .saturating_add(correlated_penalty_bps)
             .min(10_000);
@@ -719,7 +756,8 @@ impl StakingManager {
                 // Apply the incremental correlated penalty (one additional CORRELATED_SLASH_MULTIPLIER_BPS)
                 // capped so total effective rate for this validator doesn't exceed 100%.
                 let incremental_bps = CORRELATED_SLASH_MULTIPLIER_BPS.min(10_000);
-                let additional_slash = (prev_stake as u128 * incremental_bps as u128).div_ceil(10_000) as u64;
+                let additional_slash =
+                    (prev_stake as u128 * incremental_bps as u128).div_ceil(10_000) as u64;
                 if additional_slash == 0 {
                     continue;
                 }
@@ -729,7 +767,8 @@ impl StakingManager {
                 prev_entry.self_stake = prev_entry.self_stake.saturating_sub(self_slash);
                 let remaining = additional_slash.saturating_sub(self_slash);
                 if remaining > 0 {
-                    prev_entry.delegated_stake = prev_entry.delegated_stake.saturating_sub(remaining);
+                    prev_entry.delegated_stake =
+                        prev_entry.delegated_stake.saturating_sub(remaining);
                 }
                 self.total_staked = self.total_staked.saturating_sub(additional_slash);
                 self.total_slashed = self.total_slashed.saturating_add(additional_slash);
@@ -742,7 +781,9 @@ impl StakingManager {
         // Slash self-stake first, then delegated stake.
         // Scoped block to release the mutable borrow before delegator iteration.
         let remaining_slash = {
-            let entry = self.validators.get_mut(&validator)
+            let entry = self
+                .validators
+                .get_mut(&validator)
                 .ok_or(StakingError::ValidatorNotFound(validator))?;
             let self_slash = amount_slashed.min(entry.self_stake);
             entry.self_stake = entry.self_stake.saturating_sub(self_slash);
@@ -754,7 +795,9 @@ impl StakingManager {
         };
 
         if remaining_slash > 0 {
-            let old_delegated = self.validators.get(&validator)
+            let old_delegated = self
+                .validators
+                .get(&validator)
                 .map(|e| e.delegated_stake.saturating_add(remaining_slash))
                 .unwrap_or(0);
 
@@ -766,7 +809,9 @@ impl StakingManager {
             if old_delegated > 0 {
                 let slash_for_delegators = remaining_slash.min(old_delegated);
                 // R28-FIX: Sort delegator keys for deterministic iteration order.
-                let mut delegator_keys: Vec<(Address, Address)> = self.delegations.keys()
+                let mut delegator_keys: Vec<(Address, Address)> = self
+                    .delegations
+                    .keys()
                     .filter(|(_, v)| *v == validator)
                     .copied()
                     .collect();
@@ -776,10 +821,12 @@ impl StakingManager {
                 for (i, key) in delegator_keys.iter().enumerate() {
                     if let Some(delegation) = self.delegations.get_mut(key) {
                         let delegator_slash = if i == last_idx {
-                            slash_for_delegators.saturating_sub(total_deducted)
+                            slash_for_delegators
+                                .saturating_sub(total_deducted)
                                 .min(delegation.amount)
                         } else {
-                            (delegation.amount as u128 * slash_for_delegators as u128).div_ceil(old_delegated as u128) as u64
+                            (delegation.amount as u128 * slash_for_delegators as u128)
+                                .div_ceil(old_delegated as u128) as u64
                         };
                         delegation.amount = delegation.amount.saturating_sub(delegator_slash);
                         total_deducted = total_deducted.saturating_add(delegator_slash);
@@ -802,7 +849,9 @@ impl StakingManager {
         }
 
         // Re-acquire mutable reference for jailing and post-slash updates
-        let entry = self.validators.get_mut(&validator)
+        let entry = self
+            .validators
+            .get_mut(&validator)
             .expect("validator must exist — checked above");
 
         // Jail the validator
@@ -832,7 +881,8 @@ impl StakingManager {
         for unbonding in &mut self.unbonding {
             if unbonding.validator == validator && unbonding.completion_epoch > self.current_epoch {
                 // Round UP to match the main slash calculation. Use effective rate (correlated).
-                let unbond_slash = (unbonding.amount as u128 * effective_rate as u128).div_ceil(10_000) as u64;
+                let unbond_slash =
+                    (unbonding.amount as u128 * effective_rate as u128).div_ceil(10_000) as u64;
                 unbonding.amount = unbonding.amount.saturating_sub(unbond_slash);
             }
         }
@@ -853,7 +903,9 @@ impl StakingManager {
     pub fn unjail(&mut self, validator: Address) -> Result<(), StakingError> {
         // Immutable validation pass — check eligibility before mutable borrow.
         {
-            let entry = self.validators.get(&validator)
+            let entry = self
+                .validators
+                .get(&validator)
                 .ok_or(StakingError::ValidatorNotFound(validator))?;
 
             if !entry.jailed {
@@ -882,7 +934,9 @@ impl StakingManager {
         // register N new ones, then unjail the original N to exceed the cap.
         let active_count = self.validators.values().filter(|v| v.is_eligible()).count();
         if active_count >= MAX_ACTIVE_VALIDATORS {
-            return Err(StakingError::MaxValidatorsReached { max: MAX_ACTIVE_VALIDATORS });
+            return Err(StakingError::MaxValidatorsReached {
+                max: MAX_ACTIVE_VALIDATORS,
+            });
         }
 
         let entry = self.validators.get_mut(&validator).unwrap();
@@ -906,7 +960,9 @@ impl StakingManager {
         // Use only eligible validators' stake as the denominator.
         // Using total_staked (which includes jailed validators) would cause
         // rewards to be permanently lost since jailed validators are skipped.
-        let total: u128 = self.validators.values()
+        let total: u128 = self
+            .validators
+            .values()
             .filter(|v| v.is_eligible())
             .map(|v| v.total_stake() as u128)
             .sum();
@@ -935,7 +991,8 @@ impl StakingManager {
             }
 
             let validator_share = (reward * entry.total_stake() as u128 / total) as u64;
-            let commission = (validator_share as u128 * entry.commission_bps as u128 / 10_000) as u64;
+            let commission =
+                (validator_share as u128 * entry.commission_bps as u128 / 10_000) as u64;
             entry.pending_rewards = entry.pending_rewards.saturating_add(commission);
             total_distributed = total_distributed.saturating_add(commission);
 
@@ -947,7 +1004,8 @@ impl StakingManager {
         }
 
         // Distribute to delegations — R31-FIX: sort keys for deterministic order.
-        let mut delegation_keys: Vec<(Address, Address)> = self.delegations.keys().cloned().collect();
+        let mut delegation_keys: Vec<(Address, Address)> =
+            self.delegations.keys().cloned().collect();
         delegation_keys.sort();
 
         for key in &delegation_keys {
@@ -960,11 +1018,14 @@ impl StakingManager {
                     continue;
                 }
                 let validator_share = (reward * entry.total_stake() as u128 / total) as u64;
-                let commission = (validator_share as u128 * entry.commission_bps as u128 / 10_000) as u64;
+                let commission =
+                    (validator_share as u128 * entry.commission_bps as u128 / 10_000) as u64;
                 let delegator_pool = validator_share.saturating_sub(commission);
                 let delegator_share = (delegator_pool as u128 * delegation.amount as u128
-                    / entry.total_stake().max(1) as u128) as u64;
-                delegation.pending_rewards = delegation.pending_rewards.saturating_add(delegator_share);
+                    / entry.total_stake().max(1) as u128)
+                    as u64;
+                delegation.pending_rewards =
+                    delegation.pending_rewards.saturating_add(delegator_share);
                 total_distributed = total_distributed.saturating_add(delegator_share);
             }
         }
@@ -975,7 +1036,9 @@ impl StakingManager {
         let dust = total_reward.saturating_sub(total_distributed);
         if dust > 0 {
             // Build sorted list of eligible validators for deterministic selection
-            let mut eligible: Vec<Address> = self.validators.iter()
+            let mut eligible: Vec<Address> = self
+                .validators
+                .iter()
                 .filter(|(_, v)| v.is_eligible())
                 .map(|(addr, _)| *addr)
                 .collect();
@@ -999,7 +1062,9 @@ impl StakingManager {
     /// Claim pending rewards for a validator (self-stake rewards + commission).
     /// Returns the amount claimed (to be credited to the validator's balance externally).
     pub fn claim_validator_rewards(&mut self, validator: Address) -> Result<u64, StakingError> {
-        let entry = self.validators.get_mut(&validator)
+        let entry = self
+            .validators
+            .get_mut(&validator)
             .ok_or(StakingError::ValidatorNotFound(validator))?;
         let amount = entry.pending_rewards;
         entry.pending_rewards = 0;
@@ -1013,7 +1078,9 @@ impl StakingManager {
         delegator: Address,
         validator: Address,
     ) -> Result<u64, StakingError> {
-        let delegation = self.delegations.get_mut(&(delegator, validator))
+        let delegation = self
+            .delegations
+            .get_mut(&(delegator, validator))
             .ok_or(StakingError::DelegationNotFound(delegator, validator))?;
         let amount = delegation.pending_rewards;
         delegation.pending_rewards = 0;
@@ -1036,7 +1103,8 @@ impl StakingManager {
 
     /// Get the list of eligible validators (for ValidatorSet construction).
     pub fn eligible_validators(&self) -> Vec<&StakeEntry> {
-        self.validators.values()
+        self.validators
+            .values()
             .filter(|v| v.is_eligible())
             .collect()
     }
@@ -1058,7 +1126,8 @@ impl StakingManager {
 
     /// Get all delegations for a given delegator address.
     pub fn delegations_for(&self, delegator: &Address) -> Vec<&Delegation> {
-        self.delegations.iter()
+        self.delegations
+            .iter()
             .filter(|((d, _), _)| d == delegator)
             .map(|(_, v)| v)
             .collect()
@@ -1115,16 +1184,37 @@ pub enum StakingError {
     JailNotExpired { current_epoch: u64, jail_until: u64 },
     #[error("delegation not found: {0} -> {1}")]
     DelegationNotFound(Address, Address),
-    #[error("evidence too old: epoch {evidence_epoch}, current {current_epoch}, max age {max_age}")]
-    EvidenceTooOld { evidence_epoch: u64, current_epoch: u64, max_age: u64 },
+    #[error(
+        "evidence too old: epoch {evidence_epoch}, current {current_epoch}, max age {max_age}"
+    )]
+    EvidenceTooOld {
+        evidence_epoch: u64,
+        current_epoch: u64,
+        max_age: u64,
+    },
     #[error("evidence from future: epoch {evidence_epoch} > current {current_epoch}")]
-    EvidenceFromFuture { evidence_epoch: u64, current_epoch: u64 },
+    EvidenceFromFuture {
+        evidence_epoch: u64,
+        current_epoch: u64,
+    },
     #[error("stake concentration exceeded: validator {validator} would hold {would_hold_bps} bps of total (max {max_bps} bps)")]
-    StakeConcentrationExceeded { validator: Address, would_hold_bps: u16, max_bps: u16 },
+    StakeConcentrationExceeded {
+        validator: Address,
+        would_hold_bps: u16,
+        max_bps: u16,
+    },
     #[error("address concentration exceeded: {address} would control {would_hold_bps} bps of total staked (max {max_bps} bps)")]
-    AddressConcentrationExceeded { address: Address, would_hold_bps: u16, max_bps: u16 },
+    AddressConcentrationExceeded {
+        address: Address,
+        would_hold_bps: u16,
+        max_bps: u16,
+    },
     #[error("stake velocity exceeded: validator {validator} would grow {growth_bps} bps this epoch (max {max_bps} bps)")]
-    StakeVelocityExceeded { validator: Address, growth_bps: u16, max_bps: u16 },
+    StakeVelocityExceeded {
+        validator: Address,
+        growth_bps: u16,
+        max_bps: u16,
+    },
     #[error("maximum active validator count reached ({max})")]
     MaxValidatorsReached { max: usize },
     #[error("duplicate evidence: {0}")]
@@ -1144,16 +1234,20 @@ mod tests {
     /// Helper: register 3 validators with equal stake for tests that need
     /// bootstrap-safe setup. Returns total staked.
     fn setup_bootstrap(mgr: &mut StakingManager) -> u64 {
-        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000).unwrap();
+        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         MIN_VALIDATOR_STAKE * 3
     }
 
     #[test]
     fn register_validator() {
         let mut mgr = StakingManager::new();
-        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).unwrap();
+        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         assert_eq!(mgr.validator_count(), 1);
         assert_eq!(mgr.total_staked(), MIN_VALIDATOR_STAKE);
     }
@@ -1169,7 +1263,9 @@ mod tests {
     fn reject_duplicate_registration() {
         let mut mgr = StakingManager::new();
         setup_bootstrap(&mut mgr);
-        assert!(mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).is_err());
+        assert!(mgr
+            .register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000)
+            .is_err());
     }
 
     #[test]
@@ -1183,7 +1279,8 @@ mod tests {
         assert_eq!(entry.delegated_stake, 5 * MIN_DELEGATION);
 
         // Begin unbonding
-        mgr.begin_unbonding(addr(5), addr(1), 2 * MIN_DELEGATION).unwrap();
+        mgr.begin_unbonding(addr(5), addr(1), 2 * MIN_DELEGATION)
+            .unwrap();
         let entry = mgr.get_validator(&addr(1)).unwrap();
         assert_eq!(entry.delegated_stake, 3 * MIN_DELEGATION);
     }
@@ -1194,9 +1291,12 @@ mod tests {
         let stake = MIN_VALIDATOR_STAKE;
         setup_bootstrap(&mut mgr);
 
-        let event = mgr.slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0).unwrap();
+        let event = mgr
+            .slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0)
+            .unwrap();
         // Correlated slashing: first slash in epoch → N=1, effective_rate = 3300 + 1*3333 = 6633
-        let effective_rate: u32 = SLASH_DOUBLE_SIGN_BPS as u32 + 1 * CORRELATED_SLASH_MULTIPLIER_BPS;
+        let effective_rate: u32 =
+            SLASH_DOUBLE_SIGN_BPS as u32 + 1 * CORRELATED_SLASH_MULTIPLIER_BPS;
         let expected_slash = ((stake as u128 * effective_rate as u128 + 9_999) / 10_000) as u64;
         assert_eq!(event.amount_slashed, expected_slash);
 
@@ -1215,7 +1315,8 @@ mod tests {
         mgr.register_validator(addr(2), stake, 1000).unwrap();
         mgr.register_validator(addr(3), stake, 1000).unwrap();
 
-        mgr.slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0)
+            .unwrap();
 
         // Can't unjail immediately
         assert!(mgr.unjail(addr(1)).is_err());
@@ -1236,7 +1337,8 @@ mod tests {
         mgr.register_validator(addr(1), stake, 1000).unwrap();
         mgr.register_validator(addr(2), stake, 1000).unwrap();
         mgr.register_validator(addr(3), stake, 1000).unwrap();
-        mgr.begin_unbonding(addr(1), addr(1), MIN_VALIDATOR_STAKE).unwrap();
+        mgr.begin_unbonding(addr(1), addr(1), MIN_VALIDATOR_STAKE)
+            .unwrap();
 
         // Not yet completed
         let completed = mgr.process_unbonding();
@@ -1253,7 +1355,8 @@ mod tests {
     fn delegation_to_jailed_validator_fails() {
         let mut mgr = StakingManager::new();
         setup_bootstrap(&mut mgr);
-        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
 
         assert!(mgr.delegate(addr(5), addr(1), MIN_DELEGATION).is_err());
     }
@@ -1337,7 +1440,8 @@ mod tests {
 
         assert_eq!(mgr.active_validator_count(), 3);
 
-        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
         assert_eq!(mgr.active_validator_count(), 2);
     }
 
@@ -1347,13 +1451,18 @@ mod tests {
         setup_bootstrap(&mut mgr);
 
         // Jail 2 of 3 validators
-        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
-        mgr.slash(addr(2), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
+        mgr.slash(addr(2), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
         assert_eq!(mgr.active_validator_count(), 1);
 
         // Only one eligible validator left — slashing should be refused
         let result = mgr.slash(addr(3), SlashReason::DoubleSigning, Hash::ZERO, 0);
-        assert!(result.is_err(), "should not slash the last eligible validator");
+        assert!(
+            result.is_err(),
+            "should not slash the last eligible validator"
+        );
 
         // Validator 3 should still be active and unjailed
         let entry = mgr.get_validator(&addr(3)).unwrap();
@@ -1373,7 +1482,8 @@ mod tests {
         mgr.register_validator(addr(3), stake, 0).unwrap();
 
         // Jail validator 1
-        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
         assert!(mgr.get_validator(&addr(1)).unwrap().jailed);
 
         // Distribute rewards
@@ -1388,10 +1498,16 @@ mod tests {
 
         // Jailed validator should receive nothing
         let v1 = mgr.get_validator(&addr(1)).unwrap();
-        assert_eq!(v1.pending_rewards, 0, "jailed validator should receive no rewards");
+        assert_eq!(
+            v1.pending_rewards, 0,
+            "jailed validator should receive no rewards"
+        );
 
         // Total distributed = total_reward (no permanent loss)
-        assert_eq!(v1.pending_rewards + v2.pending_rewards + v3.pending_rewards, total_reward);
+        assert_eq!(
+            v1.pending_rewards + v2.pending_rewards + v3.pending_rewards,
+            total_reward
+        );
     }
 
     #[test]
@@ -1402,7 +1518,8 @@ mod tests {
         setup_bootstrap(&mut mgr);
 
         // Jail validator 1 (others remain eligible)
-        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
         assert!(mgr.get_validator(&addr(1)).unwrap().jailed);
         assert!(mgr.get_validator(&addr(2)).unwrap().is_eligible());
 
@@ -1411,7 +1528,10 @@ mod tests {
         let v1 = mgr.get_validator(&addr(1)).unwrap();
         let v2 = mgr.get_validator(&addr(2)).unwrap();
         assert_eq!(v1.pending_rewards, 0, "jailed validator should get nothing");
-        assert!(v2.pending_rewards > 0, "eligible validator should get rewards");
+        assert!(
+            v2.pending_rewards > 0,
+            "eligible validator should get rewards"
+        );
     }
 
     #[test]
@@ -1429,7 +1549,8 @@ mod tests {
         mgr.register_validator(addr(3), stake, 0).unwrap();
 
         // Jail validator 3
-        mgr.slash(addr(3), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        mgr.slash(addr(3), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
 
         let total_reward: u64 = 1_000_000;
         mgr.distribute_rewards(total_reward);
@@ -1441,11 +1562,17 @@ mod tests {
         // Each eligible validator has equal stake, so each gets 50%
         assert_eq!(v1.pending_rewards, 500_000);
         assert_eq!(v2.pending_rewards, 500_000);
-        assert_eq!(v3.pending_rewards, 0, "jailed validator should receive nothing");
+        assert_eq!(
+            v3.pending_rewards, 0,
+            "jailed validator should receive nothing"
+        );
 
         // Total distributed should equal total_reward (no permanent loss)
         let total_distributed = v1.pending_rewards + v2.pending_rewards + v3.pending_rewards;
-        assert_eq!(total_distributed, total_reward, "no rewards should be permanently lost");
+        assert_eq!(
+            total_distributed, total_reward,
+            "no rewards should be permanently lost"
+        );
     }
 
     #[test]
@@ -1458,7 +1585,11 @@ mod tests {
         let result = mgr.slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0);
         assert!(result.is_err(), "stale evidence should be rejected");
         match result.unwrap_err() {
-            StakingError::EvidenceTooOld { evidence_epoch, current_epoch, max_age } => {
+            StakingError::EvidenceTooOld {
+                evidence_epoch,
+                current_epoch,
+                max_age,
+            } => {
                 assert_eq!(evidence_epoch, 0);
                 assert_eq!(current_epoch, 50);
                 assert_eq!(max_age, MAX_EVIDENCE_AGE_EPOCHS);
@@ -1492,15 +1623,21 @@ mod tests {
         // so the first validators can join. But add_stake/delegate enforces 41.3%.
         let mut mgr = StakingManager::new();
         // First 3 validators register with equal stake — allowed during bootstrap
-        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000).unwrap();
+        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         // Each has ~33.3%. Adding stake to push addr(1) over 41.3% should fail.
         // Current total: 3 * stake. Adding stake → 2*stake / (4*stake) = 50% > 41.3%
         let result = mgr.add_stake(addr(1), MIN_VALIDATOR_STAKE);
-        assert!(result.is_err(), "bootstrap 41.3% cap should block add_stake");
+        assert!(
+            result.is_err(),
+            "bootstrap 41.3% cap should block add_stake"
+        );
         match result {
-            Err(StakingError::StakeConcentrationExceeded { .. }) => {},
+            Err(StakingError::StakeConcentrationExceeded { .. }) => {}
             other => panic!("expected StakeConcentrationExceeded, got {:?}", other),
         }
     }
@@ -1512,9 +1649,12 @@ mod tests {
         // would keep them above 20%, so add_stake is correctly rejected.
         // This test verifies a DELEGATION from a NEW address stays under 20%.
         let mut mgr = StakingManager::new();
-        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000).unwrap();
-        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000).unwrap();
+        mgr.register_validator(addr(1), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(2), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
+        mgr.register_validator(addr(3), MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         // Delegation from a NEW address (addr(10)) — its share starts at 0%
         // tiny / (3*10K + tiny) ≈ 0.003% — well under 20% cap
         let tiny = MIN_DELEGATION;
@@ -1534,7 +1674,7 @@ mod tests {
         let result = mgr.add_stake(addr(1), stake);
         assert!(result.is_err(), "should reject: would exceed 33% cap");
         match result {
-            Err(StakingError::StakeConcentrationExceeded { .. }) => {},
+            Err(StakingError::StakeConcentrationExceeded { .. }) => {}
             other => panic!("expected StakeConcentrationExceeded, got {:?}", other),
         }
     }
@@ -1551,7 +1691,7 @@ mod tests {
         let result = mgr.delegate(addr(10), addr(1), stake);
         assert!(result.is_err());
         match result {
-            Err(StakingError::StakeConcentrationExceeded { .. }) => {},
+            Err(StakingError::StakeConcentrationExceeded { .. }) => {}
             other => panic!("expected StakeConcentrationExceeded, got {:?}", other),
         }
     }
@@ -1586,7 +1726,7 @@ mod tests {
         let result = mgr.delegate(addr(10), addr(2), stake / 2);
         assert!(result.is_err());
         match result {
-            Err(StakingError::AddressConcentrationExceeded { .. }) => {},
+            Err(StakingError::AddressConcentrationExceeded { .. }) => {}
             other => panic!("expected AddressConcentrationExceeded, got {:?}", other),
         }
     }
@@ -1625,7 +1765,7 @@ mod tests {
         let result = mgr.delegate(addr(10), addr(1), growth);
         assert!(result.is_err());
         match result {
-            Err(StakingError::StakeVelocityExceeded { .. }) => {},
+            Err(StakingError::StakeVelocityExceeded { .. }) => {}
             other => panic!("expected StakeVelocityExceeded, got {:?}", other),
         }
     }
@@ -1671,7 +1811,7 @@ mod tests {
         // This makes Sybil attacks self-destructive.
         let mut mgr = StakingManager::new();
         let stake = MIN_VALIDATOR_STAKE * 10; // 100k PI — plenty of room for slashing
-        // 5 validators (4 attackers + 1 honest)
+                                              // 5 validators (4 attackers + 1 honest)
         mgr.register_validator(addr(1), stake, 0).unwrap();
         mgr.register_validator(addr(2), stake, 0).unwrap();
         mgr.register_validator(addr(3), stake, 0).unwrap();
@@ -1679,27 +1819,41 @@ mod tests {
         mgr.register_validator(addr(5), stake, 0).unwrap();
 
         // Slash validator 1 (N=1): rate = 3300 + 1*3333 = 6633 bps
-        let e1 = mgr.slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0).unwrap();
+        let e1 = mgr
+            .slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0)
+            .unwrap();
         let rate1 = SLASH_DOUBLE_SIGN_BPS as u32 + 1 * CORRELATED_SLASH_MULTIPLIER_BPS;
         let exp1 = ((stake as u128 * rate1 as u128 + 9_999) / 10_000) as u64;
         assert_eq!(e1.amount_slashed, exp1);
 
         // Slash validator 2 (N=2): rate = 3300 + 2*3333 = 9966 bps
-        let e2 = mgr.slash(addr(2), SlashReason::DoubleSigning, Hash::ZERO, 0).unwrap();
-        let rate2 = (SLASH_DOUBLE_SIGN_BPS as u32 + 2 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
+        let e2 = mgr
+            .slash(addr(2), SlashReason::DoubleSigning, Hash::ZERO, 0)
+            .unwrap();
+        let rate2 =
+            (SLASH_DOUBLE_SIGN_BPS as u32 + 2 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
         let exp2 = ((stake as u128 * rate2 as u128 + 9_999) / 10_000) as u64;
         assert_eq!(e2.amount_slashed, exp2);
 
         // Slash validator 3 (N=3): rate = 3300 + 3*3333 = 13299 → capped at 10000
-        let e3 = mgr.slash(addr(3), SlashReason::DoubleSigning, Hash::ZERO, 0).unwrap();
-        let rate3 = (SLASH_DOUBLE_SIGN_BPS as u32 + 3 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
+        let e3 = mgr
+            .slash(addr(3), SlashReason::DoubleSigning, Hash::ZERO, 0)
+            .unwrap();
+        let rate3 =
+            (SLASH_DOUBLE_SIGN_BPS as u32 + 3 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
         assert_eq!(rate3, 10_000); // 100% wipeout
         let exp3 = ((stake as u128 * rate3 as u128 + 9_999) / 10_000) as u64;
         assert_eq!(e3.amount_slashed, exp3);
 
         // Verify escalation: e1 < e2 < e3
-        assert!(e1.amount_slashed < e2.amount_slashed, "penalty should escalate");
-        assert!(e2.amount_slashed < e3.amount_slashed, "penalty should escalate");
+        assert!(
+            e1.amount_slashed < e2.amount_slashed,
+            "penalty should escalate"
+        );
+        assert!(
+            e2.amount_slashed < e3.amount_slashed,
+            "penalty should escalate"
+        );
 
         // Validator 5 (honest) should be unaffected
         let v5 = mgr.get_validator(&addr(5)).unwrap();
@@ -1719,16 +1873,22 @@ mod tests {
         mgr.register_validator(addr(5), stake, 0).unwrap();
 
         // Slash in epoch 0 (N=1)
-        let e1 = mgr.slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0).unwrap();
+        let e1 = mgr
+            .slash(addr(1), SlashReason::Downtime, Hash::ZERO, 0)
+            .unwrap();
 
         // Advance to epoch 1 — counter resets
         mgr.set_epoch(1);
         // Slash in epoch 1 (N=1 again, not N=2)
-        let e2 = mgr.slash(addr(2), SlashReason::Downtime, Hash::ZERO, 1).unwrap();
+        let e2 = mgr
+            .slash(addr(2), SlashReason::Downtime, Hash::ZERO, 1)
+            .unwrap();
 
         // Both should have the same effective rate (N=1 in each epoch)
-        assert_eq!(e1.amount_slashed, e2.amount_slashed,
-            "correlated counter should reset across epochs");
+        assert_eq!(
+            e1.amount_slashed, e2.amount_slashed,
+            "correlated counter should reset across epochs"
+        );
     }
 
     #[test]
@@ -1742,7 +1902,8 @@ mod tests {
             bytes[0] = (i >> 8) as u8;
             bytes[1] = (i & 0xFF) as u8;
             let a = Address(bytes);
-            mgr.register_validator(a, MIN_VALIDATOR_STAKE, 1000).unwrap();
+            mgr.register_validator(a, MIN_VALIDATOR_STAKE, 1000)
+                .unwrap();
         }
         assert_eq!(mgr.validators.len(), MAX_ACTIVE_VALIDATORS);
 

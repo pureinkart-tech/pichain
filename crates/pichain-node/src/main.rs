@@ -255,7 +255,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Determine log level: RUST_LOG env > config file > default "info"
     let (cfg, data_dir, rpc_addr, p2p_addr, chain_id) = match &cli.command {
-        Commands::Run { data_dir, rpc_addr, p2p_addr, chain_id, config, rpc_only } => {
+        Commands::Run {
+            data_dir,
+            rpc_addr,
+            p2p_addr,
+            chain_id,
+            config,
+            rpc_only,
+        } => {
             let mut cfg = if let Some(ref config_path) = config {
                 match NodeConfig::load_from_file(config_path) {
                     Ok(c) => c,
@@ -283,12 +290,30 @@ async fn main() -> anyhow::Result<()> {
             // but clap derive mode does not expose ArgMatches for enum variant fields.
             // TODO: Refactor to use Cli::command().get_matches() + manual extraction, or
             // use Option<T> for these fields and treat None as "use config file value".
-            let d = if *data_dir != "./pichain-data" { data_dir.clone() } else { cfg.data_dir.clone() };
-            let r = if *rpc_addr != "127.0.0.1:8314" { rpc_addr.clone() } else { cfg.rpc_addr.clone() };
-            let p = if *p2p_addr != "/ip4/0.0.0.0/tcp/9314" { p2p_addr.clone() } else { cfg.p2p_addr.clone() };
-            let c = if *chain_id != 31415 { *chain_id } else { cfg.chain_id };
+            let d = if *data_dir != "./pichain-data" {
+                data_dir.clone()
+            } else {
+                cfg.data_dir.clone()
+            };
+            let r = if *rpc_addr != "127.0.0.1:8314" {
+                rpc_addr.clone()
+            } else {
+                cfg.rpc_addr.clone()
+            };
+            let p = if *p2p_addr != "/ip4/0.0.0.0/tcp/9314" {
+                p2p_addr.clone()
+            } else {
+                cfg.p2p_addr.clone()
+            };
+            let c = if *chain_id != 31415 {
+                *chain_id
+            } else {
+                cfg.chain_id
+            };
             // --rpc-only flag overrides config (CLI flag = true wins)
-            if *rpc_only { cfg.rpc_only = true; }
+            if *rpc_only {
+                cfg.rpc_only = true;
+            }
             (Some(cfg), Some(d), Some(r), Some(p), Some(c))
         }
         _ => (None, None, None, None, None),
@@ -298,21 +323,25 @@ async fn main() -> anyhow::Result<()> {
     let log_level = cfg.as_ref().map(|c| c.log_level.as_str()).unwrap_or("info");
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level)),
         )
         .init();
 
     match cli.command {
         Commands::Run { config, .. } => {
-            let cfg = cfg.ok_or_else(|| anyhow::anyhow!("node configuration not loaded — provide --config"))?;
+            let cfg = cfg.ok_or_else(|| {
+                anyhow::anyhow!("node configuration not loaded — provide --config")
+            })?;
             let data_dir = data_dir.ok_or_else(|| anyhow::anyhow!("data_dir not configured"))?;
             let rpc_addr = rpc_addr.ok_or_else(|| anyhow::anyhow!("rpc_addr not configured"))?;
             let p2p_addr = p2p_addr.ok_or_else(|| anyhow::anyhow!("p2p_addr not configured"))?;
             let chain_id = chain_id.ok_or_else(|| anyhow::anyhow!("chain_id not configured"))?;
 
             if config.is_some() {
-                info!("Loaded config (log_level={}, mempool={})", cfg.log_level, cfg.max_mempool_size);
+                info!(
+                    "Loaded config (log_level={}, mempool={})",
+                    cfg.log_level, cfg.max_mempool_size
+                );
             }
 
             // Validate configuration before starting
@@ -324,7 +353,13 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 info!("Starting PIChain node...");
             }
-            info!(chain_id, data_dir, rpc_addr, p2p_addr, rpc_only = is_rpc_only);
+            info!(
+                chain_id,
+                data_dir,
+                rpc_addr,
+                p2p_addr,
+                rpc_only = is_rpc_only
+            );
 
             // --- 1. Initialize Storage ---
             info!("Opening database at {data_dir}");
@@ -353,16 +388,17 @@ async fn main() -> anyhow::Result<()> {
                 chain_id,
                 ..Default::default() // require_pq: true (default)
             };
-            let mempool = Arc::new(pichain_execution::TransactionPool::with_config(mempool_config));
-            info!("Transaction mempool initialized (capacity: {})", cfg.max_mempool_size);
+            let mempool = Arc::new(pichain_execution::TransactionPool::with_config(
+                mempool_config,
+            ));
+            info!(
+                "Transaction mempool initialized (capacity: {})",
+                cfg.max_mempool_size
+            );
 
             // --- 5. Create Shared Node State ---
-            let mut node_state = NodeState::new(
-                state_store,
-                executor.clone(),
-                mempool.clone(),
-                chain_id,
-            );
+            let mut node_state =
+                NodeState::new(state_store, executor.clone(), mempool.clone(), chain_id);
             // Enable mempool WAL for crash recovery (replays pending txs from previous run)
             node_state.enable_mempool_wal(&data_dir);
             let node_state = Arc::new(node_state);
@@ -388,9 +424,9 @@ async fn main() -> anyhow::Result<()> {
                 pichain_types::GenesisConfig::devnet()
             };
             // Validate genesis supply integrity before applying
-            genesis.validate().map_err(|e| {
-                anyhow::anyhow!("FATAL: genesis config invalid — {e}")
-            })?;
+            genesis
+                .validate()
+                .map_err(|e| anyhow::anyhow!("FATAL: genesis config invalid — {e}"))?;
             node_state.apply_genesis(&genesis)?;
 
             // --- 7. Resume From Last Block ---
@@ -467,10 +503,8 @@ async fn main() -> anyhow::Result<()> {
 
             // --- 9. Start P2P Networking ---
             // Resolve seeds: hardcoded mainnet seeds → DNS seeds → config bootstrap_peers
-            let resolved_peers = pichain_network::PiChainSwarm::resolve_seeds(
-                chain_id,
-                &cfg.bootstrap_peers,
-            );
+            let resolved_peers =
+                pichain_network::PiChainSwarm::resolve_seeds(chain_id, &cfg.bootstrap_peers);
             if !resolved_peers.is_empty() {
                 info!(
                     count = resolved_peers.len(),
@@ -500,28 +534,52 @@ async fn main() -> anyhow::Result<()> {
             };
             let mut validators = vec![self_validator];
             for gv in &cfg.genesis_validators {
-                let addr_hex = hex::decode(&gv.address)
-                    .map_err(|e| anyhow::anyhow!("invalid genesis validator address hex '{}': {e}", gv.address))?;
-                let addr_bytes: [u8; 20] = addr_hex.try_into()
-                    .map_err(|v: Vec<u8>| anyhow::anyhow!("genesis validator address must be 20 bytes, got {}: {}", v.len(), gv.address))?;
+                let addr_hex = hex::decode(&gv.address).map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid genesis validator address hex '{}': {e}",
+                        gv.address
+                    )
+                })?;
+                let addr_bytes: [u8; 20] = addr_hex.try_into().map_err(|v: Vec<u8>| {
+                    anyhow::anyhow!(
+                        "genesis validator address must be 20 bytes, got {}: {}",
+                        v.len(),
+                        gv.address
+                    )
+                })?;
                 let addr = pichain_crypto::ed25519::Address(addr_bytes);
                 if addr == validator_key.address() {
                     continue; // Skip self
                 }
-                let bls_hex = hex::decode(&gv.bls_public_key)
-                    .map_err(|e| anyhow::anyhow!("invalid genesis validator BLS key hex '{}': {e}", gv.bls_public_key))?;
-                let bls_bytes: [u8; 48] = bls_hex.try_into()
-                    .map_err(|v: Vec<u8>| anyhow::anyhow!("BLS public key must be 48 bytes, got {}", v.len()))?;
-                let bls_pk = pichain_crypto::bls::BlsPublicKey::from_bytes(&bls_bytes)
-                    .map_err(|e| anyhow::anyhow!("invalid BLS public key for validator {}: {e}", gv.address))?;
+                let bls_hex = hex::decode(&gv.bls_public_key).map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid genesis validator BLS key hex '{}': {e}",
+                        gv.bls_public_key
+                    )
+                })?;
+                let bls_bytes: [u8; 48] = bls_hex.try_into().map_err(|v: Vec<u8>| {
+                    anyhow::anyhow!("BLS public key must be 48 bytes, got {}", v.len())
+                })?;
+                let bls_pk =
+                    pichain_crypto::bls::BlsPublicKey::from_bytes(&bls_bytes).map_err(|e| {
+                        anyhow::anyhow!("invalid BLS public key for validator {}: {e}", gv.address)
+                    })?;
                 // Verify BLS proof-of-possession if provided (required for multi-validator security)
                 let pop_sig = if let Some(ref pop_hex) = gv.bls_pop {
-                    let pop_bytes = hex::decode(pop_hex)
-                        .map_err(|e| anyhow::anyhow!("invalid BLS PoP hex for validator {}: {e}", gv.address))?;
-                    let pop_arr: [u8; 96] = pop_bytes.try_into()
-                        .map_err(|v: Vec<u8>| anyhow::anyhow!("BLS PoP must be 96 bytes, got {} for validator {}", v.len(), gv.address))?;
-                    let pop = pichain_crypto::bls::BlsSignature::from_bytes(&pop_arr)
-                        .map_err(|e| anyhow::anyhow!("invalid BLS PoP for validator {}: {e}", gv.address))?;
+                    let pop_bytes = hex::decode(pop_hex).map_err(|e| {
+                        anyhow::anyhow!("invalid BLS PoP hex for validator {}: {e}", gv.address)
+                    })?;
+                    let pop_arr: [u8; 96] = pop_bytes.try_into().map_err(|v: Vec<u8>| {
+                        anyhow::anyhow!(
+                            "BLS PoP must be 96 bytes, got {} for validator {}",
+                            v.len(),
+                            gv.address
+                        )
+                    })?;
+                    let pop =
+                        pichain_crypto::bls::BlsSignature::from_bytes(&pop_arr).map_err(|e| {
+                            anyhow::anyhow!("invalid BLS PoP for validator {}: {e}", gv.address)
+                        })?;
                     bls_pk.verify_proof_of_possession(&pop)
                         .map_err(|e| anyhow::anyhow!("BLS PoP verification FAILED for validator {} — possible rogue-key attack: {e}", gv.address))?;
                     info!(validator = %gv.address, "BLS proof-of-possession verified");
@@ -545,10 +603,7 @@ async fn main() -> anyhow::Result<()> {
                 });
             }
             if validators.len() > 1 {
-                info!(
-                    total = validators.len(),
-                    "multi-validator consensus mode"
-                );
+                info!(total = validators.len(), "multi-validator consensus mode");
             }
             // BFT safety requires at least 4 validators (3f+1 where f=1).
             // In single-node/dev mode (no genesis_validators), allow 1 validator.
@@ -570,24 +625,22 @@ async fn main() -> anyhow::Result<()> {
                 pi_seed: *last_hash.as_bytes(),
                 chain_id,
             };
-            let consensus_engine = std::sync::Arc::new(
-                parking_lot::Mutex::new(
-                    pichain_consensus::ConsensusEngine::new(
-                        consensus_config,
-                        validator_set,
-                        staking_manager,
-                    )
-                )
-            );
+            let consensus_engine = std::sync::Arc::new(parking_lot::Mutex::new(
+                pichain_consensus::ConsensusEngine::new(
+                    consensus_config,
+                    validator_set,
+                    staking_manager,
+                ),
+            ));
             // Resume consensus from persisted height so the engine doesn't
             // try to re-commit blocks that already exist in storage.
             consensus_engine.lock().set_starting_round(current_height);
 
             // Inject BLS secret key for certificate signing (validators only)
             if !is_rpc_only {
-                let bls_sk = pichain_crypto::bls::BlsSecretKey::from_bytes(
-                    &validator_bls.secret.to_bytes()
-                ).map_err(|e| anyhow::anyhow!("BLS secret key roundtrip failed: {e}"))?;
+                let bls_sk =
+                    pichain_crypto::bls::BlsSecretKey::from_bytes(&validator_bls.secret.to_bytes())
+                        .map_err(|e| anyhow::anyhow!("BLS secret key roundtrip failed: {e}"))?;
                 consensus_engine.lock().set_bls_secret_key(bls_sk);
             }
             info!(
@@ -617,7 +670,12 @@ async fn main() -> anyhow::Result<()> {
                     chain_id,
                 );
                 let last_block_ts = node_state.last_block_timestamp_ms();
-                block_producer.set_state(current_height, last_hash, current_base_fee, last_block_ts);
+                block_producer.set_state(
+                    current_height,
+                    last_hash,
+                    current_base_fee,
+                    last_block_ts,
+                );
 
                 let pipeline = pichain_execution::TransactionPipeline::new(
                     pipeline_config,
@@ -632,7 +690,10 @@ async fn main() -> anyhow::Result<()> {
                 );
                 Some((pipeline, block_producer))
             } else {
-                info!(height = current_height, "RPC-only mode — block production disabled, syncing from peers");
+                info!(
+                    height = current_height,
+                    "RPC-only mode — block production disabled, syncing from peers"
+                );
                 None
             };
 
@@ -649,17 +710,20 @@ async fn main() -> anyhow::Result<()> {
             // Pipeline task — runs Stage 1 (SigVerify) + Stage 2 (Banking)
             // Only in validator mode — RPC-only nodes don't produce blocks
             let pipeline_shutdown = shutdown_rx.clone();
-            let mut pipeline_handle = if let Some((pipeline, block_producer)) = pipeline_and_producer {
-                tokio::spawn(async move {
-                    pipeline.run(block_producer, pipeline_shutdown, block_tx).await;
-                })
-            } else {
-                // RPC-only: spawn a no-op task that just waits for shutdown
-                let mut shutdown = pipeline_shutdown;
-                tokio::spawn(async move {
-                    let _ = shutdown.changed().await;
-                })
-            };
+            let mut pipeline_handle =
+                if let Some((pipeline, block_producer)) = pipeline_and_producer {
+                    tokio::spawn(async move {
+                        pipeline
+                            .run(block_producer, pipeline_shutdown, block_tx)
+                            .await;
+                    })
+                } else {
+                    // RPC-only: spawn a no-op task that just waits for shutdown
+                    let mut shutdown = pipeline_shutdown;
+                    tokio::spawn(async move {
+                        let _ = shutdown.changed().await;
+                    })
+                };
 
             // Extract P2P broadcaster before moving swarm
             let p2p_broadcaster = p2p_swarm.broadcaster();
@@ -671,7 +735,7 @@ async fn main() -> anyhow::Result<()> {
             let persist_p2p = p2p_broadcaster.clone();
             // Create a signing keypair for the persist task (Keypair is not Clone due to zeroization)
             let persist_signing_key = pichain_crypto::ed25519::Keypair::from_secret_bytes(
-                &validator_key.secret.to_bytes()
+                &validator_key.secret.to_bytes(),
             );
             let mut persist_handle = tokio::spawn(async move {
                 while let Some(mut produced) = block_rx.recv().await {
@@ -686,11 +750,17 @@ async fn main() -> anyhow::Result<()> {
                     // to avoid holding the !Send MutexGuard across .await points.
                     let evidence_to_broadcast = {
                         let mut engine = persist_consensus.lock();
-                        let tx_hashes: Vec<pichain_crypto::Hash> = produced.block.transactions
+                        let tx_hashes: Vec<pichain_crypto::Hash> = produced
+                            .block
+                            .transactions
                             .iter()
                             .map(|tx| tx.hash())
                             .collect();
-                        engine.propose_block_at(block_hash, tx_hashes, produced.block.header.timestamp_ms);
+                        engine.propose_block_at(
+                            block_hash,
+                            tx_hashes,
+                            produced.block.header.timestamp_ms,
+                        );
 
                         // Try to advance consensus and finalize blocks
                         let finalized = engine.try_advance();
@@ -764,11 +834,17 @@ async fn main() -> anyhow::Result<()> {
 
                     // Broadcast individual transaction events + swap events
                     for (i, tx) in produced.block.transactions.iter().enumerate() {
-                        let status = produced.execution_results.get(i)
+                        let status = produced
+                            .execution_results
+                            .get(i)
                             .map(|r| match &r.effect.status {
                                 pichain_types::TransactionStatus::Success => "success".to_string(),
-                                pichain_types::TransactionStatus::Reverted(msg) => format!("reverted: {msg}"),
-                                pichain_types::TransactionStatus::OutOfGas => "out_of_gas".to_string(),
+                                pichain_types::TransactionStatus::Reverted(msg) => {
+                                    format!("reverted: {msg}")
+                                }
+                                pichain_types::TransactionStatus::OutOfGas => {
+                                    "out_of_gas".to_string()
+                                }
                             })
                             .unwrap_or_else(|| "unknown".to_string());
                         let kind = match &tx.data.kind {
@@ -776,10 +852,13 @@ async fn main() -> anyhow::Result<()> {
                             pichain_types::TransactionKind::Stake { .. } => "Stake",
                             pichain_types::TransactionKind::Unstake { .. } => "Unstake",
                             pichain_types::TransactionKind::MiningProof { .. } => "MiningProof",
-                            pichain_types::TransactionKind::DeployContract { .. } => "DeployContract",
+                            pichain_types::TransactionKind::DeployContract { .. } => {
+                                "DeployContract"
+                            }
                             pichain_types::TransactionKind::ContractCall { .. } => "ContractCall",
                             _ => "Other",
-                        }.to_string();
+                        }
+                        .to_string();
                         ws_broadcaster.broadcast(pichain_rpc::WsEvent::NewTransaction {
                             tx_hash: tx.hash().to_string(),
                             sender: tx.data.sender.to_string(),
@@ -792,35 +871,68 @@ async fn main() -> anyhow::Result<()> {
                         if let Some(result) = produced.execution_results.get(i) {
                             for event in &result.effect.events {
                                 if event.event_type == "Swap" {
-                                    if let Ok(sd) = serde_json::from_slice::<serde_json::Value>(&event.data) {
+                                    if let Ok(sd) =
+                                        serde_json::from_slice::<serde_json::Value>(&event.data)
+                                    {
                                         let amount_in = sd["amount_in"].as_u64().unwrap_or(0);
                                         let amount_out = sd["amount_out"].as_u64().unwrap_or(0);
-                                        let price = if amount_in > 0 { amount_out as f64 / amount_in as f64 } else { 0.0 };
-                                        ws_broadcaster.broadcast(pichain_rpc::WsEvent::SwapExecuted {
-                                            pool_id: sd["pool"].as_str().unwrap_or("").to_string(),
-                                            sender: tx.data.sender.to_string(),
-                                            mint_in: sd["mint_in"].as_str().unwrap_or("").to_string(),
-                                            mint_out: sd["mint_out"].as_str().unwrap_or("").to_string(),
-                                            amount_in,
-                                            amount_out,
-                                            fee: sd["fee"].as_u64().unwrap_or(0),
-                                            price,
-                                            timestamp_ms: produced.block.header.timestamp_ms,
-                                            block_height: height,
-                                        });
+                                        let price = if amount_in > 0 {
+                                            amount_out as f64 / amount_in as f64
+                                        } else {
+                                            0.0
+                                        };
+                                        ws_broadcaster.broadcast(
+                                            pichain_rpc::WsEvent::SwapExecuted {
+                                                pool_id: sd["pool"]
+                                                    .as_str()
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                sender: tx.data.sender.to_string(),
+                                                mint_in: sd["mint_in"]
+                                                    .as_str()
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                mint_out: sd["mint_out"]
+                                                    .as_str()
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                amount_in,
+                                                amount_out,
+                                                fee: sd["fee"].as_u64().unwrap_or(0),
+                                                price,
+                                                timestamp_ms: produced.block.header.timestamp_ms,
+                                                block_height: height,
+                                            },
+                                        );
                                     }
                                 }
                                 // Broadcast betting match updates
-                                if matches!(event.event_type.as_str(),
-                                    "CreateMatch" | "JoinMatch" | "StartMatch" | "ResolveMatch" | "CancelMatch"
+                                if matches!(
+                                    event.event_type.as_str(),
+                                    "CreateMatch"
+                                        | "JoinMatch"
+                                        | "StartMatch"
+                                        | "ResolveMatch"
+                                        | "CancelMatch"
                                 ) {
-                                    if let Ok(ed) = serde_json::from_slice::<serde_json::Value>(&event.data) {
-                                        ws_broadcaster.broadcast(pichain_rpc::WsEvent::MatchUpdate {
-                                            match_id: ed["match_id"].as_str().unwrap_or("").to_string(),
-                                            event_type: event.event_type.clone(),
-                                            state: ed.get("state").and_then(|s| s.as_str()).unwrap_or("unknown").to_string(),
-                                            block_height: height,
-                                        });
+                                    if let Ok(ed) =
+                                        serde_json::from_slice::<serde_json::Value>(&event.data)
+                                    {
+                                        ws_broadcaster.broadcast(
+                                            pichain_rpc::WsEvent::MatchUpdate {
+                                                match_id: ed["match_id"]
+                                                    .as_str()
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                event_type: event.event_type.clone(),
+                                                state: ed
+                                                    .get("state")
+                                                    .and_then(|s| s.as_str())
+                                                    .unwrap_or("unknown")
+                                                    .to_string(),
+                                                block_height: height,
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -899,8 +1011,11 @@ async fn main() -> anyhow::Result<()> {
                                     // SECURITY: Reject blocks with timestamps too far in the future.
                                     // Maximum allowed drift: 15 seconds (covers network latency + clock skew).
                                     const MAX_TIMESTAMP_DRIFT_MS: u64 = 15_000;
-                                    let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
-                                    if block.header.timestamp_ms > now_ms.saturating_add(MAX_TIMESTAMP_DRIFT_MS) {
+                                    let now_ms =
+                                        chrono::Utc::now().timestamp_millis().max(0) as u64;
+                                    if block.header.timestamp_ms
+                                        > now_ms.saturating_add(MAX_TIMESTAMP_DRIFT_MS)
+                                    {
                                         warn!(
                                             height = block.header.height,
                                             block_ts = block.header.timestamp_ms,
@@ -932,7 +1047,10 @@ async fn main() -> anyhow::Result<()> {
                                     }
 
                                     // Validate proposer is not zero address (genesis excluded)
-                                    if block.header.height > 0 && block.header.proposer == pichain_crypto::ed25519::Address::ZERO {
+                                    if block.header.height > 0
+                                        && block.header.proposer
+                                            == pichain_crypto::ed25519::Address::ZERO
+                                    {
                                         warn!(
                                             height = block.header.height,
                                             "rejected peer block: zero proposer address"
@@ -1000,7 +1118,10 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         Some(pichain_network::SwarmMessage::Consensus(data)) => {
-                            let evidence_to_broadcast = match serde_json::from_slice::<pichain_consensus::Certificate>(&data) {
+                            let evidence_to_broadcast = match serde_json::from_slice::<
+                                pichain_consensus::Certificate,
+                            >(&data)
+                            {
                                 Ok(cert) => {
                                     let round = cert.round();
                                     let author = cert.author();
@@ -1040,12 +1161,14 @@ async fn main() -> anyhow::Result<()> {
                                     cert_b: serde_json::to_vec(&ev.cert_b).unwrap_or_default(),
                                 };
                                 if let Ok(msg_bytes) = serde_json::to_vec(&msg) {
-                                    let _ = inbound_sync_broadcaster.broadcast_sync(msg_bytes).await;
+                                    let _ =
+                                        inbound_sync_broadcaster.broadcast_sync(msg_bytes).await;
                                 }
                             }
                         }
                         Some(pichain_network::SwarmMessage::Transaction(data)) => {
-                            match serde_json::from_slice::<pichain_types::SignedTransaction>(&data) {
+                            match serde_json::from_slice::<pichain_types::SignedTransaction>(&data)
+                            {
                                 Ok(tx) => {
                                     // SECURITY: Verify signature before mempool insertion to prevent
                                     // forged-sender DoS attacks that fill the mempool with invalid txs.
@@ -1067,7 +1190,8 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         Some(pichain_network::SwarmMessage::Sync(data)) => {
-                            match serde_json::from_slice::<pichain_network::PeerSyncMessage>(&data) {
+                            match serde_json::from_slice::<pichain_network::PeerSyncMessage>(&data)
+                            {
                                 Ok(pichain_network::PeerSyncMessage::GetChainTip) => {
                                     let height = inbound_node_state.height();
                                     let hash = inbound_node_state.last_hash();
@@ -1076,11 +1200,16 @@ async fn main() -> anyhow::Result<()> {
                                         block_hash: *hash.as_bytes(),
                                     };
                                     if let Ok(resp_bytes) = serde_json::to_vec(&resp) {
-                                        let _ = inbound_sync_broadcaster.broadcast_sync(resp_bytes).await;
+                                        let _ = inbound_sync_broadcaster
+                                            .broadcast_sync(resp_bytes)
+                                            .await;
                                     }
                                     debug!(height, "responded to GetChainTip request");
                                 }
-                                Ok(pichain_network::PeerSyncMessage::ChainTip { height: peer_height, .. }) => {
+                                Ok(pichain_network::PeerSyncMessage::ChainTip {
+                                    height: peer_height,
+                                    ..
+                                }) => {
                                     let local_height = inbound_node_state.height();
                                     if peer_height > local_height {
                                         info!(
@@ -1094,11 +1223,16 @@ async fn main() -> anyhow::Result<()> {
                                             end_height: peer_height,
                                         };
                                         if let Ok(req_bytes) = serde_json::to_vec(&req) {
-                                            let _ = inbound_sync_broadcaster.broadcast_sync(req_bytes).await;
+                                            let _ = inbound_sync_broadcaster
+                                                .broadcast_sync(req_bytes)
+                                                .await;
                                         }
                                     }
                                 }
-                                Ok(pichain_network::PeerSyncMessage::GetBlocks { start_height, end_height }) => {
+                                Ok(pichain_network::PeerSyncMessage::GetBlocks {
+                                    start_height,
+                                    end_height,
+                                }) => {
                                     let local_height = inbound_node_state.height();
                                     // SECURITY: Limit range to prevent sync amplification attacks.
                                     // Since GossipSub broadcasts to ALL peers, each block response
@@ -1109,39 +1243,57 @@ async fn main() -> anyhow::Result<()> {
                                     let safe_end = end_height
                                         .min(local_height)
                                         .min(start_height.saturating_add(MAX_SYNC_BLOCKS));
-                                    info!(start = start_height, end = safe_end, "serving blocks to syncing peer");
+                                    info!(
+                                        start = start_height,
+                                        end = safe_end,
+                                        "serving blocks to syncing peer"
+                                    );
                                     let mut total_bytes = 0usize;
                                     for h in start_height..=safe_end {
                                         if let Some(block) = inbound_node_state.get_block(h) {
                                             if let Ok(block_bytes) = serde_json::to_vec(&block) {
-                                                total_bytes = total_bytes.saturating_add(block_bytes.len());
+                                                total_bytes =
+                                                    total_bytes.saturating_add(block_bytes.len());
                                                 if total_bytes > MAX_SYNC_BYTES {
                                                     warn!(height = h, total_bytes, "sync response size limit reached, stopping");
                                                     break;
                                                 }
-                                                let resp = pichain_network::PeerSyncMessage::BlockData {
-                                                    height: h,
-                                                    data: block_bytes,
-                                                };
+                                                let resp =
+                                                    pichain_network::PeerSyncMessage::BlockData {
+                                                        height: h,
+                                                        data: block_bytes,
+                                                    };
                                                 if let Ok(resp_bytes) = serde_json::to_vec(&resp) {
-                                                    let _ = inbound_sync_broadcaster.broadcast_sync(resp_bytes).await;
+                                                    let _ = inbound_sync_broadcaster
+                                                        .broadcast_sync(resp_bytes)
+                                                        .await;
                                                 }
                                             }
                                         }
                                     }
                                 }
-                                Ok(pichain_network::PeerSyncMessage::BlockData { height, data }) => {
+                                Ok(pichain_network::PeerSyncMessage::BlockData {
+                                    height,
+                                    data,
+                                }) => {
                                     // A peer sent us a block we requested for sync.
                                     // Full validation is applied (same as regular peer blocks)
                                     // to prevent sync-time poisoning attacks.
                                     match serde_json::from_slice::<pichain_types::Block>(&data) {
                                         Ok(block) => {
                                             let expected_height = inbound_node_state.height() + 1;
-                                            if height != expected_height || block.header.height != expected_height {
-                                                debug!(height, expected = expected_height, "sync block out of order, skipping");
+                                            if height != expected_height
+                                                || block.header.height != expected_height
+                                            {
+                                                debug!(
+                                                    height,
+                                                    expected = expected_height,
+                                                    "sync block out of order, skipping"
+                                                );
                                             } else if block.header.chain_id != inbound_chain_id {
                                                 warn!(height, "sync block chain_id mismatch");
-                                            } else if block.header.proposer == inbound_self_address {
+                                            } else if block.header.proposer == inbound_self_address
+                                            {
                                                 debug!(height, "skipping own sync block");
                                             } else {
                                                 // Validate proposer signature
@@ -1166,42 +1318,63 @@ async fn main() -> anyhow::Result<()> {
                                                 if valid {
                                                     let computed_tx_root = block.compute_tx_root();
                                                     if computed_tx_root != block.header.tx_root {
-                                                        warn!(height, "sync block: tx_root mismatch");
+                                                        warn!(
+                                                            height,
+                                                            "sync block: tx_root mismatch"
+                                                        );
                                                         valid = false;
                                                     }
                                                 }
 
                                                 // Validate tx_count matches actual transaction count
-                                                if valid && block.header.tx_count as usize != block.transactions.len() {
+                                                if valid
+                                                    && block.header.tx_count as usize
+                                                        != block.transactions.len()
+                                                {
                                                     warn!(height, "sync block: tx_count mismatch");
                                                     valid = false;
                                                 }
 
                                                 // Validate gas_used within block limit
                                                 if valid && block.header.gas_used > 500_000_000 {
-                                                    warn!(height, "sync block: gas_used exceeds limit");
+                                                    warn!(
+                                                        height,
+                                                        "sync block: gas_used exceeds limit"
+                                                    );
                                                     valid = false;
                                                 }
 
                                                 // Validate parent hash continuity
                                                 if valid {
-                                                    let local_last_hash = inbound_node_state.last_hash();
+                                                    let local_last_hash =
+                                                        inbound_node_state.last_hash();
                                                     if block.header.parent_hash != local_last_hash {
-                                                        warn!(height, "sync block: parent_hash mismatch");
+                                                        warn!(
+                                                            height,
+                                                            "sync block: parent_hash mismatch"
+                                                        );
                                                         valid = false;
                                                     }
                                                 }
 
                                                 // Validate zero proposer (genesis excluded)
-                                                if valid && block.header.height > 0
-                                                    && block.header.proposer == pichain_crypto::ed25519::Address::ZERO
+                                                if valid
+                                                    && block.header.height > 0
+                                                    && block.header.proposer
+                                                        == pichain_crypto::ed25519::Address::ZERO
                                                 {
-                                                    warn!(height, "sync block: zero proposer address");
+                                                    warn!(
+                                                        height,
+                                                        "sync block: zero proposer address"
+                                                    );
                                                     valid = false;
                                                 }
 
                                                 if valid {
-                                                    match inbound_node_state.execute_peer_block(&block).await {
+                                                    match inbound_node_state
+                                                        .execute_peer_block(&block)
+                                                        .await
+                                                    {
                                                         Ok(()) => {
                                                             info!(height, "sync block applied");
                                                         }
@@ -1217,19 +1390,31 @@ async fn main() -> anyhow::Result<()> {
                                         }
                                     }
                                 }
-                                Ok(pichain_network::PeerSyncMessage::EquivocationEvidence { author, round, cert_a, cert_b }) => {
+                                Ok(pichain_network::PeerSyncMessage::EquivocationEvidence {
+                                    author,
+                                    round,
+                                    cert_a,
+                                    cert_b,
+                                }) => {
                                     // Process equivocation evidence received from a peer.
                                     match (
-                                        serde_json::from_slice::<pichain_consensus::Certificate>(&cert_a),
-                                        serde_json::from_slice::<pichain_consensus::Certificate>(&cert_b),
+                                        serde_json::from_slice::<pichain_consensus::Certificate>(
+                                            &cert_a,
+                                        ),
+                                        serde_json::from_slice::<pichain_consensus::Certificate>(
+                                            &cert_b,
+                                        ),
                                     ) {
                                         (Ok(ca), Ok(cb)) => {
-                                            let evidence = pichain_consensus::EquivocationEvidence {
-                                                author: pichain_crypto::ed25519::Address(author),
-                                                round,
-                                                cert_a: ca,
-                                                cert_b: cb,
-                                            };
+                                            let evidence =
+                                                pichain_consensus::EquivocationEvidence {
+                                                    author: pichain_crypto::ed25519::Address(
+                                                        author,
+                                                    ),
+                                                    round,
+                                                    cert_a: ca,
+                                                    cert_b: cb,
+                                                };
                                             let mut engine = inbound_consensus.lock();
                                             let slashed = engine.process_remote_evidence(evidence);
                                             if slashed {
@@ -1309,8 +1494,7 @@ async fn main() -> anyhow::Result<()> {
                                 if current > initial_height {
                                     info!(
                                         initial = initial_height,
-                                        current,
-                                        "chain sync complete — caught up"
+                                        current, "chain sync complete — caught up"
                                     );
                                 } else {
                                     info!(height = current, "chain sync complete — already at tip");
@@ -1338,7 +1522,10 @@ async fn main() -> anyhow::Result<()> {
             println!("   Block Height:   {current_height}");
             println!("   State Root:     {state_root}");
             println!("   Base Fee:       {current_base_fee}");
-            println!("   Block Time:     {}ms", pichain_types::TARGET_BLOCK_TIME_MS);
+            println!(
+                "   Block Time:     {}ms",
+                pichain_types::TARGET_BLOCK_TIME_MS
+            );
             println!("   Mempool:        {} pending", mempool.len());
             println!("  ====================================================");
             println!("   Components:");
@@ -1417,9 +1604,9 @@ async fn main() -> anyhow::Result<()> {
             let shutdown_signal = async {
                 #[cfg(unix)]
                 {
-                    let mut sigterm = tokio::signal::unix::signal(
-                        tokio::signal::unix::SignalKind::terminate(),
-                    ).expect("failed to register SIGTERM handler");
+                    let mut sigterm =
+                        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                            .expect("failed to register SIGTERM handler");
                     tokio::select! {
                         _ = tokio::signal::ctrl_c() => {
                             info!("SIGINT received — stopping node gracefully");
@@ -1521,7 +1708,9 @@ async fn main() -> anyhow::Result<()> {
                 pichain_types::GenesisConfig::devnet()
             };
             // R32-FIX: Validate genesis before applying
-            genesis.validate().map_err(|e| anyhow::anyhow!("FATAL: genesis config invalid — {e}"))?;
+            genesis
+                .validate()
+                .map_err(|e| anyhow::anyhow!("FATAL: genesis config invalid — {e}"))?;
             node_state.apply_genesis(&genesis)?;
 
             let state_root = node_state.state_root();
@@ -1553,14 +1742,20 @@ async fn main() -> anyhow::Result<()> {
             println!("=== PIChain Validator Keypair ===");
             println!("Address:     {}", ed_kp.address());
             println!("Public Key:  {}", ed_kp.public);
-            println!("Secret Key:  {} (KEEP SECRET!)", hex::encode(ed_kp.secret.to_bytes()));
+            println!(
+                "Secret Key:  {} (KEEP SECRET!)",
+                hex::encode(ed_kp.secret.to_bytes())
+            );
 
             // Generate BLS keypair
             let bls_kp = pichain_crypto::BlsKeypair::generate();
             let bls_pop = bls_kp.secret.proof_of_possession();
             println!("\n=== BLS Consensus Key ===");
             println!("BLS Public:  {}", hex::encode(bls_kp.public.to_bytes()));
-            println!("BLS Secret:  {} (KEEP SECRET!)", hex::encode(bls_kp.secret.to_bytes()));
+            println!(
+                "BLS Secret:  {} (KEEP SECRET!)",
+                hex::encode(bls_kp.secret.to_bytes())
+            );
             println!("BLS PoP:     {}", hex::encode(bls_pop.to_bytes()));
 
             // Compute deterministic peer ID
@@ -1581,7 +1776,10 @@ async fn main() -> anyhow::Result<()> {
             println!("[[genesis_validators]]");
             println!("address = \"{}\"", hex::encode(ed_kp.address().0));
             println!("stake_pi = 100000");
-            println!("bls_public_key = \"{}\"", hex::encode(bls_kp.public.to_bytes()));
+            println!(
+                "bls_public_key = \"{}\"",
+                hex::encode(bls_kp.public.to_bytes())
+            );
             println!("bls_pop = \"{}\"", hex::encode(bls_pop.to_bytes()));
 
             println!("\nSave these keys securely. You will need them to run a validator.");
@@ -1597,7 +1795,7 @@ async fn main() -> anyhow::Result<()> {
             batch_size,
             continuous,
         } => {
-            use pichain_mining::bbp::{BbpComputer, digits_to_hex_string};
+            use pichain_mining::bbp::{digits_to_hex_string, BbpComputer};
 
             println!("=== PIChain Miner — Computing the Infinite ===");
             println!("Starting position: {start_position}");
@@ -1619,7 +1817,8 @@ async fn main() -> anyhow::Result<()> {
                 let hex_str = digits_to_hex_string(&digits);
                 let rate = batch_size as f64 / elapsed.as_secs_f64();
 
-                println!("Batch: position {pos}..{} ({batch_size} digits in {:.3}s, {:.0} d/s)",
+                println!(
+                    "Batch: position {pos}..{} ({batch_size} digits in {:.3}s, {:.0} d/s)",
                     pos + batch_size as u64,
                     elapsed.as_secs_f64(),
                     rate,
@@ -1646,7 +1845,8 @@ async fn main() -> anyhow::Result<()> {
                     Err(e) => println!("  Proof: FAILED - {e}"),
                 }
 
-                println!("  Total: {} digits in {:.1}s ({:.0} avg d/s)\n",
+                println!(
+                    "  Total: {} digits in {:.1}s ({:.0} avg d/s)\n",
                     total_digits,
                     total_time.as_secs_f64(),
                     total_digits as f64 / total_time.as_secs_f64(),
@@ -1662,7 +1862,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::GenerateConfig { output } => {
             NodeConfig::generate_default(&output)?;
             println!("Default config written to: {}", output.display());
-            println!("Edit the file and pass it with: pichain run --config {}", output.display());
+            println!(
+                "Edit the file and pass it with: pichain run --config {}",
+                output.display()
+            );
         }
 
         Commands::GenesisCeremony {
@@ -1686,22 +1889,34 @@ async fn main() -> anyhow::Result<()> {
                 println!("  1. Edit the file to replace Address::ZERO with real addresses");
                 println!("  2. Set timestamp_ms to the genesis ceremony time");
                 println!("  3. Add initial validators");
-                println!("  4. Verify:  pichain genesis-ceremony --genesis-file {} --verify", genesis_file.display());
+                println!(
+                    "  4. Verify:  pichain genesis-ceremony --genesis-file {} --verify",
+                    genesis_file.display()
+                );
                 println!("  5. Sign:    pichain genesis-ceremony --genesis-file {} --sign --key-file validator.key", genesis_file.display());
                 println!("  6. Init:    pichain genesis-ceremony --genesis-file {} --data-dir /path/to/data", genesis_file.display());
                 println!();
                 println!("Allocations:");
                 for alloc in &genesis.allocations {
                     let pi = alloc.amount / pichain_types::BASE_UNITS_PER_PI;
-                    println!("  {} — {:>15} PI — addr: {}", alloc.label, pi, alloc.address);
+                    println!(
+                        "  {} — {:>15} PI — addr: {}",
+                        alloc.label, pi, alloc.address
+                    );
                 }
                 let total: u128 = genesis.allocations.iter().map(|a| a.amount as u128).sum();
-                println!("  Total: {} PI ({} base units)", total / pichain_types::BASE_UNITS_PER_PI as u128, total);
+                println!(
+                    "  Total: {} PI ({} base units)",
+                    total / pichain_types::BASE_UNITS_PER_PI as u128,
+                    total
+                );
             } else if sign {
                 // Sign the genesis file to prove validator agreement
-                let key_path = key_file.ok_or_else(|| anyhow::anyhow!(
+                let key_path = key_file.ok_or_else(|| {
+                    anyhow::anyhow!(
                     "--key-file is required for --sign mode. Point it to your validator.key file."
-                ))?;
+                )
+                })?;
                 let key_data = std::fs::read_to_string(&key_path)?;
                 let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
                     .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
@@ -1712,7 +1927,9 @@ async fn main() -> anyhow::Result<()> {
 
                 let contents = std::fs::read_to_string(&genesis_file)?;
                 let genesis: pichain_types::GenesisConfig = serde_json::from_str(&contents)?;
-                genesis.validate().map_err(|e| anyhow::anyhow!("genesis invalid: {e}"))?;
+                genesis
+                    .validate()
+                    .map_err(|e| anyhow::anyhow!("genesis invalid: {e}"))?;
 
                 let genesis_hash = genesis.genesis_hash();
                 let mut sign_msg = Vec::new();
@@ -1727,7 +1944,10 @@ async fn main() -> anyhow::Result<()> {
                 println!("Signature:     {}", hex::encode(sig.to_bytes()));
                 println!();
                 println!("Share this signature with all other validators.");
-                println!("They can verify with: pichain genesis-ceremony --verify --genesis-file {}", genesis_file.display());
+                println!(
+                    "They can verify with: pichain genesis-ceremony --verify --genesis-file {}",
+                    genesis_file.display()
+                );
             } else if verify {
                 // Verify a genesis file
                 let contents = std::fs::read_to_string(&genesis_file)?;
@@ -1746,16 +1966,24 @@ async fn main() -> anyhow::Result<()> {
                 let total: u128 = genesis.allocations.iter().map(|a| a.amount as u128).sum();
                 let expected = pichain_types::TOTAL_SUPPLY;
                 let supply_ok = total == expected;
-                println!("Supply check: {} (total={}, expected={})",
+                println!(
+                    "Supply check: {} (total={}, expected={})",
                     if supply_ok { "PASS" } else { "FAIL" },
-                    total, expected);
+                    total,
+                    expected
+                );
 
                 // Check for zero addresses (virtual pools are allowed to use Address::ZERO)
                 let mut zero_count = 0;
                 for alloc in &genesis.allocations {
-                    if alloc.address == pichain_crypto::ed25519::Address::ZERO && !alloc.virtual_pool {
+                    if alloc.address == pichain_crypto::ed25519::Address::ZERO
+                        && !alloc.virtual_pool
+                    {
                         zero_count += 1;
-                        println!("  WARNING: {} has Address::ZERO (placeholder — must be replaced)", alloc.label);
+                        println!(
+                            "  WARNING: {} has Address::ZERO (placeholder — must be replaced)",
+                            alloc.label
+                        );
                     } else if alloc.virtual_pool {
                         println!("  OK: {} is virtual (minted over time)", alloc.label);
                     }
@@ -1763,18 +1991,30 @@ async fn main() -> anyhow::Result<()> {
 
                 // Check timestamp
                 let ts_ok = genesis.timestamp_ms > 0;
-                println!("Timestamp check: {} ({})", if ts_ok { "PASS" } else { "WARN — not set" }, genesis.timestamp_ms);
+                println!(
+                    "Timestamp check: {} ({})",
+                    if ts_ok { "PASS" } else { "WARN — not set" },
+                    genesis.timestamp_ms
+                );
 
                 // Check validators
                 println!("Validators: {}", genesis.validators.len());
                 for v in &genesis.validators {
-                    println!("  {} — {} PI staked — {}", v.name, v.stake / pichain_types::BASE_UNITS_PER_PI, v.address);
+                    println!(
+                        "  {} — {} PI staked — {}",
+                        v.name,
+                        v.stake / pichain_types::BASE_UNITS_PER_PI,
+                        v.address
+                    );
                 }
 
                 // Check chain ID
                 let chain_ok = genesis.chain_id == 314159;
-                println!("Chain ID check: {} (mainnet=314159, got={})",
-                    if chain_ok { "PASS" } else { "WARN" }, genesis.chain_id);
+                println!(
+                    "Chain ID check: {} (mainnet=314159, got={})",
+                    if chain_ok { "PASS" } else { "WARN" },
+                    genesis.chain_id
+                );
 
                 println!();
                 println!("ALL VALIDATORS MUST CONFIRM THIS HASH: {genesis_hash}");
@@ -1783,9 +2023,18 @@ async fn main() -> anyhow::Result<()> {
                     println!("Genesis file is VALID and ready for launch.");
                 } else {
                     println!("Genesis file has ISSUES that must be resolved before launch.");
-                    if zero_count > 0 { println!("  - {} allocation(s) have placeholder Address::ZERO", zero_count); }
-                    if !ts_ok { println!("  - Timestamp not set"); }
-                    if !chain_ok { println!("  - Chain ID is not 314159 (mainnet)"); }
+                    if zero_count > 0 {
+                        println!(
+                            "  - {} allocation(s) have placeholder Address::ZERO",
+                            zero_count
+                        );
+                    }
+                    if !ts_ok {
+                        println!("  - Timestamp not set");
+                    }
+                    if !chain_ok {
+                        println!("  - Chain ID is not 314159 (mainnet)");
+                    }
                 }
             } else if let Some(ref dir) = data_dir {
                 // Initialize from custom genesis
@@ -1793,13 +2042,17 @@ async fn main() -> anyhow::Result<()> {
                 let genesis: pichain_types::GenesisConfig = serde_json::from_str(&contents)?;
 
                 // R32-FIX: Use validate() for comprehensive genesis verification
-                genesis.validate().map_err(|e| anyhow::anyhow!("FATAL: genesis config invalid — {e}"))?;
+                genesis
+                    .validate()
+                    .map_err(|e| anyhow::anyhow!("FATAL: genesis config invalid — {e}"))?;
 
                 println!("Initializing from genesis: {}", genesis_file.display());
 
                 let db = pichain_storage::PiChainDB::open(dir)?;
                 let state_store = pichain_storage::StateStore::new(db);
-                let executor = Arc::new(pichain_execution::TransactionExecutor::new(genesis.chain_id));
+                let executor = Arc::new(pichain_execution::TransactionExecutor::new(
+                    genesis.chain_id,
+                ));
                 let mempool = Arc::new(pichain_execution::TransactionPool::with_config(
                     pichain_execution::MempoolConfig {
                         chain_id: genesis.chain_id,
@@ -1807,7 +2060,12 @@ async fn main() -> anyhow::Result<()> {
                     },
                 ));
 
-                let node_state = Arc::new(NodeState::new(state_store, executor, mempool, genesis.chain_id));
+                let node_state = Arc::new(NodeState::new(
+                    state_store,
+                    executor,
+                    mempool,
+                    genesis.chain_id,
+                ));
                 node_state.apply_genesis(&genesis)?;
 
                 let state_root = node_state.state_root();
@@ -1820,7 +2078,10 @@ async fn main() -> anyhow::Result<()> {
                 println!("  Data Dir:      {dir}");
                 println!("  Genesis initialized successfully!");
                 println!();
-                println!("  Start the node: pichain run --data-dir {dir} --chain-id {}", genesis.chain_id);
+                println!(
+                    "  Start the node: pichain run --data-dir {dir} --chain-id {}",
+                    genesis.chain_id
+                );
             } else {
                 println!("Usage:");
                 println!("  pichain genesis-ceremony --generate-template          Create template");
@@ -1851,7 +2112,6 @@ async fn main() -> anyhow::Result<()> {
                 println!("  Proposer:    {}", last.header.proposer);
                 println!("  Timestamp:   {}", last.header.timestamp_ms);
             }
-
         }
     }
 

@@ -3,7 +3,7 @@
 //! Stores EVM account state (balance, nonce, code) and storage slots
 //! in CF_EVM_STATE so they survive node restarts.
 
-use crate::db::{CF_EVM_STATE, PiChainDB};
+use crate::db::{PiChainDB, CF_EVM_STATE};
 use crate::StorageError;
 use rocksdb::WriteBatch;
 use serde::{Deserialize, Serialize};
@@ -55,18 +55,27 @@ impl<'a> EvmStore<'a> {
         }
     }
 
-    pub fn put_account(&self, address: &[u8; 20], state: &EvmAccountState) -> Result<(), StorageError> {
+    pub fn put_account(
+        &self,
+        address: &[u8; 20],
+        state: &EvmAccountState,
+    ) -> Result<(), StorageError> {
         let key = Self::account_key(address);
-        let value = serde_json::to_vec(state)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_vec(state).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.inner().put_cf(&self.cf(), key, value)?;
         Ok(())
     }
 
-    pub fn batch_put_account(&self, batch: &mut WriteBatch, address: &[u8; 20], state: &EvmAccountState) -> Result<(), StorageError> {
+    pub fn batch_put_account(
+        &self,
+        batch: &mut WriteBatch,
+        address: &[u8; 20],
+        state: &EvmAccountState,
+    ) -> Result<(), StorageError> {
         let key = Self::account_key(address);
-        let value = serde_json::to_vec(state)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_vec(state).map_err(|e| StorageError::Serialization(e.to_string()))?;
         batch.put_cf(&self.cf(), key, value);
         Ok(())
     }
@@ -106,23 +115,43 @@ impl<'a> EvmStore<'a> {
         key
     }
 
-    pub fn get_storage(&self, address: &[u8; 20], slot: &[u8; 32]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get_storage(
+        &self,
+        address: &[u8; 20],
+        slot: &[u8; 32],
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         let key = Self::storage_key(address, slot);
         Ok(self.db.inner().get_cf(&self.cf(), key)?)
     }
 
-    pub fn put_storage(&self, address: &[u8; 20], slot: &[u8; 32], value: &[u8]) -> Result<(), StorageError> {
+    pub fn put_storage(
+        &self,
+        address: &[u8; 20],
+        slot: &[u8; 32],
+        value: &[u8],
+    ) -> Result<(), StorageError> {
         let key = Self::storage_key(address, slot);
         self.db.inner().put_cf(&self.cf(), key, value)?;
         Ok(())
     }
 
-    pub fn batch_put_storage(&self, batch: &mut WriteBatch, address: &[u8; 20], slot: &[u8; 32], value: &[u8]) {
+    pub fn batch_put_storage(
+        &self,
+        batch: &mut WriteBatch,
+        address: &[u8; 20],
+        slot: &[u8; 32],
+        value: &[u8],
+    ) {
         let key = Self::storage_key(address, slot);
         batch.put_cf(&self.cf(), key, value);
     }
 
-    pub fn batch_delete_storage(&self, batch: &mut WriteBatch, address: &[u8; 20], slot: &[u8; 32]) {
+    pub fn batch_delete_storage(
+        &self,
+        batch: &mut WriteBatch,
+        address: &[u8; 20],
+        slot: &[u8; 32],
+    ) {
         let key = Self::storage_key(address, slot);
         batch.delete_cf(&self.cf(), key);
     }
@@ -134,7 +163,10 @@ impl<'a> EvmStore<'a> {
         let prefix = [PREFIX_ACCOUNT];
         let cf = self.cf();
         let mut result = Vec::new();
-        let iter = self.db.inner().iterator_cf(&cf, IteratorMode::From(&prefix, rocksdb::Direction::Forward));
+        let iter = self.db.inner().iterator_cf(
+            &cf,
+            IteratorMode::From(&prefix, rocksdb::Direction::Forward),
+        );
         for item in iter {
             let (key, value) = item?;
             if key.is_empty() || key[0] != PREFIX_ACCOUNT {
@@ -167,7 +199,11 @@ mod tests {
         let store = EvmStore::new(&db);
 
         let addr = [0xABu8; 20];
-        let state = EvmAccountState { balance: 1000, nonce: 5, has_code: true };
+        let state = EvmAccountState {
+            balance: 1000,
+            nonce: 5,
+            has_code: true,
+        };
         store.put_account(&addr, &state).unwrap();
 
         let loaded = store.get_account(&addr).unwrap().unwrap();
@@ -210,8 +246,26 @@ mod tests {
 
         let addr1 = [0x01u8; 20];
         let addr2 = [0x02u8; 20];
-        store.put_account(&addr1, &EvmAccountState { balance: 100, nonce: 0, has_code: false }).unwrap();
-        store.put_account(&addr2, &EvmAccountState { balance: 200, nonce: 1, has_code: true }).unwrap();
+        store
+            .put_account(
+                &addr1,
+                &EvmAccountState {
+                    balance: 100,
+                    nonce: 0,
+                    has_code: false,
+                },
+            )
+            .unwrap();
+        store
+            .put_account(
+                &addr2,
+                &EvmAccountState {
+                    balance: 200,
+                    nonce: 1,
+                    has_code: true,
+                },
+            )
+            .unwrap();
 
         let accounts = store.scan_all_accounts().unwrap();
         assert_eq!(accounts.len(), 2);

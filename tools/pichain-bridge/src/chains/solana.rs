@@ -120,18 +120,14 @@ impl SolanaMonitor {
             params,
         };
 
-        let resp = self
-            .client
-            .post(&self.rpc_url)
-            .json(&req)
-            .send()
-            .await?;
+        let resp = self.client.post(&self.rpc_url).json(&req).send().await?;
 
         let body: RpcResponse<T> = resp.json().await?;
         if let Some(err) = body.error {
             anyhow::bail!("Solana RPC error: {}", err.message);
         }
-        body.result.ok_or_else(|| anyhow::anyhow!("null RPC result"))
+        body.result
+            .ok_or_else(|| anyhow::anyhow!("null RPC result"))
     }
 
     /// Extract PIChain address from memo instruction in Solana transaction.
@@ -175,16 +171,14 @@ impl ChainMonitor for SolanaMonitor {
             params[1]["until"] = serde_json::json!(sig);
         }
 
-        let signatures: Vec<SignatureInfo> = match self
-            .rpc_call("getSignaturesForAddress", params)
-            .await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(error = %e, "failed to get Solana signatures");
-                return Ok(vec![]);
-            }
-        };
+        let signatures: Vec<SignatureInfo> =
+            match self.rpc_call("getSignaturesForAddress", params).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(error = %e, "failed to get Solana signatures");
+                    return Ok(vec![]);
+                }
+            };
 
         if signatures.is_empty() {
             return Ok(vec![]);
@@ -202,10 +196,7 @@ impl ChainMonitor for SolanaMonitor {
             }
 
             // Only process finalized/confirmed
-            let status = sig_info
-                .confirmation_status
-                .as_deref()
-                .unwrap_or("unknown");
+            let status = sig_info.confirmation_status.as_deref().unwrap_or("unknown");
             if status != "finalized" && status != "confirmed" {
                 continue;
             }
@@ -279,21 +270,18 @@ impl ChainMonitor for SolanaMonitor {
                 Some(r) => r,
                 None => {
                     // Check log messages for memo
-                    let from_logs = meta
-                        .log_messages
-                        .as_ref()
-                        .and_then(|logs| {
-                            logs.iter()
-                                .find(|l| l.contains("Memo") || l.contains("memo"))
-                                .and_then(|l| {
-                                    // Extract hex address from log
-                                    let parts: Vec<&str> = l.split_whitespace().collect();
-                                    parts.last().and_then(|s| {
-                                        let s = s.trim_matches('"');
-                                        Self::extract_recipient_from_memo(s)
-                                    })
+                    let from_logs = meta.log_messages.as_ref().and_then(|logs| {
+                        logs.iter()
+                            .find(|l| l.contains("Memo") || l.contains("memo"))
+                            .and_then(|l| {
+                                // Extract hex address from log
+                                let parts: Vec<&str> = l.split_whitespace().collect();
+                                parts.last().and_then(|s| {
+                                    let s = s.trim_matches('"');
+                                    Self::extract_recipient_from_memo(s)
                                 })
-                        });
+                            })
+                    });
 
                     match from_logs {
                         Some(r) => r,

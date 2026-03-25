@@ -131,7 +131,8 @@ impl TokenMint {
         if self.max_supply == 0 {
             return true; // Unlimited supply
         }
-        self.total_supply.checked_add(amount)
+        self.total_supply
+            .checked_add(amount)
             .map(|new_supply| new_supply <= self.max_supply)
             .unwrap_or(false)
     }
@@ -151,6 +152,7 @@ pub fn token_account_key(owner: &Address, mint: &MintId) -> [u8; 32] {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TokenAccount {
     /// The account key (deterministic from owner + mint).
+    #[serde(default)]
     pub key: [u8; 32],
     /// Owner address.
     pub owner: Address,
@@ -280,7 +282,11 @@ mod tests {
             MintId::derive(&addr, 0),
             "TestCoin".to_string(),
             "TST".to_string(),
-            9, 1_000_000, addr, String::new(), 0,
+            9,
+            1_000_000,
+            addr,
+            String::new(),
+            0,
         );
         assert!(mint.validate().is_ok());
 
@@ -289,7 +295,11 @@ mod tests {
             MintId::derive(&addr, 0),
             "TestCoin".to_string(),
             "TOOLONGSYMBOL".to_string(),
-            9, 1_000_000, addr, String::new(), 0,
+            9,
+            1_000_000,
+            addr,
+            String::new(),
+            0,
         );
         assert!(bad_sym.validate().is_err());
 
@@ -298,7 +308,11 @@ mod tests {
             MintId::derive(&addr, 0),
             "TestCoin".to_string(),
             "".to_string(),
-            9, 1_000_000, addr, String::new(), 0,
+            9,
+            1_000_000,
+            addr,
+            String::new(),
+            0,
         );
         assert!(empty_sym.validate().is_err());
 
@@ -307,7 +321,11 @@ mod tests {
             MintId::derive(&addr, 0),
             "TestCoin".to_string(),
             "TST".to_string(),
-            19, 1_000_000, addr, String::new(), 0,
+            19,
+            1_000_000,
+            addr,
+            String::new(),
+            0,
         );
         assert!(bad_dec.validate().is_err());
     }

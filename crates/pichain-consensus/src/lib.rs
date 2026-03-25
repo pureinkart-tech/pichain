@@ -17,10 +17,10 @@ pub use dag::{Certificate, DagMempool, DagRound, EquivocationEvidence, Header, V
 pub use engine::{ConsensusConfig, ConsensusEngine, ConsensusMetrics, FinalityStatus};
 pub use fast_path::AvalancheFastPath;
 pub use pq_consensus::{
-    PqConsensusSignatures, PqConsensusSig, PqConsensusVersion,
-    PqValidatorKeyMap, consensus_message, sign_consensus, verify_consensus_sig,
+    consensus_message, sign_consensus, verify_consensus_sig, PqConsensusSig, PqConsensusSignatures,
+    PqConsensusVersion, PqValidatorKeyMap,
 };
-pub use staking::{StakingManager, StakeEntry, Delegation, SlashEvent, SlashReason, StakingError};
+pub use staking::{Delegation, SlashEvent, SlashReason, StakeEntry, StakingError, StakingManager};
 pub use validator::{Validator, ValidatorSet};
 
 #[derive(Debug, thiserror::Error)]

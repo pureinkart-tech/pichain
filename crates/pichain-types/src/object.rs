@@ -14,10 +14,7 @@ pub struct ObjectId(pub [u8; 32]);
 
 impl ObjectId {
     pub fn from_tx_hash(tx_hash: &Hash, index: u32) -> Self {
-        let combined = pichain_crypto::hash_concat(&[
-            tx_hash.as_bytes(),
-            &index.to_le_bytes(),
-        ]);
+        let combined = pichain_crypto::hash_concat(&[tx_hash.as_bytes(), &index.to_le_bytes()]);
         Self(*combined.as_bytes())
     }
 }

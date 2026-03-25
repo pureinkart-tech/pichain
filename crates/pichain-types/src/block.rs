@@ -93,15 +93,19 @@ impl BlockHeader {
         if self.gas_used > gas_target {
             // Increase base fee (use u128 to prevent overflow)
             let delta = self.gas_used - gas_target;
-            let fee_delta: u64 = (self.base_fee as u128 * delta as u128
-                / gas_target as u128 / 8).try_into().unwrap_or(u64::MAX);
+            let fee_delta: u64 = (self.base_fee as u128 * delta as u128 / gas_target as u128 / 8)
+                .try_into()
+                .unwrap_or(u64::MAX);
             self.base_fee.saturating_add(fee_delta.max(1))
         } else {
             // Decrease base fee
             let delta = gas_target - self.gas_used;
-            let fee_delta: u64 = (self.base_fee as u128 * delta as u128
-                / gas_target as u128 / 8).try_into().unwrap_or(u64::MAX);
-            self.base_fee.saturating_sub(fee_delta).max(Self::MIN_BASE_FEE)
+            let fee_delta: u64 = (self.base_fee as u128 * delta as u128 / gas_target as u128 / 8)
+                .try_into()
+                .unwrap_or(u64::MAX);
+            self.base_fee
+                .saturating_sub(fee_delta)
+                .max(Self::MIN_BASE_FEE)
         }
     }
 }
@@ -168,10 +172,16 @@ impl Block {
         }
         // Validate field lengths
         if self.proposer_pubkey.len() != 32 {
-            return Err(format!("proposer_pubkey must be 32 bytes, got {}", self.proposer_pubkey.len()));
+            return Err(format!(
+                "proposer_pubkey must be 32 bytes, got {}",
+                self.proposer_pubkey.len()
+            ));
         }
         if self.proposer_sig.len() != 64 {
-            return Err(format!("proposer_sig must be 64 bytes, got {}", self.proposer_sig.len()));
+            return Err(format!(
+                "proposer_sig must be 64 bytes, got {}",
+                self.proposer_sig.len()
+            ));
         }
         // Verify the embedded public key derives to the claimed proposer address
         let mut pk_bytes = [0u8; 32];
@@ -188,7 +198,8 @@ impl Block {
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(&self.proposer_sig);
         let sig = pichain_crypto::ed25519::Signature::from_bytes(&sig_bytes);
-        pubkey.verify(header_hash.as_bytes(), &sig)
+        pubkey
+            .verify(header_hash.as_bytes(), &sig)
             .map_err(|e| format!("proposer signature verification failed: {e}"))
     }
 
@@ -297,7 +308,11 @@ mod tests {
         h.base_fee = BlockHeader::MIN_BASE_FEE;
         h.gas_used = 0;
         let new_fee = h.next_base_fee(gas_target);
-        assert_eq!(new_fee, BlockHeader::MIN_BASE_FEE, "base fee must not drop below floor");
+        assert_eq!(
+            new_fee,
+            BlockHeader::MIN_BASE_FEE,
+            "base fee must not drop below floor"
+        );
     }
 
     #[test]

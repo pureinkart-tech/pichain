@@ -5,8 +5,8 @@
 //! When a launch is finalized, the executor signals that an AMM pool
 //! should be created with the raised PI and remaining tokens.
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use pichain_crypto::ed25519::Address;
 use pichain_types::launchpad::{LaunchId, LaunchState, LaunchType, TokenLaunch};
 use pichain_types::token::MintId;
@@ -97,7 +97,10 @@ impl LaunchpadExecutor {
 
     /// Snapshot all launches (for block-level persistence).
     pub fn all_launches(&self) -> HashMap<LaunchId, TokenLaunch> {
-        self.launches.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.launches
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Create a new token launch.
@@ -151,7 +154,9 @@ impl LaunchpadExecutor {
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
         match self.launches.entry(launch_id) {
             Entry::Occupied(_) => return launchpad_error("launch already exists for this token"),
-            Entry::Vacant(v) => { v.insert(launch.clone()); }
+            Entry::Vacant(v) => {
+                v.insert(launch.clone());
+            }
         }
 
         let mut launch_changes = HashMap::new();
@@ -179,12 +184,7 @@ impl LaunchpadExecutor {
     }
 
     /// Participate in a launch (buy tokens with PI).
-    pub fn participate(
-        &self,
-        sender: Address,
-        mint: MintId,
-        pi_amount: u64,
-    ) -> LaunchpadResult {
+    pub fn participate(&self, sender: Address, mint: MintId, pi_amount: u64) -> LaunchpadResult {
         if pi_amount == 0 {
             return launchpad_error("contribution must be > 0");
         }
@@ -240,10 +240,12 @@ impl LaunchpadExecutor {
         // Update launch state (with overflow protection + supply cap)
         launch.tokens_sold = match launch.tokens_sold.checked_add(tokens) {
             Some(v) if v <= launch.tokens_for_sale => v,
-            Some(v) => return launchpad_error(&format!(
-                "tokens_sold {} would exceed tokens_for_sale {}",
-                v, launch.tokens_for_sale
-            )),
+            Some(v) => {
+                return launchpad_error(&format!(
+                    "tokens_sold {} would exceed tokens_for_sale {}",
+                    v, launch.tokens_for_sale
+                ))
+            }
             None => return launchpad_error("tokens_sold overflow"),
         };
         launch.pi_raised = match launch.pi_raised.checked_add(actual_cost) {
@@ -259,9 +261,7 @@ impl LaunchpadExecutor {
         // downstream (e.g., duplicate pool), the launch must remain at TargetReached so
         // finalize() can be called again. Direct Finalized without pool = stuck funds.
         let mut finalization = None;
-        if launch.pi_raised >= launch.target_pi
-            || launch.tokens_sold >= launch.tokens_for_sale
-        {
+        if launch.pi_raised >= launch.target_pi || launch.tokens_sold >= launch.tokens_for_sale {
             launch.state = LaunchState::TargetReached;
 
             let (pi_for_pool, tokens_for_pool) = launch.finalization_amounts();
@@ -305,11 +305,7 @@ impl LaunchpadExecutor {
     }
 
     /// Finalize a launch — create the AMM pool.
-    pub fn finalize(
-        &self,
-        sender: Address,
-        mint: MintId,
-    ) -> LaunchpadResult {
+    pub fn finalize(&self, sender: Address, mint: MintId) -> LaunchpadResult {
         let launch_id = LaunchId::from_mint(&mint);
 
         // Use get_mut to hold shard lock during read-modify-write (prevents TOCTOU race
@@ -329,7 +325,7 @@ impl LaunchpadExecutor {
         if launch.state != LaunchState::TargetReached {
             return launchpad_error(
                 "launch can only be finalized after reaching its target — \
-                 current state must be TargetReached"
+                 current state must be TargetReached",
             );
         }
 
@@ -400,12 +396,7 @@ impl LaunchpadExecutor {
     }
 
     /// Sell tokens back to an active launch (reverse bonding curve).
-    pub fn sell(
-        &self,
-        sender: Address,
-        mint: MintId,
-        token_amount: u64,
-    ) -> LaunchpadResult {
+    pub fn sell(&self, sender: Address, mint: MintId, token_amount: u64) -> LaunchpadResult {
         if token_amount == 0 {
             return launchpad_error("sell amount must be > 0");
         }
@@ -506,7 +497,13 @@ impl LaunchpadExecutor {
 
     /// Rollback a participation — revert tokens_sold, pi_raised, and contributions.
     /// Called when post-participation token minting fails and the transaction must revert.
-    pub fn rollback_participation(&self, mint: &MintId, sender: &Address, tokens: u64, pi_cost: u64) {
+    pub fn rollback_participation(
+        &self,
+        mint: &MintId,
+        sender: &Address,
+        tokens: u64,
+        pi_cost: u64,
+    ) {
         let launch_id = LaunchId::from_mint(mint);
         if let Some(mut launch_ref) = self.launches.get_mut(&launch_id) {
             launch_ref.tokens_sold = launch_ref.tokens_sold.saturating_sub(tokens);
@@ -523,10 +520,10 @@ impl LaunchpadExecutor {
             // Revert state back to Active if we undid a TargetReached transition
             if launch_ref.state == LaunchState::TargetReached
                 && launch_ref.pi_raised < launch_ref.target_pi
-                    && launch_ref.tokens_sold < launch_ref.tokens_for_sale
-                {
-                    launch_ref.state = LaunchState::Active;
-                }
+                && launch_ref.tokens_sold < launch_ref.tokens_for_sale
+            {
+                launch_ref.state = LaunchState::Active;
+            }
         }
     }
 }
@@ -802,9 +799,7 @@ mod tests {
         executor.create_launch(
             creator,
             mint,
-            LaunchType::FairLaunch {
-                price_per_token: 1,
-            },
+            LaunchType::FairLaunch { price_per_token: 1 },
             u64::MAX,
             u64::MAX,
             u64::MAX, // no per-address limit
@@ -831,8 +826,11 @@ mod tests {
         // A third contribution should fail because no tokens remain.
         let buyer3 = Address([4u8; 20]);
         let r = executor.participate(buyer3, mint, 1);
-        assert!(matches!(r.status, TransactionStatus::Reverted(_)),
-            "Should fail when no tokens remain. Status: {:?}", r.status);
+        assert!(
+            matches!(r.status, TransactionStatus::Reverted(_)),
+            "Should fail when no tokens remain. Status: {:?}",
+            r.status
+        );
     }
 
     /// Fix 190: Verify that contributions track actual_cost, not pi_amount.
@@ -899,9 +897,7 @@ mod tests {
         executor.create_launch(
             creator,
             mint,
-            LaunchType::FairLaunch {
-                price_per_token,
-            },
+            LaunchType::FairLaunch { price_per_token },
             1_000_000,
             1_000_000_000,
             max_per_address,
@@ -929,7 +925,9 @@ mod tests {
 
         // Third contribution: any more should fail
         let r = executor.participate(buyer, mint, 1_000);
-        assert!(matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("exceeds max")));
+        assert!(
+            matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("exceeds max"))
+        );
     }
 
     /// EXEC-215: Verify that calculate_cost failure returns an error instead of
@@ -982,7 +980,9 @@ mod tests {
         executor.create_launch(
             creator,
             mint,
-            LaunchType::FairLaunch { price_per_token: 1_000 },
+            LaunchType::FairLaunch {
+                price_per_token: 1_000,
+            },
             1_000_000,
             1_000_000_000,
             100_000_000,

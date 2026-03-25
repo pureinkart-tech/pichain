@@ -36,11 +36,15 @@ impl<'a> LaunchpadStore<'a> {
     }
 
     /// Add a launch write to a batch (for atomic commits).
-    pub fn batch_put_launch(&self, batch: &mut rocksdb::WriteBatch, launch: &TokenLaunch) -> Result<(), StorageError> {
+    pub fn batch_put_launch(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        launch: &TokenLaunch,
+    ) -> Result<(), StorageError> {
         let mut key = vec![LAUNCH_PREFIX];
         key.extend_from_slice(&launch.id.0);
-        let data = serde_json::to_vec(launch)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(launch).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }
@@ -61,8 +65,8 @@ impl<'a> LaunchpadStore<'a> {
     /// Store a token launch.
     pub fn put_launch(&self, launch: &TokenLaunch) -> Result<(), StorageError> {
         let key = launch_key(&launch.id);
-        let data = serde_json::to_vec(launch)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(launch).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_state(&key, &data)
     }
 }

@@ -8,8 +8,8 @@
 //! 5. Emits the block for consensus/propagation
 
 use pichain_crypto::ed25519::Address;
-use pichain_crypto::Hash;
 use pichain_crypto::poseidon::PoseidonHash;
+use pichain_crypto::Hash;
 use pichain_types::block::{Block, BlockHeader};
 use pichain_types::{PiAmount, EPOCH_LENGTH, TARGET_BLOCK_TIME_MS};
 use std::collections::HashMap;
@@ -37,8 +37,8 @@ pub struct BlockProducerConfig {
 impl Default for BlockProducerConfig {
     fn default() -> Self {
         Self {
-            max_txs_per_block: 50_000,          // 50K txs/block (Solana-competitive)
-            max_gas_per_block: 500_000_000,      // 500M gas units
+            max_txs_per_block: 50_000,      // 50K txs/block (Solana-competitive)
+            max_gas_per_block: 500_000_000, // 500M gas units
             target_block_time_ms: TARGET_BLOCK_TIME_MS,
             validator_address: Address::ZERO,
         }
@@ -128,7 +128,13 @@ impl BlockProducer {
     }
 
     /// Set the starting state (after loading from storage).
-    pub fn set_state(&mut self, height: u64, parent_hash: Hash, base_fee: PiAmount, last_timestamp_ms: u64) {
+    pub fn set_state(
+        &mut self,
+        height: u64,
+        parent_hash: Hash,
+        base_fee: PiAmount,
+        last_timestamp_ms: u64,
+    ) {
         self.current_height = height;
         self.parent_hash = parent_hash;
         self.current_base_fee = base_fee;
@@ -139,7 +145,9 @@ impl BlockProducer {
 
     /// Produce a single block from pending transactions (pulls from mempool).
     pub fn produce_block(&mut self) -> ProducedBlock {
-        let transactions = self.mempool.get_ready_transactions(self.config.max_txs_per_block);
+        let transactions = self
+            .mempool
+            .get_ready_transactions(self.config.max_txs_per_block);
         self.produce_block_from_verified(transactions)
     }
 
@@ -175,7 +183,8 @@ impl BlockProducer {
         // If clock drifts backward, advance by 1ms from last block.
         let timestamp_ms = wall_clock_ms.max(self.last_timestamp_ms.saturating_add(1));
         self.executor.set_block_timestamp(timestamp_ms);
-        self.executor.set_block_height(self.current_height.saturating_add(1));
+        self.executor
+            .set_block_height(self.current_height.saturating_add(1));
         // Snapshot DEX pool reserves BEFORE executing any transactions.
         // Price impact is measured against these snapshots to prevent
         // intra-block sandwich attacks from manipulating the impact threshold.
@@ -198,11 +207,15 @@ impl BlockProducer {
         let execution_results = if transactions.is_empty() {
             vec![]
         } else {
-            self.executor.execute_block(&transactions, self.current_base_fee)
+            self.executor
+                .execute_block(&transactions, self.current_base_fee)
         };
 
         // 3. Calculate block-level metrics
-        let mut total_gas_used: u64 = execution_results.iter().map(|r| r.effect.gas_used).fold(0u64, |acc, v| acc.saturating_add(v));
+        let mut total_gas_used: u64 = execution_results
+            .iter()
+            .map(|r| r.effect.gas_used)
+            .fold(0u64, |acc, v| acc.saturating_add(v));
 
         // Post-execution gas limit enforcement — trim transactions from the end
         // if actual gas exceeds budget (transactions may use more gas than estimated).
@@ -244,12 +257,23 @@ impl BlockProducer {
             // Re-snapshot DEX reserves so price impact checks use clean baseline.
             self.executor.snapshot_dex_reserves();
             // Re-execute only the retained transactions with clean state
-            execution_results = self.executor.execute_block(&transactions, self.current_base_fee);
-            total_gas_used = execution_results.iter().map(|r| r.effect.gas_used).fold(0u64, |acc, v| acc.saturating_add(v));
+            execution_results = self
+                .executor
+                .execute_block(&transactions, self.current_base_fee);
+            total_gas_used = execution_results
+                .iter()
+                .map(|r| r.effect.gas_used)
+                .fold(0u64, |acc, v| acc.saturating_add(v));
         }
         let tx_count = transactions.len();
-        let total_burned: PiAmount = execution_results.iter().map(|r| r.pi_burned).fold(0u64, |acc, v| acc.saturating_add(v));
-        let total_minted: PiAmount = execution_results.iter().map(|r| r.pi_minted).fold(0u64, |acc, v| acc.saturating_add(v));
+        let total_burned: PiAmount = execution_results
+            .iter()
+            .map(|r| r.pi_burned)
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+        let total_minted: PiAmount = execution_results
+            .iter()
+            .map(|r| r.pi_minted)
+            .fold(0u64, |acc, v| acc.saturating_add(v));
         let total_proposer_reward: PiAmount = execution_results
             .iter()
             .map(|r| r.proposer_reward)
@@ -262,12 +286,16 @@ impl BlockProducer {
         // Credit block proposer with priority fee + staker share rewards
         if total_proposer_reward > 0 {
             let proposer = self.config.validator_address;
-            self.executor.credit_account(proposer, total_proposer_reward);
+            self.executor
+                .credit_account(proposer, total_proposer_reward);
         }
 
         // Feed miner fees back into the mining pool for perpetual sustainability
         if total_miner_fee > 0 {
-            self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
+            self.executor
+                .mining_processor()
+                .lock()
+                .add_fee_income(total_miner_fee);
         }
 
         // Drip staking rewards from unmined emission recycling to proposer
@@ -525,7 +553,12 @@ mod tests {
     fn setup() -> (BlockProducer, Keypair) {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
+        let mempool = Arc::new(TransactionPool::with_config(
+            crate::mempool::MempoolConfig {
+                require_pq: false,
+                ..Default::default()
+            },
+        ));
 
         let config = BlockProducerConfig {
             validator_address: validator.address(),
@@ -550,7 +583,12 @@ mod tests {
     fn produce_block_with_transactions() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
+        let mempool = Arc::new(TransactionPool::with_config(
+            crate::mempool::MempoolConfig {
+                require_pq: false,
+                ..Default::default()
+            },
+        ));
 
         // Fund a sender
         let sender = Keypair::generate();
@@ -607,7 +645,12 @@ mod tests {
     fn base_fee_adjusts() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
+        let mempool = Arc::new(TransactionPool::with_config(
+            crate::mempool::MempoolConfig {
+                require_pq: false,
+                ..Default::default()
+            },
+        ));
 
         let config = BlockProducerConfig {
             validator_address: validator.address(),
@@ -646,7 +689,12 @@ mod tests {
     fn block_gas_limit_enforced_by_trimming() {
         let validator = Keypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
-        let mempool = Arc::new(TransactionPool::with_config(crate::mempool::MempoolConfig { require_pq: false, ..Default::default() }));
+        let mempool = Arc::new(TransactionPool::with_config(
+            crate::mempool::MempoolConfig {
+                require_pq: false,
+                ..Default::default()
+            },
+        ));
 
         // Create multiple senders with funds
         let senders: Vec<Keypair> = (0..5).map(|_| Keypair::generate()).collect();

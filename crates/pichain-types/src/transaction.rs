@@ -33,10 +33,7 @@ pub enum TransactionKind {
         amount: PiAmount,
     },
     /// Deploy a smart contract (WASM bytecode).
-    DeployContract {
-        code: Vec<u8>,
-        init_data: Vec<u8>,
-    },
+    DeployContract { code: Vec<u8>, init_data: Vec<u8> },
     /// Call a smart contract function.
     ContractCall {
         contract: Address,
@@ -72,7 +69,6 @@ pub enum TransactionKind {
     },
 
     // --- Token Program (native SPL-like token operations) ---
-
     /// Create a new custom token.
     CreateToken {
         /// Token name.
@@ -148,7 +144,6 @@ pub enum TransactionKind {
     },
 
     // --- DEX/AMM (native constant-product AMM) ---
-
     /// Create a new liquidity pool for a token pair.
     CreatePool {
         /// First token mint.
@@ -198,7 +193,6 @@ pub enum TransactionKind {
     },
 
     // --- Launchpad (one-click token launch with bonding curves) ---
-
     /// Create a new token launch.
     CreateLaunch {
         /// Token mint ID.
@@ -236,7 +230,6 @@ pub enum TransactionKind {
     },
 
     // --- NFTs (native NFT standard with collections, royalties, marketplace) ---
-
     /// Create a new NFT collection.
     CreateNftCollection {
         /// Collection name.
@@ -294,7 +287,6 @@ pub enum TransactionKind {
     },
 
     // --- Multi-Signature ---
-
     /// Create a new multi-signature wallet.
     CreateMultisig {
         /// Authorized signer addresses.
@@ -314,7 +306,6 @@ pub enum TransactionKind {
     },
 
     // --- Bridge ---
-
     /// Burn wrapped tokens for cross-chain withdrawal.
     BridgeWithdraw {
         /// Wrapped token mint ID to burn.
@@ -328,7 +319,6 @@ pub enum TransactionKind {
     },
 
     // --- Betting / Gaming ---
-
     /// Create a new betting match (PVP, Poker, or Arcade).
     /// Creator's wager is escrowed immediately.
     CreateMatch {
@@ -394,7 +384,7 @@ impl TransactionData {
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(256);
         // Fixed header fields
-        buf.extend_from_slice(&self.sender.0);           // 20 bytes
+        buf.extend_from_slice(&self.sender.0); // 20 bytes
         buf.extend_from_slice(&self.nonce.to_le_bytes()); // 8 bytes
         buf.extend_from_slice(&self.gas_limit.to_le_bytes());
         buf.extend_from_slice(&self.max_base_fee.to_le_bytes());
@@ -415,7 +405,11 @@ impl TransactionData {
                 buf.extend_from_slice(&(init_data.len() as u32).to_le_bytes());
                 buf.extend_from_slice(init_data);
             }
-            TransactionKind::ContractCall { contract, function, args } => {
+            TransactionKind::ContractCall {
+                contract,
+                function,
+                args,
+            } => {
                 buf.push(2);
                 buf.extend_from_slice(&contract.0);
                 let fn_bytes = function.as_bytes();
@@ -435,7 +429,12 @@ impl TransactionData {
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
             TransactionKind::MiningProof {
-                start_position, digit_count, digits, proof, pow_nonce, anchor_block_hash,
+                start_position,
+                digit_count,
+                digits,
+                proof,
+                pow_nonce,
+                anchor_block_hash,
             } => {
                 buf.push(5);
                 buf.extend_from_slice(&start_position.to_le_bytes());
@@ -448,7 +447,13 @@ impl TransactionData {
                 buf.extend_from_slice(&(anchor_block_hash.len() as u32).to_le_bytes());
                 buf.extend_from_slice(anchor_block_hash);
             }
-            TransactionKind::CreateToken { name, symbol, decimals, max_supply, metadata_uri } => {
+            TransactionKind::CreateToken {
+                name,
+                symbol,
+                decimals,
+                max_supply,
+                metadata_uri,
+            } => {
                 buf.push(6);
                 let name_b = name.as_bytes();
                 buf.extend_from_slice(&(name_b.len() as u32).to_le_bytes());
@@ -462,13 +467,21 @@ impl TransactionData {
                 buf.extend_from_slice(&(uri_b.len() as u32).to_le_bytes());
                 buf.extend_from_slice(uri_b);
             }
-            TransactionKind::MintToken { mint, recipient, amount } => {
+            TransactionKind::MintToken {
+                mint,
+                recipient,
+                amount,
+            } => {
                 buf.push(7);
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&recipient.0);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
-            TransactionKind::TransferToken { mint, recipient, amount } => {
+            TransactionKind::TransferToken {
+                mint,
+                recipient,
+                amount,
+            } => {
                 buf.push(8);
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&recipient.0);
@@ -479,7 +492,11 @@ impl TransactionData {
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
-            TransactionKind::ApproveToken { mint, delegate, amount } => {
+            TransactionKind::ApproveToken {
+                mint,
+                delegate,
+                amount,
+            } => {
                 buf.push(10);
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&delegate.0);
@@ -504,7 +521,13 @@ impl TransactionData {
                 buf.extend_from_slice(&mint_a.0);
                 buf.extend_from_slice(&mint_b.0);
             }
-            TransactionKind::AddLiquidity { mint_a, mint_b, amount_a, amount_b, min_lp_tokens } => {
+            TransactionKind::AddLiquidity {
+                mint_a,
+                mint_b,
+                amount_a,
+                amount_b,
+                min_lp_tokens,
+            } => {
                 buf.push(15);
                 buf.extend_from_slice(&mint_a.0);
                 buf.extend_from_slice(&mint_b.0);
@@ -512,7 +535,13 @@ impl TransactionData {
                 buf.extend_from_slice(&amount_b.to_le_bytes());
                 buf.extend_from_slice(&min_lp_tokens.to_le_bytes());
             }
-            TransactionKind::RemoveLiquidity { mint_a, mint_b, lp_amount, min_amount_a, min_amount_b } => {
+            TransactionKind::RemoveLiquidity {
+                mint_a,
+                mint_b,
+                lp_amount,
+                min_amount_a,
+                min_amount_b,
+            } => {
                 buf.push(16);
                 buf.extend_from_slice(&mint_a.0);
                 buf.extend_from_slice(&mint_b.0);
@@ -520,14 +549,25 @@ impl TransactionData {
                 buf.extend_from_slice(&min_amount_a.to_le_bytes());
                 buf.extend_from_slice(&min_amount_b.to_le_bytes());
             }
-            TransactionKind::Swap { mint_in, mint_out, amount_in, min_amount_out } => {
+            TransactionKind::Swap {
+                mint_in,
+                mint_out,
+                amount_in,
+                min_amount_out,
+            } => {
                 buf.push(17);
                 buf.extend_from_slice(&mint_in.0);
                 buf.extend_from_slice(&mint_out.0);
                 buf.extend_from_slice(&amount_in.to_le_bytes());
                 buf.extend_from_slice(&min_amount_out.to_le_bytes());
             }
-            TransactionKind::CreateLaunch { mint, launch_type, tokens_for_sale, target_pi, max_per_address } => {
+            TransactionKind::CreateLaunch {
+                mint,
+                launch_type,
+                tokens_for_sale,
+                target_pi,
+                max_per_address,
+            } => {
                 buf.push(18);
                 buf.extend_from_slice(&mint.0);
                 // Encode launch_type deterministically
@@ -536,7 +576,11 @@ impl TransactionData {
                         buf.push(0);
                         buf.extend_from_slice(&price_per_token.to_le_bytes());
                     }
-                    crate::launchpad::LaunchType::BondingCurve { base_price, slope, price_scale } => {
+                    crate::launchpad::LaunchType::BondingCurve {
+                        base_price,
+                        slope,
+                        price_scale,
+                    } => {
                         buf.push(1);
                         buf.extend_from_slice(&base_price.to_le_bytes());
                         buf.extend_from_slice(&slope.to_le_bytes());
@@ -561,7 +605,13 @@ impl TransactionData {
                 buf.push(20);
                 buf.extend_from_slice(&mint.0);
             }
-            TransactionKind::CreateNftCollection { name, symbol, max_supply, royalty_bps, base_uri } => {
+            TransactionKind::CreateNftCollection {
+                name,
+                symbol,
+                max_supply,
+                royalty_bps,
+                base_uri,
+            } => {
                 buf.push(21);
                 let name_b = name.as_bytes();
                 buf.extend_from_slice(&(name_b.len() as u32).to_le_bytes());
@@ -575,7 +625,13 @@ impl TransactionData {
                 buf.extend_from_slice(&(uri_b.len() as u32).to_le_bytes());
                 buf.extend_from_slice(uri_b);
             }
-            TransactionKind::MintNft { collection, recipient, name, metadata_uri, attributes } => {
+            TransactionKind::MintNft {
+                collection,
+                recipient,
+                name,
+                metadata_uri,
+                attributes,
+            } => {
                 buf.push(22);
                 buf.extend_from_slice(&collection.0);
                 buf.extend_from_slice(&recipient.0);
@@ -621,7 +677,11 @@ impl TransactionData {
                     buf.extend_from_slice(&signer.0);
                 }
             }
-            TransactionKind::ExecuteMultisig { multisig_address, inner_tx_data, signatures } => {
+            TransactionKind::ExecuteMultisig {
+                multisig_address,
+                inner_tx_data,
+                signatures,
+            } => {
                 buf.push(28);
                 buf.extend_from_slice(&multisig_address.0);
                 buf.extend_from_slice(&(inner_tx_data.len() as u32).to_le_bytes());
@@ -633,7 +693,12 @@ impl TransactionData {
                     buf.extend_from_slice(sig);
                 }
             }
-            TransactionKind::BridgeWithdraw { mint, amount, dest_chain, dest_address } => {
+            TransactionKind::BridgeWithdraw {
+                mint,
+                amount,
+                dest_chain,
+                dest_address,
+            } => {
                 buf.push(29);
                 buf.extend_from_slice(&mint.0);
                 buf.extend_from_slice(&amount.to_le_bytes());
@@ -646,7 +711,13 @@ impl TransactionData {
             }
 
             // --- Betting / Gaming (tags 31-35) ---
-            TransactionKind::CreateMatch { game_category, game_id, wager, max_players, server_seed_hash } => {
+            TransactionKind::CreateMatch {
+                game_category,
+                game_id,
+                wager,
+                max_players,
+                server_seed_hash,
+            } => {
                 buf.push(31);
                 buf.push(*game_category);
                 let gid = game_id.as_bytes();
@@ -656,7 +727,10 @@ impl TransactionData {
                 buf.push(*max_players);
                 buf.extend_from_slice(server_seed_hash);
             }
-            TransactionKind::JoinMatch { match_id, client_seed } => {
+            TransactionKind::JoinMatch {
+                match_id,
+                client_seed,
+            } => {
                 buf.push(32);
                 buf.extend_from_slice(match_id);
                 buf.extend_from_slice(client_seed);
@@ -665,7 +739,11 @@ impl TransactionData {
                 buf.push(33);
                 buf.extend_from_slice(match_id);
             }
-            TransactionKind::ResolveMatch { match_id, winners, server_seed } => {
+            TransactionKind::ResolveMatch {
+                match_id,
+                winners,
+                server_seed,
+            } => {
                 buf.push(34);
                 buf.extend_from_slice(match_id);
                 buf.extend_from_slice(&(winners.len() as u32).to_le_bytes());
@@ -679,7 +757,10 @@ impl TransactionData {
                 buf.push(35);
                 buf.extend_from_slice(match_id);
             }
-            TransactionKind::RemoveParticipant { match_id, participant } => {
+            TransactionKind::RemoveParticipant {
+                match_id,
+                participant,
+            } => {
                 buf.push(36);
                 buf.extend_from_slice(match_id);
                 buf.extend_from_slice(&participant.0);
@@ -738,10 +819,7 @@ impl SignedTransaction {
             pichain_crypto::CryptoVersion::PqDualV1 => {
                 // Include ML-DSA sig in hash (3,309 bytes — smaller than SLH-DSA's 17KB)
                 if let Some(ref pq_sig) = self.pq_signature {
-                    pichain_crypto::hash_concat(&[
-                        &data_bytes,
-                        pq_sig.ml_sig.as_bytes(),
-                    ])
+                    pichain_crypto::hash_concat(&[&data_bytes, pq_sig.ml_sig.as_bytes()])
                 } else {
                     // Fallback: should not happen for valid PQ txs
                     pichain_crypto::hash_concat(&[&data_bytes, &[1u8]])
@@ -773,12 +851,12 @@ impl SignedTransaction {
                 // Reject transactions that claim PQ version but are missing components.
                 let pq_sig = self.pq_signature.as_ref().ok_or_else(|| {
                     pichain_crypto::CryptoError::Serialization(
-                        "PqDualV1 transaction missing pq_signature".into()
+                        "PqDualV1 transaction missing pq_signature".into(),
                     )
                 })?;
                 let pq_pks = self.pq_public_keys.as_ref().ok_or_else(|| {
                     pichain_crypto::CryptoError::Serialization(
-                        "PqDualV1 transaction missing pq_public_keys".into()
+                        "PqDualV1 transaction missing pq_public_keys".into(),
                     )
                 })?;
 
@@ -913,14 +991,19 @@ impl TransactionKind {
                     writable: true,
                 });
             }
-            TransactionKind::Stake { validator, .. } | TransactionKind::Unstake { validator, .. } => {
+            TransactionKind::Stake { validator, .. }
+            | TransactionKind::Unstake { validator, .. } => {
                 accesses.push(AccountAccess {
                     address: *validator,
                     writable: false,
                 });
             }
-            TransactionKind::TransferToken { mint, recipient, .. }
-            | TransactionKind::MintToken { mint, recipient, .. } => {
+            TransactionKind::TransferToken {
+                mint, recipient, ..
+            }
+            | TransactionKind::MintToken {
+                mint, recipient, ..
+            } => {
                 accesses.push(AccountAccess {
                     address: *recipient,
                     writable: true,
@@ -983,7 +1066,11 @@ impl TransactionKind {
                     writable: true,
                 });
             }
-            TransactionKind::MintNft { collection, recipient, .. } => {
+            TransactionKind::MintNft {
+                collection,
+                recipient,
+                ..
+            } => {
                 accesses.push(AccountAccess {
                     address: *recipient,
                     writable: true,
@@ -1008,8 +1095,7 @@ impl TransactionKind {
                     writable: true,
                 });
             }
-            TransactionKind::ListNft { nft_id, .. }
-            | TransactionKind::DelistNft { nft_id } => {
+            TransactionKind::ListNft { nft_id, .. } | TransactionKind::DelistNft { nft_id } => {
                 // List/delist touch shared NFT state.
                 let mut vaddr = [0u8; 20];
                 vaddr.copy_from_slice(&nft_id.0[..20]);
@@ -1075,10 +1161,23 @@ impl TransactionKind {
                     writable: true,
                 });
             }
-            TransactionKind::Swap { mint_in, mint_out, .. }
-            | TransactionKind::AddLiquidity { mint_a: mint_in, mint_b: mint_out, .. }
-            | TransactionKind::RemoveLiquidity { mint_a: mint_in, mint_b: mint_out, .. }
-            | TransactionKind::CreatePool { mint_a: mint_in, mint_b: mint_out } => {
+            TransactionKind::Swap {
+                mint_in, mint_out, ..
+            }
+            | TransactionKind::AddLiquidity {
+                mint_a: mint_in,
+                mint_b: mint_out,
+                ..
+            }
+            | TransactionKind::RemoveLiquidity {
+                mint_a: mint_in,
+                mint_b: mint_out,
+                ..
+            }
+            | TransactionKind::CreatePool {
+                mint_a: mint_in,
+                mint_b: mint_out,
+            } => {
                 // DEX operations touch shared pool state. Derive a virtual
                 // writable address from the canonical PoolId so the scheduler
                 // correctly serializes all transactions on the same pool.
@@ -1112,7 +1211,9 @@ impl TransactionKind {
             TransactionKind::CreateMultisig { .. } => {
                 // Only touches sender state (creates new multisig wallet).
             }
-            TransactionKind::ExecuteMultisig { multisig_address, .. } => {
+            TransactionKind::ExecuteMultisig {
+                multisig_address, ..
+            } => {
                 accesses.push(AccountAccess {
                     address: *multisig_address,
                     writable: true,
@@ -1195,7 +1296,10 @@ impl Transaction {
     /// Exists only for test infrastructure across crates. The mempool
     /// rejects Ed25519 transactions (require_pq=true in production).
     #[doc(hidden)]
-    pub fn sign_ed25519_for_tests_only(data: TransactionData, keypair: &pichain_crypto::Keypair) -> SignedTransaction {
+    pub fn sign_ed25519_for_tests_only(
+        data: TransactionData,
+        keypair: &pichain_crypto::Keypair,
+    ) -> SignedTransaction {
         let bytes = data.canonical_bytes();
         let signature = keypair.sign(&bytes);
         SignedTransaction {
@@ -1300,13 +1404,7 @@ mod tests {
         let sender_kp = Keypair::generate();
         let wrong_kp = Keypair::generate();
 
-        let tx_data = Transaction::transfer(
-            sender_kp.address(),
-            0,
-            wrong_kp.address(),
-            1_000,
-            1,
-        );
+        let tx_data = Transaction::transfer(sender_kp.address(), 0, wrong_kp.address(), 1_000, 1);
 
         // Sign with wrong key
         let bytes = serde_json::to_vec(&tx_data).unwrap();

@@ -123,7 +123,7 @@ impl Default for TestnetConfig {
             num_validators: 4,
             chain_id: 31415,
             initial_balance: 100_000 * 1_000_000_000, // 100K PI
-            block_time_ms: 1000, // 1 second for testing
+            block_time_ms: 1000,                      // 1 second for testing
             enable_mining: false,
         }
     }
@@ -169,9 +169,9 @@ impl LocalTestnet {
 
             // Each node bootstraps from node 0 (except node 0 itself)
             if i > 0 {
-                node_config.bootstrap_peers.push(
-                    format!("/ip4/127.0.0.1/tcp/{}", 9314),
-                );
+                node_config
+                    .bootstrap_peers
+                    .push(format!("/ip4/127.0.0.1/tcp/{}", 9314));
             }
 
             genesis_allocations.push(GenesisAllocation {
@@ -183,7 +183,8 @@ impl LocalTestnet {
             node_configs.push(node_config);
         }
 
-        let nodes: Vec<SimulatedNode> = node_configs.iter()
+        let nodes: Vec<SimulatedNode> = node_configs
+            .iter()
             .map(|c| SimulatedNode::new(c.clone()))
             .collect();
 
@@ -211,9 +212,7 @@ impl LocalTestnet {
         // Connect all nodes to each other
         for i in 0..self.nodes.len() {
             self.nodes[i].running = true;
-            self.nodes[i].connected_peers = (0..self.nodes.len())
-                .filter(|j| *j != i)
-                .collect();
+            self.nodes[i].connected_peers = (0..self.nodes.len()).filter(|j| *j != i).collect();
         }
 
         info!("all {} nodes started and connected", self.nodes.len());
@@ -299,10 +298,13 @@ impl LocalTestnet {
 
         // Add this node back to other nodes' peer lists
         for i in 0..self.nodes.len() {
-            if i != node_index && self.nodes[i].running && !self.nodes[i].partitioned
-                && !self.nodes[i].connected_peers.contains(&node_index) {
-                    self.nodes[i].connected_peers.push(node_index);
-                }
+            if i != node_index
+                && self.nodes[i].running
+                && !self.nodes[i].partitioned
+                && !self.nodes[i].connected_peers.contains(&node_index)
+            {
+                self.nodes[i].connected_peers.push(node_index);
+            }
         }
 
         // Catch up to global height
@@ -374,7 +376,9 @@ impl LocalTestnet {
 
     /// Check if all running nodes are at the same height.
     pub fn is_consistent(&self) -> bool {
-        let running_heights: Vec<u64> = self.nodes.iter()
+        let running_heights: Vec<u64> = self
+            .nodes
+            .iter()
             .filter(|n| n.running && !n.partitioned)
             .map(|n| n.height)
             .collect();
@@ -388,7 +392,9 @@ impl LocalTestnet {
 
     /// Get testnet uptime.
     pub fn uptime(&self) -> Duration {
-        self.started_at.map(|s| s.elapsed()).unwrap_or(Duration::ZERO)
+        self.started_at
+            .map(|s| s.elapsed())
+            .unwrap_or(Duration::ZERO)
     }
 
     /// Get node configs (for spawning real processes).
@@ -402,7 +408,9 @@ impl LocalTestnet {
             chain_id: self.config.chain_id,
             allocations: self.genesis_allocations.clone(),
             block_time_ms: self.config.block_time_ms,
-            validators: self.node_configs.iter()
+            validators: self
+                .node_configs
+                .iter()
                 .map(|c| ValidatorConfig {
                     address: c.validator_address(),
                     stake: c.stake,

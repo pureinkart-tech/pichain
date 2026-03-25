@@ -215,7 +215,10 @@ impl DagMempool {
     /// Update the validator stake map (used during epoch transitions).
     /// Also updates the stake-weighted quorum threshold.
     pub fn update_stakes(&mut self, stakes: HashMap<Address, u64>) {
-        self.total_stake = stakes.values().copied().fold(0u64, |acc, s| acc.saturating_add(s));
+        self.total_stake = stakes
+            .values()
+            .copied()
+            .fold(0u64, |acc, s| acc.saturating_add(s));
         self.quorum_stake = (self.total_stake as u128 * 2 / 3 + 1) as u64;
         self.validator_stakes = stakes;
     }
@@ -310,8 +313,7 @@ impl DagMempool {
         }
         if round > 0 && !is_resume_round {
             let required_parents = self.quorum_threshold();
-            let unique_parents: std::collections::HashSet<_> =
-                cert.header.parents.iter().collect();
+            let unique_parents: std::collections::HashSet<_> = cert.header.parents.iter().collect();
             if unique_parents.len() < required_parents {
                 return Err(ConsensusError::InsufficientVotes {
                     got: unique_parents.len(),
@@ -333,7 +335,8 @@ impl DagMempool {
                         if parent_cert.round() != expected_parent_round {
                             return Err(ConsensusError::InvalidCertificate(format!(
                                 "parent certificate is from round {}, expected round {}",
-                                parent_cert.round(), expected_parent_round
+                                parent_cert.round(),
+                                expected_parent_round
                             )));
                         }
                         max_parent_ts = max_parent_ts.max(parent_cert.header.timestamp_ms);
@@ -341,7 +344,11 @@ impl DagMempool {
                     None => {
                         return Err(ConsensusError::InvalidCertificate(format!(
                             "parent certificate {} not found in DAG",
-                            parent_hash.as_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>()
+                            parent_hash
+                                .as_bytes()
+                                .iter()
+                                .map(|b| format!("{b:02x}"))
+                                .collect::<String>()
                         )));
                     }
                 }
@@ -359,13 +366,14 @@ impl DagMempool {
             // Multi-validator mode: MANDATORY signature verification
             if cert.aggregate_signature.is_empty() || cert.signers.is_empty() {
                 return Err(ConsensusError::InvalidCertificate(
-                    "certificate must have signers and aggregate signature in multi-validator mode".to_string()
+                    "certificate must have signers and aggregate signature in multi-validator mode"
+                        .to_string(),
                 ));
             }
 
             if cert.aggregate_signature.len() != 96 {
                 return Err(ConsensusError::InvalidCertificate(
-                    "BLS aggregate signature must be 96 bytes".to_string()
+                    "BLS aggregate signature must be 96 bytes".to_string(),
                 ));
             }
 
@@ -374,21 +382,24 @@ impl DagMempool {
             if unique_signers.len() != cert.signers.len() {
                 return Err(ConsensusError::InvalidCertificate(format!(
                     "duplicate signers detected: {} unique out of {}",
-                    unique_signers.len(), cert.signers.len()
+                    unique_signers.len(),
+                    cert.signers.len()
                 )));
             }
 
             // R29-FIX: Verify author is among the signers
             if !cert.signers.contains(&cert.author()) {
                 return Err(ConsensusError::InvalidCertificate(
-                    "certificate author must be among the signers".to_string()
+                    "certificate author must be among the signers".to_string(),
                 ));
             }
 
             // Verify signer quorum: stake-weighted if stakes configured, else count-based
             let signer_addrs: Vec<&Address> = cert.signers.iter().collect();
             if !self.has_stake_quorum(&signer_addrs) {
-                let _got_stake: u64 = cert.signers.iter()
+                let _got_stake: u64 = cert
+                    .signers
+                    .iter()
                     .map(|a| self.validator_stakes.get(a).copied().unwrap_or(0))
                     .sum();
                 return Err(ConsensusError::InsufficientVotes {
@@ -397,14 +408,15 @@ impl DagMempool {
                 });
             }
 
-            let sig_bytes: [u8; 96] = cert.aggregate_signature[..96].try_into()
-                .map_err(|_| ConsensusError::InvalidCertificate(
-                    "malformed BLS aggregate signature".to_string()
-                ))?;
-            let bls_sig = pichain_crypto::bls::BlsSignature::from_bytes(&sig_bytes)
-                .map_err(|_| ConsensusError::InvalidCertificate(
-                    "invalid BLS aggregate signature (not on curve)".to_string()
-                ))?;
+            let sig_bytes: [u8; 96] = cert.aggregate_signature[..96].try_into().map_err(|_| {
+                ConsensusError::InvalidCertificate("malformed BLS aggregate signature".to_string())
+            })?;
+            let bls_sig =
+                pichain_crypto::bls::BlsSignature::from_bytes(&sig_bytes).map_err(|_| {
+                    ConsensusError::InvalidCertificate(
+                        "invalid BLS aggregate signature (not on curve)".to_string(),
+                    )
+                })?;
 
             // Domain-separated message: prepend "CERT_HDR" + chain_id to prevent both
             // cross-context and cross-chain signature reuse. A certificate from devnet
@@ -413,7 +425,9 @@ impl DagMempool {
             message.extend_from_slice(b"CERT_HDR");
             message.extend_from_slice(&self.numeric_chain_id.to_le_bytes());
             message.extend_from_slice(cert.digest.as_bytes());
-            let signer_pks: Vec<&pichain_crypto::bls::BlsPublicKey> = cert.signers.iter()
+            let signer_pks: Vec<&pichain_crypto::bls::BlsPublicKey> = cert
+                .signers
+                .iter()
                 .filter_map(|addr| keys.get(addr))
                 .collect();
 
@@ -438,20 +452,22 @@ impl DagMempool {
 
             // Verify the aggregate BLS signature
             pichain_crypto::bls::AggregateSignature::verify(&signer_pks, &message, &bls_sig)
-                .map_err(|_| ConsensusError::InvalidCertificate(
-                    "BLS aggregate signature verification failed".to_string()
-                ))?;
+                .map_err(|_| {
+                    ConsensusError::InvalidCertificate(
+                        "BLS aggregate signature verification failed".to_string(),
+                    )
+                })?;
         } else if self.committee_size > 1 {
             // SECURITY: In multi-validator mode, validator_keys=None is never acceptable.
             // This prevents unsigned certificate injection during single-to-multi transitions.
             return Err(ConsensusError::InvalidCertificate(
-                "validator_keys required in multi-validator mode (committee_size > 1)".to_string()
+                "validator_keys required in multi-validator mode (committee_size > 1)".to_string(),
             ));
         } else if !cert.aggregate_signature.is_empty() && !cert.signers.is_empty() {
             // Single-validator mode: still verify signature format if present
             if cert.aggregate_signature.len() != 96 {
                 return Err(ConsensusError::InvalidCertificate(
-                    "BLS aggregate signature must be 96 bytes".to_string()
+                    "BLS aggregate signature must be 96 bytes".to_string(),
                 ));
             }
         }
@@ -576,7 +592,9 @@ impl DagMempool {
             return;
         };
         let cutoff = committed.saturating_sub(1);
-        let stale_rounds: Vec<u64> = self.rounds.keys()
+        let stale_rounds: Vec<u64> = self
+            .rounds
+            .keys()
             .filter(|&&r| r < cutoff)
             .copied()
             .collect();
@@ -648,7 +666,8 @@ impl DagMempool {
         // R27-FIX: Deduplicate addresses to prevent double-counting stake,
         // and use saturating_add to prevent overflow.
         let unique: std::collections::HashSet<_> = addresses.iter().collect();
-        let stake_sum: u64 = unique.iter()
+        let stake_sum: u64 = unique
+            .iter()
             .map(|a| self.validator_stakes.get(*a).copied().unwrap_or(0))
             .fold(0u64, |acc, s| acc.saturating_add(s));
         stake_sum >= self.quorum_stake
@@ -751,7 +770,12 @@ mod tests {
         assert_eq!(dag.current_round(), 1);
     }
 
-    fn make_cert_with_ts(author: u8, round: u64, parents: Vec<Hash>, timestamp_ms: u64) -> Certificate {
+    fn make_cert_with_ts(
+        author: u8,
+        round: u64,
+        parents: Vec<Hash>,
+        timestamp_ms: u64,
+    ) -> Certificate {
         let header = Header {
             author: Address([author; 20]),
             round,
@@ -777,7 +801,10 @@ mod tests {
         let result = dag.insert_certificate(c1_bad, None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("before parent timestamp"), "unexpected error: {err_msg}");
+        assert!(
+            err_msg.contains("before parent timestamp"),
+            "unexpected error: {err_msg}"
+        );
 
         // Round 1 with valid timestamp >= parent — should succeed
         let c1_good = make_cert_with_ts(2, 1, vec![c0.digest], now);
@@ -819,7 +846,10 @@ mod tests {
         let result = dag.insert_certificate(cert, Some(&keys));
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("duplicate signers"), "unexpected error: {err_msg}");
+        assert!(
+            err_msg.contains("duplicate signers"),
+            "unexpected error: {err_msg}"
+        );
     }
 
     #[test]
@@ -843,7 +873,10 @@ mod tests {
         let result = dag.insert_certificate(cert, None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("digest mismatch"), "unexpected error: {err_msg}");
+        assert!(
+            err_msg.contains("digest mismatch"),
+            "unexpected error: {err_msg}"
+        );
     }
 
     #[test]
@@ -969,7 +1002,10 @@ mod tests {
             assert!(
                 ordering != std::cmp::Ordering::Greater,
                 "causal history not sorted: round {} author {:?} came before round {} author {:?}",
-                prev.round(), prev.author(), curr.round(), curr.author()
+                prev.round(),
+                prev.author(),
+                curr.round(),
+                curr.author()
             );
         }
     }
@@ -1021,37 +1057,52 @@ mod tests {
         assert_eq!(dag.quorum_stake(), 401);
 
         // A single low-stake validator (100) cannot form quorum
-        assert!(!dag.has_stake_quorum(&[&addr_a]),
-            "100 stake should not meet 401 quorum");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_a]),
+            "100 stake should not meet 401 quorum"
+        );
 
         // A single mid-stake validator (200) cannot form quorum
-        assert!(!dag.has_stake_quorum(&[&addr_b]),
-            "200 stake should not meet 401 quorum");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_b]),
+            "200 stake should not meet 401 quorum"
+        );
 
         // A single high-stake validator (300) cannot form quorum
-        assert!(!dag.has_stake_quorum(&[&addr_c]),
-            "300 stake should not meet 401 quorum");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_c]),
+            "300 stake should not meet 401 quorum"
+        );
 
         // Two validators with enough combined stake form quorum:
         // B + C = 200 + 300 = 500 >= 401
-        assert!(dag.has_stake_quorum(&[&addr_b, &addr_c]),
-            "500 stake should meet 401 quorum");
+        assert!(
+            dag.has_stake_quorum(&[&addr_b, &addr_c]),
+            "500 stake should meet 401 quorum"
+        );
 
         // A + C = 100 + 300 = 400 < 401 — barely under threshold
-        assert!(!dag.has_stake_quorum(&[&addr_a, &addr_c]),
-            "400 stake should not meet 401 quorum");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_a, &addr_c]),
+            "400 stake should not meet 401 quorum"
+        );
 
         // A + B = 100 + 200 = 300 < 401
-        assert!(!dag.has_stake_quorum(&[&addr_a, &addr_b]),
-            "300 stake should not meet 401 quorum");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_a, &addr_b]),
+            "300 stake should not meet 401 quorum"
+        );
 
         // All three validators: 100 + 200 + 300 = 600 >= 401
-        assert!(dag.has_stake_quorum(&[&addr_a, &addr_b, &addr_c]),
-            "600 stake should meet 401 quorum");
+        assert!(
+            dag.has_stake_quorum(&[&addr_a, &addr_b, &addr_c]),
+            "600 stake should meet 401 quorum"
+        );
 
         // Duplicate addresses should not double-count stake (R27-FIX)
-        assert!(!dag.has_stake_quorum(&[&addr_b, &addr_b, &addr_b]),
-            "duplicated 200 stake should only count once (200 < 401)");
+        assert!(
+            !dag.has_stake_quorum(&[&addr_b, &addr_b, &addr_b]),
+            "duplicated 200 stake should only count once (200 < 401)"
+        );
     }
-
 }

@@ -327,11 +327,17 @@ mod tests {
     fn consensus_message_domain_separation() {
         let msg1 = consensus_message(1, b"data", 31415);
         let msg2 = consensus_message(1, b"data", 314159);
-        assert_ne!(msg1, msg2, "different chain IDs must produce different messages");
+        assert_ne!(
+            msg1, msg2,
+            "different chain IDs must produce different messages"
+        );
 
         let msg3 = consensus_message(1, b"data", 31415);
         let msg4 = consensus_message(2, b"data", 31415);
-        assert_ne!(msg3, msg4, "different rounds must produce different messages");
+        assert_ne!(
+            msg3, msg4,
+            "different rounds must produce different messages"
+        );
     }
 
     #[test]

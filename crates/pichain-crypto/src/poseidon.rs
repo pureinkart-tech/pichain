@@ -67,11 +67,7 @@ impl PoseidonHasher {
     /// Hash an internal node.
     pub fn hash_internal(left: &PoseidonHash, right: &PoseidonHash) -> PoseidonHash {
         // Domain separation: prefix with 0x01 for internal nodes
-        let h = blake3_hash::hash_concat(&[
-            &[0x01],
-            left.0.as_slice(),
-            right.0.as_slice(),
-        ]);
+        let h = blake3_hash::hash_concat(&[&[0x01], left.0.as_slice(), right.0.as_slice()]);
         PoseidonHash(*h.as_bytes())
     }
 
@@ -108,10 +104,7 @@ mod tests {
     fn leaf_vs_internal_domain_separation() {
         let data = [0u8; 32];
         let leaf = PoseidonHasher::hash_leaf(&data, &data);
-        let internal = PoseidonHasher::hash_internal(
-            &PoseidonHash(data),
-            &PoseidonHash(data),
-        );
+        let internal = PoseidonHasher::hash_internal(&PoseidonHash(data), &PoseidonHash(data));
         // Domain separation ensures different outputs
         assert_ne!(leaf, internal);
     }
@@ -120,10 +113,7 @@ mod tests {
     fn all_three_domains_produce_distinct_hashes() {
         let data = [0u8; 32];
         let leaf = PoseidonHasher::hash_leaf(&data, &data);
-        let internal = PoseidonHasher::hash_internal(
-            &PoseidonHash(data),
-            &PoseidonHash(data),
-        );
+        let internal = PoseidonHasher::hash_internal(&PoseidonHash(data), &PoseidonHash(data));
         let two = PoseidonHasher::hash_two(&data, &data);
         // All three domain-separated hashes must differ
         assert_ne!(leaf, internal);

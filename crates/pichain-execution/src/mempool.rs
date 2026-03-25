@@ -7,8 +7,8 @@
 //! - Duplicate detection via tx hash
 //! - Configurable size limits
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use parking_lot::RwLock;
 use pichain_crypto::ed25519::Address;
 use pichain_crypto::Hash;
@@ -45,11 +45,11 @@ impl Default for MempoolConfig {
         Self {
             max_transactions: 100_000,
             max_per_sender: 1_000,
-            min_base_fee: 1, // 1 base unit minimum
+            min_base_fee: 1,               // 1 base unit minimum
             max_tx_age_secs: 300, // 5 minutes TTL — gives slow networks time to include txs
             max_tx_size_bytes: 512 * 1024, // 512KB max transaction size
-            chain_id: 0, // 0 = no enforcement (tests); set to real chain_id in production
-            require_pq: true, // Reject Ed25519 legacy transactions in production
+            chain_id: 0,          // 0 = no enforcement (tests); set to real chain_id in production
+            require_pq: true,     // Reject Ed25519 legacy transactions in production
         }
     }
 }
@@ -190,7 +190,9 @@ impl TransactionPool {
         // Atomic dedup check — prevents wasting CPU on duplicate signature verification
         match self.known_hashes.entry(tx_hash) {
             Entry::Occupied(_) => return Err(MempoolError::DuplicateTransaction(tx_hash)),
-            Entry::Vacant(v) => { v.insert(()); }
+            Entry::Vacant(v) => {
+                v.insert(());
+            }
         }
 
         // Fee check
@@ -247,7 +249,8 @@ impl TransactionPool {
         // of the sender's current next_nonce.
         const MAX_NONCE_GAP: u64 = 64;
         {
-            let next_nonce = self.sender_queues
+            let next_nonce = self
+                .sender_queues
                 .get(&sender)
                 .map(|q| q.next_nonce)
                 .unwrap_or(0);
@@ -343,8 +346,7 @@ impl TransactionPool {
                 .collect();
             for nonce in stale {
                 if let Some(hash) = entry.txs.remove(&nonce) {
-                    let priority_fee = self.transactions.get(&hash)
-                        .map(|p| p.priority_fee);
+                    let priority_fee = self.transactions.get(&hash).map(|p| p.priority_fee);
                     self.transactions.remove(&hash);
                     self.known_hashes.remove(&hash);
                     if let Some(fee) = priority_fee {
@@ -420,9 +422,7 @@ impl TransactionPool {
         ready
             .into_iter()
             .take(max_count)
-            .filter_map(|(_, hash)| {
-                self.transactions.get(&hash).map(|p| p.tx.clone())
-            })
+            .filter_map(|(_, hash)| self.transactions.get(&hash).map(|p| p.tx.clone()))
             .collect()
     }
 
@@ -545,7 +545,10 @@ pub enum MempoolError {
     #[error("duplicate transaction: {0}")]
     DuplicateTransaction(Hash),
     #[error("fee too low: provided {provided}, minimum {minimum}")]
-    FeeTooLow { provided: PiAmount, minimum: PiAmount },
+    FeeTooLow {
+        provided: PiAmount,
+        minimum: PiAmount,
+    },
     #[error("sender queue full for {sender}: limit {limit}")]
     SenderQueueFull { sender: Address, limit: usize },
     #[error("pool full")]
@@ -559,7 +562,11 @@ pub enum MempoolError {
     #[error("wrong chain_id: expected {expected}, got {got}")]
     WrongChainId { expected: u64, got: u64 },
     #[error("nonce too far ahead: nonce {nonce}, expected ~{expected}, max gap {max_gap}")]
-    NonceTooFar { nonce: u64, expected: u64, max_gap: u64 },
+    NonceTooFar {
+        nonce: u64,
+        expected: u64,
+        max_gap: u64,
+    },
     #[error("Ed25519 transactions rejected — use post-quantum wallet (ML-DSA + SLH-DSA)")]
     LegacyCryptoRejected,
 }
@@ -728,7 +735,7 @@ mod tests {
         let s4 = Keypair::generate();
 
         // Fill pool with 3 txs at different priorities
-        pool.insert(make_tx(&s1, 0, 10)).unwrap();  // lowest priority
+        pool.insert(make_tx(&s1, 0, 10)).unwrap(); // lowest priority
         pool.insert(make_tx(&s2, 0, 50)).unwrap();
         pool.insert(make_tx(&s3, 0, 100)).unwrap();
 
@@ -795,7 +802,10 @@ mod tests {
 
         let result = pool.insert(tx);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MempoolError::InvalidSignature));
+        assert!(matches!(
+            result.unwrap_err(),
+            MempoolError::InvalidSignature
+        ));
         assert_eq!(pool.len(), 0);
     }
 }

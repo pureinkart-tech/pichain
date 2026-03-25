@@ -85,7 +85,7 @@ impl AccountState {
     /// Formula: data_bytes * 1_000 base units (= data_bytes * 0.000001 PI)
     pub fn minimum_balance(&self) -> PiAmount {
         // Minimum 1 KB worth = 1_000_000 base units (0.001 PI)
-        
+
         self.data_size.max(1024).saturating_mul(1_000)
     }
 
@@ -98,7 +98,9 @@ impl AccountState {
     /// Returns Err if the state is inconsistent.
     pub fn validate(&self) -> Result<(), &'static str> {
         // staked + unbonding must not exceed balance
-        let locked = self.staked.checked_add(self.unbonding)
+        let locked = self
+            .staked
+            .checked_add(self.unbonding)
             .ok_or("staked + unbonding overflows u64")?;
         if locked > self.balance {
             return Err("staked + unbonding exceeds balance");
@@ -117,8 +119,7 @@ impl AccountState {
     /// Total balance available for paying gas fees (includes locked_balance).
     /// locked_balance can only be used for fees, never for transfers.
     pub fn fee_balance(&self) -> PiAmount {
-        self.available_balance()
-            .saturating_add(self.locked_balance)
+        self.available_balance().saturating_add(self.locked_balance)
     }
 }
 

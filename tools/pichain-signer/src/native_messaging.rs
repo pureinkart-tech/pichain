@@ -52,7 +52,9 @@ fn read_message() -> Result<NativeRequest, String> {
 
     // Read 4-byte length prefix (little-endian)
     let mut len_bytes = [0u8; 4];
-    stdin.read_exact(&mut len_bytes).map_err(|e| format!("stdin read error: {e}"))?;
+    stdin
+        .read_exact(&mut len_bytes)
+        .map_err(|e| format!("stdin read error: {e}"))?;
     let len = u32::from_le_bytes(len_bytes);
 
     if len == 0 || len > MAX_MSG_SIZE {
@@ -61,7 +63,9 @@ fn read_message() -> Result<NativeRequest, String> {
 
     // Read JSON body
     let mut buf = vec![0u8; len as usize];
-    stdin.read_exact(&mut buf).map_err(|e| format!("stdin body read error: {e}"))?;
+    stdin
+        .read_exact(&mut buf)
+        .map_err(|e| format!("stdin body read error: {e}"))?;
 
     serde_json::from_slice(&buf).map_err(|e| format!("invalid JSON: {e}"))
 }
@@ -104,8 +108,12 @@ pub fn run_native_messaging(pq_keypair: &PqKeypair, chain_id: u64) {
         if msg_timestamps.len() >= MAX_MSGS_PER_SECOND {
             write_response(&NativeResponse {
                 id: req.id,
-                address: None, connected: None, unlocked: None, ok: None,
-                signed_tx: None, tx_hash: None,
+                address: None,
+                connected: None,
+                unlocked: None,
+                ok: None,
+                signed_tx: None,
+                tx_hash: None,
                 error: Some("rate limit exceeded".to_string()),
                 version: None,
             });
@@ -126,32 +134,30 @@ pub fn run_native_messaging(pq_keypair: &PqKeypair, chain_id: u64) {
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             },
 
-            "sign" => {
-                match handle_sign(&pq_keypair, &address_hex, chain_id, req.tx_data) {
-                    Ok((signed_tx, tx_hash)) => NativeResponse {
-                        id: req.id,
-                        address: None,
-                        connected: None,
-                        unlocked: None,
-                        ok: Some(true),
-                        signed_tx: Some(signed_tx),
-                        tx_hash: Some(tx_hash),
-                        error: None,
-                        version: None,
-                    },
-                    Err(e) => NativeResponse {
-                        id: req.id,
-                        address: None,
-                        connected: None,
-                        unlocked: None,
-                        ok: Some(false),
-                        signed_tx: None,
-                        tx_hash: None,
-                        error: Some(e),
-                        version: None,
-                    },
-                }
-            }
+            "sign" => match handle_sign(&pq_keypair, &address_hex, chain_id, req.tx_data) {
+                Ok((signed_tx, tx_hash)) => NativeResponse {
+                    id: req.id,
+                    address: None,
+                    connected: None,
+                    unlocked: None,
+                    ok: Some(true),
+                    signed_tx: Some(signed_tx),
+                    tx_hash: Some(tx_hash),
+                    error: None,
+                    version: None,
+                },
+                Err(e) => NativeResponse {
+                    id: req.id,
+                    address: None,
+                    connected: None,
+                    unlocked: None,
+                    ok: Some(false),
+                    signed_tx: None,
+                    tx_hash: None,
+                    error: Some(e),
+                    version: None,
+                },
+            },
 
             "ping" => NativeResponse {
                 id: req.id,
@@ -194,7 +200,10 @@ fn handle_sign(
     if let Some(sender_str) = tx_value.get("sender").and_then(|s| s.as_str()) {
         let sender_hex = sender_str.strip_prefix("0x").unwrap_or(sender_str);
         if sender_hex != address_hex {
-            return Err(format!("sender {} does not match wallet {}", sender_hex, address_hex));
+            return Err(format!(
+                "sender {} does not match wallet {}",
+                sender_hex, address_hex
+            ));
         }
         let bytes = hex::decode(sender_hex).map_err(|e| format!("bad sender hex: {e}"))?;
         if bytes.len() != 20 {
@@ -209,7 +218,10 @@ fn handle_sign(
         serde_json::from_value(tx_value).map_err(|e| format!("invalid tx_data: {e}"))?;
 
     if tx_data.chain_id != chain_id && tx_data.chain_id != 0 {
-        return Err(format!("chain_id {} does not match {}", tx_data.chain_id, chain_id));
+        return Err(format!(
+            "chain_id {} does not match {}",
+            tx_data.chain_id, chain_id
+        ));
     }
 
     let signed = pichain_types::transaction::Transaction::sign_pq(tx_data, pq_keypair);

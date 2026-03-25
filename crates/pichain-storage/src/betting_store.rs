@@ -43,8 +43,7 @@ impl<'a> BettingStore<'a> {
     ) -> Result<(), StorageError> {
         let mut key = vec![MATCH_PREFIX];
         key.extend_from_slice(&m.id.0);
-        let data =
-            serde_json::to_vec(m).map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data = serde_json::to_vec(m).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }
@@ -65,8 +64,7 @@ impl<'a> BettingStore<'a> {
     /// Store a betting match directly (non-batch).
     pub fn put_match(&self, m: &BettingMatch) -> Result<(), StorageError> {
         let key = match_key(&m.id);
-        let data =
-            serde_json::to_vec(m).map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data = serde_json::to_vec(m).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_state(&key, &data)
     }
 }

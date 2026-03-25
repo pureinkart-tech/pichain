@@ -25,14 +25,14 @@ pub use betting_executor::BettingExecutor;
 pub use block_producer::{BlockProducer, BlockProducerConfig, ProducedBlock};
 pub use block_stm::{BlockSTM, MVHashMap};
 pub use dex_executor::DexExecutor;
-pub use evm::{EvmExecutor, EvmTransaction, EvmResult};
+pub use evm::{EvmExecutor, EvmResult, EvmTransaction};
 pub use executor::{ExecutionResult, SubExecutorChanges, TransactionExecutor};
 pub use fee::FeeCalculator;
 pub use launchpad_executor::LaunchpadExecutor;
 pub use mempool::{MempoolConfig, MempoolError, TransactionPool};
-pub use pipeline::{TransactionPipeline, PipelineConfig};
 pub use nft_executor::NftExecutor;
-pub use sdk::{ContractRegistry, ContractAbi, ContractMetadata, TokenStandard};
+pub use pipeline::{PipelineConfig, TransactionPipeline};
+pub use sdk::{ContractAbi, ContractMetadata, ContractRegistry, TokenStandard};
 pub use token_executor::TokenExecutor;
 pub use wasm_vm::WasmVM;
 

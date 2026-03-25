@@ -15,11 +15,7 @@
 //! - Keys loaded into memory only during signing, zeroized immediately after
 //! - No key material exposed via API — only addresses and signed transactions
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -57,13 +53,17 @@ impl VaultState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let mut limits = self.user_rate_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let mut limits = self
+            .user_rate_limits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let timestamps = limits.entry(user_id.to_string()).or_default();
         timestamps.retain(|&t| now.saturating_sub(t) < 60_000);
         if timestamps.len() >= MAX_USER_SIGNS_PER_MINUTE {
             return Err(format!(
                 "rate limit: user {} exceeded {} signs/minute",
-                &user_id[..user_id.len().min(8)], MAX_USER_SIGNS_PER_MINUTE
+                &user_id[..user_id.len().min(8)],
+                MAX_USER_SIGNS_PER_MINUTE
             ));
         }
         timestamps.push(now);
@@ -96,7 +96,8 @@ impl VaultState {
     /// Path to a user's encrypted wallet file.
     fn wallet_path(&self, user_id: &str) -> PathBuf {
         // Sanitize user_id to prevent path traversal
-        let safe_id: String = user_id.chars()
+        let safe_id: String = user_id
+            .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
             .take(64)
             .collect();
@@ -118,14 +119,12 @@ impl VaultState {
         let address = format!("{}", kp.address());
 
         // Serialize and encrypt
-        let json = serde_json::to_vec(&export)
-            .map_err(|e| format!("serialization error: {e}"))?;
+        let json = serde_json::to_vec(&export).map_err(|e| format!("serialization error: {e}"))?;
         let key = self.derive_user_key(user_id);
         let encrypted = encrypt_data(&json, &key);
 
         // Write to file
-        std::fs::write(&path, &encrypted)
-            .map_err(|e| format!("failed to write wallet: {e}"))?;
+        std::fs::write(&path, &encrypted).map_err(|e| format!("failed to write wallet: {e}"))?;
 
         // Set restrictive permissions
         #[cfg(unix)]
@@ -180,8 +179,8 @@ impl VaultState {
         // Sign with PQ dual signatures
         let signed = pichain_types::transaction::Transaction::sign_pq(tx_data, &kp);
         let tx_hash = hex::encode(signed.hash().as_bytes());
-        let signed_json = serde_json::to_value(&signed)
-            .map_err(|e| format!("serialization error: {e}"))?;
+        let signed_json =
+            serde_json::to_value(&signed).map_err(|e| format!("serialization error: {e}"))?;
 
         // kp is dropped here — PQ secret keys zeroized via Drop impl
 
@@ -194,20 +193,21 @@ impl VaultState {
     }
 
     /// Load and decrypt a user's wallet.
-    fn load_wallet(&self, user_id: &str) -> Result<pichain_crypto::pq_wallet::PqWalletExport, String> {
+    fn load_wallet(
+        &self,
+        user_id: &str,
+    ) -> Result<pichain_crypto::pq_wallet::PqWalletExport, String> {
         let path = self.wallet_path(user_id);
         if !path.exists() {
             return Err("no wallet found for this user".to_string());
         }
 
-        let encrypted = std::fs::read(&path)
-            .map_err(|e| format!("failed to read wallet: {e}"))?;
+        let encrypted = std::fs::read(&path).map_err(|e| format!("failed to read wallet: {e}"))?;
         let key = self.derive_user_key(user_id);
         let json = decrypt_data(&encrypted, &key)
             .map_err(|_| "wallet decryption failed — vault may be corrupted".to_string())?;
 
-        serde_json::from_slice(&json)
-            .map_err(|e| format!("invalid wallet data: {e}"))
+        serde_json::from_slice(&json).map_err(|e| format!("invalid wallet data: {e}"))
     }
 
     /// Delete a user's wallet (for account deletion).
@@ -222,7 +222,10 @@ impl VaultState {
     }
 
     /// Export a user's wallet (encrypted export for backup).
-    pub fn export_wallet(&self, user_id: &str) -> Result<pichain_crypto::pq_wallet::PqWalletExport, String> {
+    pub fn export_wallet(
+        &self,
+        user_id: &str,
+    ) -> Result<pichain_crypto::pq_wallet::PqWalletExport, String> {
         self.load_wallet(user_id)
     }
 }
@@ -280,11 +283,20 @@ pub async fn vault_create(
     Json(req): Json<VaultCreateRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if req.user_id.is_empty() || req.user_id.len() > 64 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid user_id"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid user_id"})),
+        );
     }
     match state.create_wallet(&req.user_id) {
-        Ok(address) => (StatusCode::OK, Json(serde_json::json!({"address": address, "user_id": req.user_id}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(address) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"address": address, "user_id": req.user_id})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -298,7 +310,10 @@ pub async fn vault_address(
     Json(req): Json<VaultAddressRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     match state.get_address(&req.user_id) {
-        Ok(address) => (StatusCode::OK, Json(serde_json::json!({"address": address}))),
+        Ok(address) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"address": address})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -317,17 +332,29 @@ pub async fn vault_sign(
     let mut tx_value = req.tx_data;
     super::convert_hex_strings_to_arrays(&mut tx_value);
 
-    let tx_data: pichain_types::transaction::TransactionData = match serde_json::from_value(tx_value) {
-        Ok(td) => td,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("invalid tx_data: {e}")}))),
-    };
+    let tx_data: pichain_types::transaction::TransactionData =
+        match serde_json::from_value(tx_value) {
+            Ok(td) => td,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": format!("invalid tx_data: {e}")})),
+                )
+            }
+        };
 
     match state.sign_transaction(&req.user_id, tx_data) {
         Ok((signed_tx, tx_hash)) => {
             info!(user_id = %req.user_id, %tx_hash, "vault: signed transaction");
-            (StatusCode::OK, Json(serde_json::json!({"signed_tx": signed_tx, "tx_hash": tx_hash})))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"signed_tx": signed_tx, "tx_hash": tx_hash})),
+            )
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 

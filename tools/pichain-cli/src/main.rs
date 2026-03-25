@@ -56,7 +56,10 @@ fn main() {
 
             let path = Path::new(&output);
             if path.exists() {
-                eprintln!("ERROR: File '{}' already exists. Remove it or choose a different path.", output);
+                eprintln!(
+                    "ERROR: File '{}' already exists. Remove it or choose a different path.",
+                    output
+                );
                 std::process::exit(1);
             }
 
@@ -76,27 +79,51 @@ fn main() {
             println!("=== New PIChain Wallet ===");
             println!("Address:         {}", kp.address());
             println!("Crypto:          Post-Quantum (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
-            println!("ML-DSA PK:       {} bytes (lattice-based)", pichain_crypto::pq::ML_DSA_PK_BYTES);
-            println!("SLH-DSA PK:      {} bytes (hash-based)", pichain_crypto::pq::SLH_DSA_PK_BYTES);
+            println!(
+                "ML-DSA PK:       {} bytes (lattice-based)",
+                pichain_crypto::pq::ML_DSA_PK_BYTES
+            );
+            println!(
+                "SLH-DSA PK:      {} bytes (hash-based)",
+                pichain_crypto::pq::SLH_DSA_PK_BYTES
+            );
             println!("Saved to:        {}", output);
             println!("\nBoth signatures must verify for every transaction.");
             println!("Quantum computers cannot break this wallet.\n");
-            println!("IMPORTANT: Keep '{}' safe. Your keys cannot be recovered.", output);
+            println!(
+                "IMPORTANT: Keep '{}' safe. Your keys cannot be recovered.",
+                output
+            );
         }
 
         Commands::VerifyWallet { path } => {
-            let contents = std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| { eprintln!("Failed to read '{}': {}", path, e); std::process::exit(1); });
+            let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                eprintln!("Failed to read '{}': {}", path, e);
+                std::process::exit(1);
+            });
             let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
-                .unwrap_or_else(|e| { eprintln!("Invalid wallet JSON: {}", e); std::process::exit(1); });
+                .unwrap_or_else(|e| {
+                    eprintln!("Invalid wallet JSON: {}", e);
+                    std::process::exit(1);
+                });
 
             print!("Verifying wallet... ");
             match pichain_crypto::verify_pq_wallet(&export) {
                 Ok(()) => {
                     println!("VALID");
                     println!("Address:     {}", export.address);
-                    println!("ML-DSA key:  {} bytes", hex::decode(&export.ml_dsa_public_key).map(|b| b.len()).unwrap_or(0));
-                    println!("SLH-DSA key: {} bytes", hex::decode(&export.slh_dsa_public_key).map(|b| b.len()).unwrap_or(0));
+                    println!(
+                        "ML-DSA key:  {} bytes",
+                        hex::decode(&export.ml_dsa_public_key)
+                            .map(|b| b.len())
+                            .unwrap_or(0)
+                    );
+                    println!(
+                        "SLH-DSA key: {} bytes",
+                        hex::decode(&export.slh_dsa_public_key)
+                            .map(|b| b.len())
+                            .unwrap_or(0)
+                    );
                 }
                 Err(e) => {
                     println!("INVALID — {}", e);
@@ -106,7 +133,7 @@ fn main() {
         }
 
         Commands::ComputePi { position, count } => {
-            use pichain_mining::bbp::{BbpComputer, digits_to_hex_string};
+            use pichain_mining::bbp::{digits_to_hex_string, BbpComputer};
 
             println!("Computing {count} hex digits of PI starting at position {position}...\n");
 
@@ -115,8 +142,12 @@ fn main() {
             let elapsed = start.elapsed();
 
             let hex_str = digits_to_hex_string(&digits);
-            println!("PI hex [{position}..{}]: {hex_str}", position + count as u64);
-            println!("\nComputed in {:.3}s ({:.0} digits/sec)",
+            println!(
+                "PI hex [{position}..{}]: {hex_str}",
+                position + count as u64
+            );
+            println!(
+                "\nComputed in {:.3}s ({:.0} digits/sec)",
                 elapsed.as_secs_f64(),
                 count as f64 / elapsed.as_secs_f64()
             );

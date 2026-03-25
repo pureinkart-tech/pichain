@@ -65,10 +65,7 @@ impl TransactionPipeline {
         _executor: Arc<crate::executor::TransactionExecutor>,
         mempool: Arc<TransactionPool>,
     ) -> Self {
-        Self {
-            config,
-            mempool,
-        }
+        Self { config, mempool }
     }
 
     /// Run the 3-stage pipeline until shutdown.
@@ -227,10 +224,7 @@ pub fn batch_verify_signatures(
         .par_chunks(CHUNK_SIZE)
         .map(|chunk| {
             // Serialize messages using canonical binary encoding (deterministic)
-            let messages: Vec<Vec<u8>> = chunk
-                .iter()
-                .map(|tx| tx.data.canonical_bytes())
-                .collect();
+            let messages: Vec<Vec<u8>> = chunk.iter().map(|tx| tx.data.canonical_bytes()).collect();
             let msg_refs: Vec<&[u8]> = messages.iter().map(|m| m.as_slice()).collect();
             let sigs: Vec<ed25519::Signature> = chunk.iter().map(|tx| tx.signature).collect();
             let pks: Vec<ed25519::PublicKey> = chunk.iter().map(|tx| tx.public_key).collect();
@@ -262,13 +256,8 @@ mod tests {
 
     fn make_signed_tx(sender: &Keypair, nonce: u64) -> SignedTransaction {
         let recipient = Keypair::generate();
-        let data = Transaction::transfer(
-            sender.address(),
-            nonce,
-            recipient.address(),
-            1_000_000,
-            1,
-        );
+        let data =
+            Transaction::transfer(sender.address(), nonce, recipient.address(), 1_000_000, 1);
         Transaction::sign_ed25519_for_tests_only(data, sender)
     }
 

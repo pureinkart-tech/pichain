@@ -4,13 +4,13 @@
 //!
 //! All games are player-vs-player. A 2% house fee is burned on resolution.
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use pichain_crypto::ed25519::Address;
 use pichain_types::betting::{
-    BettingMatch, GameCategory, MatchId, MatchState,
-    HOUSE_FEE_BPS, MATCH_EXPIRY_BLOCKS, MAX_GAME_ID_LEN, MAX_MATCHES_PER_CREATOR,
-    MAX_PLAYERS, MAX_WAGER, MIN_PLAYERS, MIN_WAGER, RESOLVE_DEADLINE_BLOCKS,
+    BettingMatch, GameCategory, MatchId, MatchState, HOUSE_FEE_BPS, MATCH_EXPIRY_BLOCKS,
+    MAX_GAME_ID_LEN, MAX_MATCHES_PER_CREATOR, MAX_PLAYERS, MAX_WAGER, MIN_PLAYERS, MIN_WAGER,
+    RESOLVE_DEADLINE_BLOCKS,
 };
 use pichain_types::transaction::{TransactionEvent, TransactionStatus};
 use std::collections::HashMap;
@@ -114,12 +114,18 @@ impl BettingExecutor {
 
     /// Snapshot all matches (for block-level persistence).
     pub fn all_matches(&self) -> HashMap<MatchId, BettingMatch> {
-        self.matches.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.matches
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all match nonces.
     pub fn all_nonces(&self) -> HashMap<Address, u64> {
-        self.match_nonces.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.match_nonces
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     /// Get all active matches (for API queries).
@@ -203,7 +209,11 @@ impl BettingExecutor {
         }
 
         // Anti-spam: check creator's active match count
-        let count = self.creator_match_count.get(&sender).map(|v| *v).unwrap_or(0);
+        let count = self
+            .creator_match_count
+            .get(&sender)
+            .map(|v| *v)
+            .unwrap_or(0);
         if count >= MAX_MATCHES_PER_CREATOR {
             return betting_error("too many active matches (max 50)");
         }
@@ -542,11 +552,8 @@ impl BettingExecutor {
         // Auto-cancel if fewer than 2 participants remain
         if m.participants.len() < MIN_PLAYERS as usize {
             // Refund remaining participants + the removed one
-            let mut credits: Vec<(Address, u64)> = m
-                .participants
-                .iter()
-                .map(|p| (*p, wager))
-                .collect();
+            let mut credits: Vec<(Address, u64)> =
+                m.participants.iter().map(|p| (*p, wager)).collect();
             credits.push((participant, wager));
 
             m.state = MatchState::Cancelled;
@@ -608,11 +615,7 @@ impl BettingExecutor {
     }
 
     /// Cancel a match — refund all participants.
-    pub fn cancel_match(
-        &self,
-        sender: Address,
-        match_id: MatchId,
-    ) -> BettingResult {
+    pub fn cancel_match(&self, sender: Address, match_id: MatchId) -> BettingResult {
         let mut match_ref = match self.matches.get_mut(&match_id) {
             Some(m) => m,
             None => return betting_error("match not found"),
@@ -766,7 +769,10 @@ mod tests {
         ex.join_match(addr(2), match_id, [99; 32]);
 
         let start_result = ex.start_match(addr(2), match_id, [0xAB; 32]);
-        assert!(matches!(start_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            start_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -780,12 +786,7 @@ mod tests {
         ex.join_match(addr(2), match_id, [99; 32]);
         ex.start_match(addr(1), match_id, [0xAB; 32]);
 
-        let resolve_result = ex.resolve_match(
-            addr(1),
-            match_id,
-            &[addr(2)],
-            server_seed,
-        );
+        let resolve_result = ex.resolve_match(addr(1), match_id, &[addr(2)], server_seed);
         assert!(matches!(resolve_result.status, TransactionStatus::Success));
 
         // Total pot = 2 * 1e9 = 2e9
@@ -805,7 +806,10 @@ mod tests {
         ex.join_match(addr(2), match_id, [99; 32]);
 
         let resolve_result = ex.resolve_match(addr(1), match_id, &[addr(2)], b"wrong_seed");
-        assert!(matches!(resolve_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            resolve_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -829,7 +833,10 @@ mod tests {
         let match_id = *result.match_changes.keys().next().unwrap();
 
         let cancel_result = ex.cancel_match(addr(2), match_id);
-        assert!(matches!(cancel_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            cancel_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -878,7 +885,10 @@ mod tests {
 
         // Player 2 tries to remove player 3
         let remove_result = ex.remove_participant(addr(2), match_id, addr(3));
-        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            remove_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -890,7 +900,10 @@ mod tests {
 
         // Creator tries to remove self
         let remove_result = ex.remove_participant(addr(1), match_id, addr(1));
-        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            remove_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -902,7 +915,10 @@ mod tests {
 
         // Try to remove someone who never joined
         let remove_result = ex.remove_participant(addr(1), match_id, addr(5));
-        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            remove_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]
@@ -936,7 +952,10 @@ mod tests {
 
         // Try to remove from completed match
         let remove_result = ex.remove_participant(addr(1), match_id, addr(2));
-        assert!(matches!(remove_result.status, TransactionStatus::Reverted(_)));
+        assert!(matches!(
+            remove_result.status,
+            TransactionStatus::Reverted(_)
+        ));
     }
 
     #[test]

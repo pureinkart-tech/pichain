@@ -19,7 +19,9 @@ mod address_map_serde {
     use std::collections::HashMap;
 
     pub fn serialize<S>(map: &HashMap<Address, u64>, serializer: S) -> Result<S::Ok, S::Error>
-    where S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         let mut m = serializer.serialize_map(Some(map.len()))?;
         for (addr, val) in map {
             m.serialize_entry(&hex::encode(addr.0), val)?;
@@ -28,13 +30,18 @@ mod address_map_serde {
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<Address, u64>, D::Error>
-    where D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         let string_map: HashMap<String, u64> = HashMap::deserialize(deserializer)?;
         let mut result = HashMap::with_capacity(string_map.len());
         for (hex_str, val) in string_map {
             let bytes = hex::decode(&hex_str).map_err(serde::de::Error::custom)?;
             if bytes.len() != 20 {
-                return Err(serde::de::Error::custom(format!("address must be 20 bytes, got {}", bytes.len())));
+                return Err(serde::de::Error::custom(format!(
+                    "address must be 20 bytes, got {}",
+                    bytes.len()
+                )));
             }
             let mut addr = [0u8; 20];
             addr.copy_from_slice(&bytes);
@@ -166,7 +173,11 @@ impl TokenLaunch {
                 // Simple: cost = amount * price
                 amount.checked_mul(*price_per_token)
             }
-            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+            LaunchType::BondingCurve {
+                base_price,
+                slope,
+                price_scale,
+            } => {
                 let ps = (*price_scale).max(1) as u128;
 
                 // Convert to display units if token has decimals
@@ -231,7 +242,9 @@ impl TokenLaunch {
                 let tokens = pi_amount / price_per_token;
                 std::cmp::min(tokens, remaining)
             }
-            LaunchType::BondingCurve { base_price, slope, .. } => {
+            LaunchType::BondingCurve {
+                base_price, slope, ..
+            } => {
                 // Guard against zero-cost infinite loop
                 if *base_price == 0 && *slope == 0 {
                     return 0;
@@ -259,7 +272,11 @@ impl TokenLaunch {
     pub fn current_price(&self) -> u64 {
         match &self.launch_type {
             LaunchType::FairLaunch { price_per_token } => *price_per_token,
-            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+            LaunchType::BondingCurve {
+                base_price,
+                slope,
+                price_scale,
+            } => {
                 let ps = (*price_scale).max(1) as u128;
 
                 // Convert tokens_sold to display units
@@ -271,11 +288,15 @@ impl TokenLaunch {
                 let s = (self.tokens_sold as u128) / scale;
 
                 // Price per display token = (base_price + slope * display_sold) / price_scale
-                let price = (*base_price as u128)
-                    .saturating_add((*slope as u128).saturating_mul(s));
+                let price =
+                    (*base_price as u128).saturating_add((*slope as u128).saturating_mul(s));
                 let price = price / ps;
 
-                if price > u64::MAX as u128 { u64::MAX } else { price as u64 }
+                if price > u64::MAX as u128 {
+                    u64::MAX
+                } else {
+                    price as u64
+                }
             }
         }
     }
@@ -292,7 +313,11 @@ impl TokenLaunch {
             LaunchType::FairLaunch { price_per_token } => {
                 token_amount.checked_mul(*price_per_token)
             }
-            LaunchType::BondingCurve { base_price, slope, price_scale } => {
+            LaunchType::BondingCurve {
+                base_price,
+                slope,
+                price_scale,
+            } => {
                 let ps = (*price_scale).max(1) as u128;
                 let scale = if self.token_decimals > 0 {
                     10u128.pow(self.token_decimals as u32)
@@ -322,7 +347,11 @@ impl TokenLaunch {
                 let inner = inner.div_ceil(2);
                 let total = linear.checked_add(inner)? / ps;
 
-                if total > u64::MAX as u128 { None } else { Some(total as u64) }
+                if total > u64::MAX as u128 {
+                    None
+                } else {
+                    Some(total as u64)
+                }
             }
         }
     }
@@ -351,7 +380,11 @@ impl TokenLaunch {
         } else {
             // All tokens sold — mint new tokens as percentage of total sale
             let t = self.tokens_for_sale as u128 * self.token_liquidity_bps as u128 / 10_000;
-            if t > u64::MAX as u128 { u64::MAX } else { t as u64 }
+            if t > u64::MAX as u128 {
+                u64::MAX
+            } else {
+                t as u64
+            }
         };
 
         (pi_for_pool, tokens_for_pool)
@@ -544,7 +577,8 @@ mod tests {
         assert!(
             cost >= 500_000_000 && cost <= 3_000_000_000,
             "2% should cost ~1 PI, got {} ({:.3} PI)",
-            cost, cost as f64 / 1e9
+            cost,
+            cost as f64 / 1e9
         );
     }
 
@@ -557,7 +591,8 @@ mod tests {
         assert!(
             total_cost >= 30_000_000_000 && total_cost <= 200_000_000_000,
             "total cost should be ~100 PI, got {} ({:.1} PI)",
-            total_cost, total_cost as f64 / 1e9
+            total_cost,
+            total_cost as f64 / 1e9
         );
     }
 
@@ -571,7 +606,8 @@ mod tests {
         assert!(
             pct >= 0.5 && pct <= 5.0,
             "1 PI should buy ~2% of tokens, got {:.2}% ({} tokens)",
-            pct, tokens
+            pct,
+            tokens
         );
     }
 
@@ -585,7 +621,8 @@ mod tests {
         assert!(
             price2 > price1,
             "price should increase after sales: {} vs {}",
-            price1, price2
+            price1,
+            price2
         );
     }
 
@@ -600,7 +637,10 @@ mod tests {
                 assert!(
                     cost <= pi_amount,
                     "inconsistency: {} tokens cost {} but tokens_for_pi({}) returned {}",
-                    tokens, cost, pi_amount, tokens
+                    tokens,
+                    cost,
+                    pi_amount,
+                    tokens
                 );
             }
         }

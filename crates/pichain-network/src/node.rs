@@ -1,8 +1,6 @@
 //! P2P network node using libp2p with QUIC transport.
 
-use libp2p::{
-    identity, Multiaddr, PeerId,
-};
+use libp2p::{identity, Multiaddr, PeerId};
 use tokio::sync::mpsc;
 use tracing::info;
 

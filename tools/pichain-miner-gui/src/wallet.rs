@@ -352,8 +352,8 @@ pub fn create_pq_wallet(save_path: &str, password: &str) -> Result<CreateWalletR
     let address = format!("{}", kp.address());
 
     // Serialize the PQ export as JSON, then encrypt the entire JSON blob
-    let export_json = serde_json::to_vec(&export)
-        .map_err(|e| format!("Serialization error: {e}"))?;
+    let export_json =
+        serde_json::to_vec(&export).map_err(|e| format!("Serialization error: {e}"))?;
     let (salt, nonce, ciphertext) = encrypt_secret(&export_json, password);
 
     let wallet = WalletFile {
@@ -365,8 +365,8 @@ pub fn create_pq_wallet(save_path: &str, password: &str) -> Result<CreateWalletR
         address: Some(address.clone()),
     };
 
-    let json = serde_json::to_string_pretty(&wallet)
-        .map_err(|e| format!("Serialization error: {e}"))?;
+    let json =
+        serde_json::to_string_pretty(&wallet).map_err(|e| format!("Serialization error: {e}"))?;
     std::fs::write(&path, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
     restrict_file_permissions(&path);
 
@@ -383,10 +383,10 @@ pub fn load_pq_wallet(
     password: Option<&str>,
 ) -> Result<(pichain_crypto::pq_wallet::PqWalletExport, WalletLoadResult), String> {
     let path = PathBuf::from(path);
-    let contents = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read wallet: {e}"))?;
-    let wallet: WalletFile = serde_json::from_str(&contents)
-        .map_err(|e| format!("Invalid wallet JSON: {e}"))?;
+    let contents =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read wallet: {e}"))?;
+    let wallet: WalletFile =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
 
     if wallet.version == 3 {
         // Encrypted PQ wallet (v3)
@@ -395,8 +395,13 @@ pub fn load_pq_wallet(
             .map_err(|e| format!("Invalid salt: {e}"))?;
         let nonce = hex::decode(wallet.nonce.as_deref().ok_or("Missing nonce")?)
             .map_err(|e| format!("Invalid nonce: {e}"))?;
-        let ct = hex::decode(wallet.encrypted_key.as_deref().ok_or("Missing encrypted_key")?)
-            .map_err(|e| format!("Invalid ciphertext: {e}"))?;
+        let ct = hex::decode(
+            wallet
+                .encrypted_key
+                .as_deref()
+                .ok_or("Missing encrypted_key")?,
+        )
+        .map_err(|e| format!("Invalid ciphertext: {e}"))?;
         let decrypted = decrypt_secret(&salt, &nonce, &ct, password)?;
         let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_slice(&decrypted)
             .map_err(|e| format!("Invalid PQ wallet data: {e}"))?;

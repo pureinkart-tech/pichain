@@ -179,10 +179,10 @@ mod tests {
     fn specific_known_positions() {
         // Known hex digits of PI at specific positions
         let expected: Vec<(u64, u8)> = vec![
-            (0, 0x2),  // 2
-            (1, 0x4),  // 4
-            (2, 0x3),  // 3
-            (3, 0xF),  // F
+            (0, 0x2), // 2
+            (1, 0x4), // 4
+            (2, 0x3), // 3
+            (3, 0xF), // F
         ];
 
         for (pos, expected_digit) in expected {
@@ -231,7 +231,10 @@ mod tests {
     fn parallel_matches_sequential() {
         let seq = BbpComputer::compute_hex_digits(0, 100);
         let par = BbpComputer::compute_hex_digits_parallel(0, 100);
-        assert_eq!(seq, par, "Parallel computation must produce identical results");
+        assert_eq!(
+            seq, par,
+            "Parallel computation must produce identical results"
+        );
     }
 
     #[test]

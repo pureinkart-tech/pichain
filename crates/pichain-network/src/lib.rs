@@ -12,15 +12,17 @@ pub mod sync;
 pub mod testnet;
 pub mod turbine;
 
-pub use bridge::{BridgeManager, BridgeTransfer, BridgeChain, BridgeError};
+pub use bridge::{BridgeChain, BridgeError, BridgeManager, BridgeTransfer};
 pub use node::NetworkNode;
 pub use pq_transport::{
-    PqValidatorAnnounce, PqCapabilities, create_pq_announce, verify_pq_announce,
-    hybrid_shared_secret, PQ_TRANSPORT_VERSION,
+    create_pq_announce, hybrid_shared_secret, verify_pq_announce, PqCapabilities,
+    PqValidatorAnnounce, PQ_TRANSPORT_VERSION,
 };
-pub use swarm::{PiChainSwarm, SwarmBroadcaster, SwarmConfig, SwarmMessage, peer_id_from_ed25519, TOPIC_SYNC};
-pub use sync::{StateSyncManager, SyncMode, SyncState, SyncRequest, SyncResponse};
-pub use testnet::{LocalTestnet, TestnetConfig, TestNodeConfig};
+pub use swarm::{
+    peer_id_from_ed25519, PiChainSwarm, SwarmBroadcaster, SwarmConfig, SwarmMessage, TOPIC_SYNC,
+};
+pub use sync::{StateSyncManager, SyncMode, SyncRequest, SyncResponse, SyncState};
+pub use testnet::{LocalTestnet, TestNodeConfig, TestnetConfig};
 
 use pichain_crypto::ed25519::{Address, PublicKey, Signature};
 use pichain_types::transaction::SignedTransaction;
@@ -49,20 +51,11 @@ pub enum PeerSyncMessage {
     /// Request: "What is your chain tip?"
     GetChainTip,
     /// Response: "My chain tip is height H with hash."
-    ChainTip {
-        height: u64,
-        block_hash: [u8; 32],
-    },
+    ChainTip { height: u64, block_hash: [u8; 32] },
     /// Request: "Send me blocks from start_height to end_height (inclusive)."
-    GetBlocks {
-        start_height: u64,
-        end_height: u64,
-    },
+    GetBlocks { start_height: u64, end_height: u64 },
     /// Response: a single block (sent as JSON bytes).
-    BlockData {
-        height: u64,
-        data: Vec<u8>,
-    },
+    BlockData { height: u64, data: Vec<u8> },
     /// Equivocation evidence: two conflicting certificates from the same validator
     /// in the same round. All nodes must process the same evidence for deterministic
     /// slashing, preventing validator set state divergence.

@@ -50,7 +50,7 @@ impl BridgeChain {
             BridgeChain::Arbitrum => 42161,
             BridgeChain::Base => 8453,
             BridgeChain::Solana => 1399811149, // Wormhole convention
-            BridgeChain::Bitcoin => 0,          // Bitcoin has no EVM chain ID
+            BridgeChain::Bitcoin => 0,         // Bitcoin has no EVM chain ID
             BridgeChain::Other(id) => *id,
         }
     }
@@ -207,8 +207,10 @@ impl CircuitBreaker {
 
     /// Check if a single transfer amount exceeds the per-transfer size limit.
     pub fn exceeds_single_transfer_limit(&self, amount: u128) -> bool {
-        let max_single = self.max_hourly_volume
-            .saturating_mul(MAX_SINGLE_TRANSFER_BPS) / 10_000;
+        let max_single = self
+            .max_hourly_volume
+            .saturating_mul(MAX_SINGLE_TRANSFER_BPS)
+            / 10_000;
         amount > max_single
     }
 
@@ -263,7 +265,8 @@ impl CircuitBreaker {
     /// Get rolling volume for the last hour of blocks.
     pub fn rolling_volume(&self, current_height: u64) -> u128 {
         let cutoff = current_height.saturating_sub(BLOCKS_PER_HOUR);
-        self.volume_window.iter()
+        self.volume_window
+            .iter()
             .filter(|(h, _)| *h > cutoff)
             .map(|(_, amt)| *amt)
             .fold(0u128, |acc, v| acc.saturating_add(v))
@@ -296,7 +299,10 @@ impl CircuitBreaker {
         };
         let cooldown_remaining = if self.paused {
             self.paused_at
-                .map(|h| h.saturating_add(CIRCUIT_BREAKER_COOLDOWN_BLOCKS).saturating_sub(current_height))
+                .map(|h| {
+                    h.saturating_add(CIRCUIT_BREAKER_COOLDOWN_BLOCKS)
+                        .saturating_sub(current_height)
+                })
                 .unwrap_or(0)
         } else {
             0
@@ -404,14 +410,17 @@ impl BridgeManager {
         if self.relayers.contains_key(&address) {
             return Err(BridgeError::RelayerAlreadyRegistered(address));
         }
-        self.relayers.insert(address, BridgeRelayer {
+        self.relayers.insert(
             address,
-            public_key,
-            stake,
-            active: true,
-            attestation_count: 0,
-            incorrect_count: 0,
-        });
+            BridgeRelayer {
+                address,
+                public_key,
+                stake,
+                active: true,
+                attestation_count: 0,
+                incorrect_count: 0,
+            },
+        );
         Ok(())
     }
 
@@ -442,8 +451,11 @@ impl BridgeManager {
         // This prevents a single large transfer from immediately tripping the circuit breaker
         // and blocking all other users.
         if self.circuit_breaker.exceeds_single_transfer_limit(amount) {
-            let max_single = self.circuit_breaker.max_hourly_volume
-                .saturating_mul(MAX_SINGLE_TRANSFER_BPS) / 10_000;
+            let max_single = self
+                .circuit_breaker
+                .max_hourly_volume
+                .saturating_mul(MAX_SINGLE_TRANSFER_BPS)
+                / 10_000;
             return Err(BridgeError::TransferTooLarge {
                 amount,
                 max_single_transfer: max_single,
@@ -466,7 +478,9 @@ impl BridgeManager {
         }
 
         // Find the token pair
-        let pair = self.token_pairs.iter_mut()
+        let pair = self
+            .token_pairs
+            .iter_mut()
             .find(|p| p.chain == dest_chain && p.enabled)
             .ok_or(BridgeError::UnsupportedChain(dest_chain.clone()))?;
 
@@ -512,7 +526,8 @@ impl BridgeManager {
         self.attestations.insert(transfer_id, Vec::new());
 
         // Record volume for circuit breaker
-        self.circuit_breaker.record_volume(self.current_height, amount);
+        self.circuit_breaker
+            .record_volume(self.current_height, amount);
 
         Ok(transfer_id)
     }
@@ -538,7 +553,9 @@ impl BridgeManager {
         relayer: Address,
         signature: Signature,
     ) -> Result<bool, BridgeError> {
-        let relay = self.relayers.get(&relayer)
+        let relay = self
+            .relayers
+            .get(&relayer)
             .ok_or(BridgeError::RelayerNotRegistered(relayer))?;
 
         if !relay.active {
@@ -547,7 +564,9 @@ impl BridgeManager {
 
         let public_key = relay.public_key;
 
-        let transfer = self.transfers.get(&transfer_id)
+        let transfer = self
+            .transfers
+            .get(&transfer_id)
             .ok_or(BridgeError::TransferNotFound(transfer_id))?;
 
         if transfer.status != TransferStatus::Pending {
@@ -556,9 +575,9 @@ impl BridgeManager {
 
         // Verify the Ed25519 signature over the canonical attestation message
         let msg = Self::attestation_message(transfer);
-        public_key.verify(&msg, &signature).map_err(|_| {
-            BridgeError::InvalidAttestationSignature(relayer, transfer_id)
-        })?;
+        public_key
+            .verify(&msg, &signature)
+            .map_err(|_| BridgeError::InvalidAttestationSignature(relayer, transfer_id))?;
 
         // Compute dynamic quorum BEFORE mutable borrows on attestations.
         // Use the larger of: static required_attestations, or dynamic 2/3+1 of active relayers.
@@ -574,7 +593,11 @@ impl BridgeManager {
         if active_count == 0 {
             return Err(BridgeError::NoActiveRelayers);
         }
-        let effective_quorum = self.required_attestations.max(dynamic_quorum).min(active_count).max(1);
+        let effective_quorum = self
+            .required_attestations
+            .max(dynamic_quorum)
+            .min(active_count)
+            .max(1);
 
         let attestations = self.attestations.entry(transfer_id).or_default();
 
@@ -610,7 +633,9 @@ impl BridgeManager {
     /// Applies bridge fee and decrements TVL.
     /// Requires minimum block age since initiation to allow source chain finality.
     pub fn execute_transfer(&mut self, transfer_id: Hash) -> Result<&BridgeTransfer, BridgeError> {
-        let transfer = self.transfers.get_mut(&transfer_id)
+        let transfer = self
+            .transfers
+            .get_mut(&transfer_id)
             .ok_or(BridgeError::TransferNotFound(transfer_id))?;
 
         if transfer.status != TransferStatus::Confirmed {
@@ -618,7 +643,11 @@ impl BridgeManager {
         }
 
         // Enforce minimum block age to ensure source chain finality
-        if self.current_height < transfer.source_block.saturating_add(MIN_BRIDGE_CONFIRMATION_BLOCKS) {
+        if self.current_height
+            < transfer
+                .source_block
+                .saturating_add(MIN_BRIDGE_CONFIRMATION_BLOCKS)
+        {
             return Err(BridgeError::TransferNotConfirmed(transfer_id));
         }
 
@@ -627,7 +656,9 @@ impl BridgeManager {
 
         // Decrement TVL and apply fee
         self.total_value_locked = self.total_value_locked.saturating_sub(amount);
-        if let Some(pair) = self.token_pairs.iter_mut()
+        if let Some(pair) = self
+            .token_pairs
+            .iter_mut()
             .find(|p| p.chain == self.transfers[&transfer_id].dest_chain)
         {
             pair.total_locked = pair.total_locked.saturating_sub(amount);
@@ -637,7 +668,8 @@ impl BridgeManager {
             pair.total_minted = pair.total_minted.saturating_add(net_amount);
         }
 
-        self.transfers.get(&transfer_id)
+        self.transfers
+            .get(&transfer_id)
             .ok_or(BridgeError::TransferNotFound(transfer_id))
     }
 
@@ -645,7 +677,9 @@ impl BridgeManager {
     /// Returns the number of transfers expired.
     pub fn expire_stale_transfers(&mut self, max_age_blocks: u64) -> usize {
         let current = self.current_height;
-        let expired_ids: Vec<Hash> = self.transfers.iter()
+        let expired_ids: Vec<Hash> = self
+            .transfers
+            .iter()
             .filter(|(_, t)| {
                 t.status == TransferStatus::Pending
                     && current.saturating_sub(t.source_block) > max_age_blocks
@@ -658,7 +692,9 @@ impl BridgeManager {
                 // Unlock the locked funds
                 let amount = transfer.amount;
                 self.total_value_locked = self.total_value_locked.saturating_sub(amount);
-                if let Some(pair) = self.token_pairs.iter_mut()
+                if let Some(pair) = self
+                    .token_pairs
+                    .iter_mut()
                     .find(|p| p.chain == transfer.dest_chain)
                 {
                     pair.total_locked = pair.total_locked.saturating_sub(amount);
@@ -677,7 +713,10 @@ impl BridgeManager {
 
     /// Get attestations for a transfer.
     pub fn get_attestations(&self, id: &Hash) -> &[Attestation] {
-        self.attestations.get(id).map(|v| v.as_slice()).unwrap_or(&[])
+        self.attestations
+            .get(id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get total value locked.
@@ -697,7 +736,10 @@ impl BridgeManager {
 
     /// Get pending transfer count.
     pub fn pending_count(&self) -> usize {
-        self.transfers.values().filter(|t| t.status == TransferStatus::Pending).count()
+        self.transfers
+            .values()
+            .filter(|t| t.status == TransferStatus::Pending)
+            .count()
     }
 
     /// Get required attestations for quorum.
@@ -746,7 +788,10 @@ pub enum BridgeError {
     #[error("bridge is paused (circuit breaker tripped or admin pause)")]
     BridgePaused,
     #[error("transfer too large: {amount} exceeds single-transfer limit of {max_single_transfer}")]
-    TransferTooLarge { amount: u128, max_single_transfer: u128 },
+    TransferTooLarge {
+        amount: u128,
+        max_single_transfer: u128,
+    },
 }
 
 #[cfg(test)]
@@ -787,7 +832,7 @@ mod tests {
             total_locked: 0,
             total_minted: 0,
             min_amount: 1_000_000_000, // 1 PI minimum
-            fee_bps: 30, // 0.3% bridge fee
+            fee_bps: 30,               // 0.3% bridge fee
         });
 
         (mgr, vec![kp1, kp2, kp3])
@@ -815,12 +860,14 @@ mod tests {
         let sender = Address([10u8; 20]);
         let recipient = vec![20u8; 20];
 
-        let id = mgr.initiate_transfer(
-            sender,
-            BridgeChain::Ethereum,
-            recipient,
-            5_000_000_000, // 5 PI
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                sender,
+                BridgeChain::Ethereum,
+                recipient,
+                5_000_000_000, // 5 PI
+            )
+            .unwrap();
 
         let transfer = mgr.get_transfer(&id).unwrap();
         assert_eq!(transfer.status, TransferStatus::Pending);
@@ -831,26 +878,31 @@ mod tests {
     #[test]
     fn reject_zero_amount() {
         let (mut mgr, _) = setup_bridge();
-        assert!(mgr.initiate_transfer(
-            Address([1u8; 20]), BridgeChain::Ethereum, vec![1u8; 20], 0,
-        ).is_err());
+        assert!(mgr
+            .initiate_transfer(Address([1u8; 20]), BridgeChain::Ethereum, vec![1u8; 20], 0,)
+            .is_err());
     }
 
     #[test]
     fn reject_below_minimum() {
         let (mut mgr, _) = setup_bridge();
-        assert!(mgr.initiate_transfer(
-            Address([1u8; 20]), BridgeChain::Ethereum, vec![1u8; 20], 100, // Below 1 PI minimum
-        ).is_err());
+        assert!(mgr
+            .initiate_transfer(
+                Address([1u8; 20]),
+                BridgeChain::Ethereum,
+                vec![1u8; 20],
+                100, // Below 1 PI minimum
+            )
+            .is_err());
     }
 
     #[test]
     fn attestation_flow_with_verified_signatures() {
         let (mut mgr, kps) = setup_bridge();
         let sender = Address([10u8; 20]);
-        let id = mgr.initiate_transfer(
-            sender, BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(sender, BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000)
+            .unwrap();
 
         let transfer = mgr.get_transfer(&id).unwrap().clone();
 
@@ -858,27 +910,41 @@ mod tests {
         let sig1 = sign_attestation(&kps[0], &transfer);
         let confirmed = mgr.submit_attestation(id, kps[0].address(), sig1).unwrap();
         assert!(!confirmed);
-        assert_eq!(mgr.get_transfer(&id).unwrap().status, TransferStatus::Pending);
+        assert_eq!(
+            mgr.get_transfer(&id).unwrap().status,
+            TransferStatus::Pending
+        );
 
         // Second attestation — still not confirmed (quorum = max(3, 2/3*3+1) = 3)
         let sig2 = sign_attestation(&kps[1], &transfer);
         let confirmed = mgr.submit_attestation(id, kps[1].address(), sig2).unwrap();
         assert!(!confirmed);
-        assert_eq!(mgr.get_transfer(&id).unwrap().status, TransferStatus::Pending);
+        assert_eq!(
+            mgr.get_transfer(&id).unwrap().status,
+            TransferStatus::Pending
+        );
 
         // Third attestation — reaches quorum (3 required with 3 active relayers)
         let sig3 = sign_attestation(&kps[2], &transfer);
         let confirmed = mgr.submit_attestation(id, kps[2].address(), sig3).unwrap();
         assert!(confirmed);
-        assert_eq!(mgr.get_transfer(&id).unwrap().status, TransferStatus::Confirmed);
+        assert_eq!(
+            mgr.get_transfer(&id).unwrap().status,
+            TransferStatus::Confirmed
+        );
     }
 
     #[test]
     fn reject_forged_attestation_signature() {
         let (mut mgr, kps) = setup_bridge();
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
 
         // Try to submit attestation with wrong signature (signed by kp2 but claiming to be kp1)
         let transfer = mgr.get_transfer(&id).unwrap().clone();
@@ -890,9 +956,14 @@ mod tests {
     #[test]
     fn reject_duplicate_attestation() {
         let (mut mgr, kps) = setup_bridge();
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
 
         let transfer = mgr.get_transfer(&id).unwrap().clone();
         let sig = sign_attestation(&kps[0], &transfer);
@@ -905,9 +976,14 @@ mod tests {
     #[test]
     fn execute_confirmed_transfer_decrements_tvl() {
         let (mut mgr, kps) = setup_bridge();
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
         assert_eq!(mgr.total_value_locked(), 5_000_000_000);
 
         let transfer = mgr.get_transfer(&id).unwrap().clone();
@@ -930,9 +1006,14 @@ mod tests {
     #[test]
     fn reject_execute_pending_transfer() {
         let (mut mgr, _) = setup_bridge();
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
 
         assert!(mgr.execute_transfer(id).is_err());
     }
@@ -940,20 +1021,32 @@ mod tests {
     #[test]
     fn unsupported_chain_rejected() {
         let (mut mgr, _) = setup_bridge();
-        assert!(mgr.initiate_transfer(
-            Address([1u8; 20]), BridgeChain::Solana, vec![1u8; 32], 5_000_000_000,
-        ).is_err());
+        assert!(mgr
+            .initiate_transfer(
+                Address([1u8; 20]),
+                BridgeChain::Solana,
+                vec![1u8; 32],
+                5_000_000_000,
+            )
+            .is_err());
     }
 
     #[test]
     fn unregistered_relayer_rejected() {
         let (mut mgr, _) = setup_bridge();
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
 
         let fake_sig = Signature::from_bytes(&[0u8; 64]);
-        assert!(mgr.submit_attestation(id, Address([99u8; 20]), fake_sig).is_err());
+        assert!(mgr
+            .submit_attestation(id, Address([99u8; 20]), fake_sig)
+            .is_err());
     }
 
     #[test]
@@ -967,9 +1060,14 @@ mod tests {
     fn expire_stale_transfers() {
         let (mut mgr, _) = setup_bridge();
         mgr.set_height(100);
-        let id = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+        let id = mgr
+            .initiate_transfer(
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20u8; 20],
+                5_000_000_000,
+            )
+            .unwrap();
         assert_eq!(mgr.total_value_locked(), 5_000_000_000);
 
         // Advance height far beyond the transfer's source block
@@ -1002,9 +1100,8 @@ mod tests {
         assert_eq!(mgr.pending_count(), 3);
 
         // The 4th transfer must be rejected
-        let result = mgr.initiate_transfer(
-            sender, BridgeChain::Ethereum, vec![99u8; 20], 5_000_000_000,
-        );
+        let result =
+            mgr.initiate_transfer(sender, BridgeChain::Ethereum, vec![99u8; 20], 5_000_000_000);
         assert!(result.is_err(), "must reject when at capacity");
         match result.unwrap_err() {
             BridgeError::TooManyPendingTransfers { current, max } => {
@@ -1030,15 +1127,22 @@ mod tests {
         for i in 0u8..11 {
             // Each transfer is ~10 PI (at the per-transfer limit)
             mgr.initiate_transfer(
-                Address([10u8; 20]), BridgeChain::Ethereum, vec![20 + i; 20], 10_000_000_000,
-            ).unwrap();
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20 + i; 20],
+                10_000_000_000,
+            )
+            .unwrap();
         }
         // 11 * 10 PI = 110 PI > 100 PI limit — breaker should have tripped
         assert!(mgr.circuit_breaker.is_paused());
 
         // Next transfer should be rejected (bridge paused)
         let result = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![99u8; 20], 1_000_000_000,
+            Address([10u8; 20]),
+            BridgeChain::Ethereum,
+            vec![99u8; 20],
+            1_000_000_000,
         );
         assert!(result.is_err());
     }
@@ -1059,7 +1163,10 @@ mod tests {
         let (mut mgr, _) = setup_bridge();
         mgr.circuit_breaker.admin_paused = true;
         let result = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
+            Address([10u8; 20]),
+            BridgeChain::Ethereum,
+            vec![20u8; 20],
+            5_000_000_000,
         );
         assert!(result.is_err());
     }
@@ -1125,15 +1232,22 @@ mod tests {
         let too_large = max_single + 1;
 
         let result = mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], too_large,
+            Address([10u8; 20]),
+            BridgeChain::Ethereum,
+            vec![20u8; 20],
+            too_large,
         );
         assert!(matches!(result, Err(BridgeError::TransferTooLarge { .. })));
 
         // Just under the limit should work
         let ok_amount = max_single;
         mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![21u8; 20], ok_amount,
-        ).unwrap();
+            Address([10u8; 20]),
+            BridgeChain::Ethereum,
+            vec![21u8; 20],
+            ok_amount,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1143,8 +1257,12 @@ mod tests {
         mgr.circuit_breaker.max_hourly_volume = 100_000_000_000; // 100 PI
         mgr.set_height(1000);
         mgr.initiate_transfer(
-            Address([10u8; 20]), BridgeChain::Ethereum, vec![20u8; 20], 5_000_000_000,
-        ).unwrap();
+            Address([10u8; 20]),
+            BridgeChain::Ethereum,
+            vec![20u8; 20],
+            5_000_000_000,
+        )
+        .unwrap();
 
         let status = mgr.circuit_breaker_status();
         assert!(!status.paused);
@@ -1164,8 +1282,12 @@ mod tests {
         // Trip the breaker with many transfers
         for i in 0u8..11 {
             mgr.initiate_transfer(
-                Address([10u8; 20]), BridgeChain::Ethereum, vec![20 + i; 20], 10_000_000_000,
-            ).unwrap();
+                Address([10u8; 20]),
+                BridgeChain::Ethereum,
+                vec![20 + i; 20],
+                10_000_000_000,
+            )
+            .unwrap();
         }
         assert!(mgr.circuit_breaker.is_paused());
 

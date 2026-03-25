@@ -25,8 +25,12 @@ struct CachedPqKeys {
 impl Drop for CachedPqKeys {
     fn drop(&mut self) {
         // Zeroize secret key bytes to prevent memory dump exposure
-        for b in self.ml_dsa_sk.iter_mut() { *b = 0; }
-        for b in self.slh_dsa_sk.iter_mut() { *b = 0; }
+        for b in self.ml_dsa_sk.iter_mut() {
+            *b = 0;
+        }
+        for b in self.slh_dsa_sk.iter_mut() {
+            *b = 0;
+        }
     }
 }
 
@@ -77,8 +81,13 @@ async fn create_wallet(
     save_path: String,
     password: String,
 ) -> Result<wallet::CreateWalletResult, String> {
-    // All new wallets are post-quantum
-    wallet::create_pq_wallet(&save_path, &password)
+    // PQ keygen is CPU-intensive (~500ms for SLH-DSA) — run on blocking thread
+    // to avoid stalling the Tokio runtime and freezing the UI.
+    tokio::task::spawn_blocking(move || {
+        wallet::create_pq_wallet(&save_path, &password)
+    })
+    .await
+    .map_err(|e| format!("Wallet creation thread failed: {e}"))?
 }
 
 #[tauri::command]
@@ -89,7 +98,10 @@ async fn import_wallet(
 ) -> Result<wallet::WalletInfo, String> {
     // Ed25519 key import no longer supported — wallets must be post-quantum.
     // Users should create a new PQ wallet instead of importing Ed25519 keys.
-    Err("Importing Ed25519 keys is no longer supported. Create a new post-quantum wallet instead.".to_string())
+    Err(
+        "Importing Ed25519 keys is no longer supported. Create a new post-quantum wallet instead."
+            .to_string(),
+    )
 }
 
 #[tauri::command]
@@ -98,8 +110,14 @@ async fn load_wallet(
     password: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<wallet::WalletLoadResult, String> {
-    // Load as PQ wallet (legacy Ed25519 wallets are no longer supported)
-    let (export, result) = wallet::load_pq_wallet(&path, password.as_deref())?;
+    // Load as PQ wallet — decrypt + validate on blocking thread
+    let path_clone = path.clone();
+    let pw_clone = password.clone();
+    let (export, result) = tokio::task::spawn_blocking(move || {
+        wallet::load_pq_wallet(&path_clone, pw_clone.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Wallet load thread failed: {e}"))??;
 
     // Cache PQ key material for mining
     *state.cached_pq_keys.lock().await = Some(CachedPqKeys {
@@ -172,8 +190,7 @@ async fn get_mining_status(
     if !resp.status().is_success() {
         return Err(format!("Server error: HTTP {}", resp.status()));
     }
-    let status: miner::MiningStatus =
-        resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+    let status: miner::MiningStatus = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     Ok(serde_json::json!({
         "frontier_position": status.frontier_position,
         "total_digits_verified": status.total_digits_verified,
@@ -200,10 +217,7 @@ async fn start_mining(
     }
 
     // Reconstruct PQ keypair from cached key material.
-    let pq_keys = state
-        .cached_pq_keys
-        .lock()
-        .await;
+    let pq_keys = state.cached_pq_keys.lock().await;
     let pq_keys_ref = pq_keys
         .as_ref()
         .ok_or_else(|| "No PQ wallet loaded. Please load or create a wallet first.".to_string())?;
@@ -212,7 +226,8 @@ async fn start_mining(
         &pq_keys_ref.ml_dsa_pk,
         &pq_keys_ref.slh_dsa_sk,
         &pq_keys_ref.slh_dsa_pk,
-    ).map_err(|e| format!("Failed to reconstruct PQ keypair: {e}"))?;
+    )
+    .map_err(|e| format!("Failed to reconstruct PQ keypair: {e}"))?;
     drop(pq_keys); // release lock before spawning
 
     let config = MiningConfig::from_profile(rpc_url, chain_id, &profile);
@@ -254,12 +269,18 @@ async fn export_wallet_key(
     // PQ wallets: export the address (not raw keys — PQ keys are too large for clipboard)
     let _is_encrypted = *state.wallet_encrypted.lock().await;
     let pq_keys = state.cached_pq_keys.lock().await;
-    let keys = pq_keys.as_ref().ok_or_else(|| "No wallet loaded".to_string())?;
+    let keys = pq_keys
+        .as_ref()
+        .ok_or_else(|| "No wallet loaded".to_string())?;
 
     // Return the wallet address derived from cached PQ keys
     let kp = pichain_crypto::PqKeypair::from_bytes(
-        &keys.ml_dsa_sk, &keys.ml_dsa_pk, &keys.slh_dsa_sk, &keys.slh_dsa_pk,
-    ).map_err(|e| format!("Key error: {e}"))?;
+        &keys.ml_dsa_sk,
+        &keys.ml_dsa_pk,
+        &keys.slh_dsa_sk,
+        &keys.slh_dsa_pk,
+    )
+    .map_err(|e| format!("Key error: {e}"))?;
     let _ = password; // PQ export doesn't need re-auth (address is public)
     Ok(format!("{}", kp.address()))
 }
@@ -330,17 +351,14 @@ async fn activate_wallet(
         .send()
         .await
         .map_err(|e| format!("Activate request failed: {e}"))?;
-    let result: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Parse error: {e}"))?;
+    let result: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
     Ok(result)
 }
 
 /// Solve PoW: find nonce where SHA-256(challenge || nonce_le) has `diff_bits` leading zero bits.
 /// Must use SHA-256 to match the server-side verification (browsers use crypto.subtle).
 fn solve_activation_pow(challenge: &[u8], diff_bits: u32) -> u64 {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let full_bytes = (diff_bits / 8) as usize;
     let rem_bits = diff_bits % 8;
@@ -385,9 +403,7 @@ async fn get_system_info() -> Result<serde_json::Value, String> {
 // ---------- Update checker ----------
 
 #[tauri::command]
-async fn check_for_updates(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+async fn check_for_updates(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let current = env!("CARGO_PKG_VERSION");
     let resp = state
         .http_client
@@ -461,16 +477,17 @@ async fn open_url(url: String) -> Result<(), String> {
 // ---------- Autostart ----------
 
 #[tauri::command]
-async fn toggle_autostart(
-    app: tauri::AppHandle,
-    enabled: bool,
-) -> Result<(), String> {
+async fn toggle_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let manager = app.autolaunch();
     if enabled {
-        manager.enable().map_err(|e| format!("Failed to enable autostart: {e}"))?;
+        manager
+            .enable()
+            .map_err(|e| format!("Failed to enable autostart: {e}"))?;
     } else {
-        manager.disable().map_err(|e| format!("Failed to disable autostart: {e}"))?;
+        manager
+            .disable()
+            .map_err(|e| format!("Failed to disable autostart: {e}"))?;
     }
     Ok(())
 }
@@ -524,10 +541,14 @@ fn main() {
             let show_item =
                 tauri::menu::MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
             let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
-            let quit_item =
-                tauri::menu::MenuItem::with_id(app, "quit", "Quit PIChain Miner", true, None::<&str>)?;
-            let menu =
-                tauri::menu::Menu::with_items(app, &[&show_item, &separator, &quit_item])?;
+            let quit_item = tauri::menu::MenuItem::with_id(
+                app,
+                "quit",
+                "Quit PIChain Miner",
+                true,
+                None::<&str>,
+            )?;
+            let menu = tauri::menu::Menu::with_items(app, &[&show_item, &separator, &quit_item])?;
 
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())

@@ -187,13 +187,16 @@ impl DbJellyfishMerkleTree {
         let new_version = *self.version.read() + 1;
         let mut batch = self.db.new_batch();
         for (hash, node) in &new_nodes {
-            let data = serde_json::to_vec(node)
-                .map_err(|e| StorageError::Serialization(e.to_string()))?;
-            self.db.batch_put_jmt_node(&mut batch, &node_key(new_version, hash), &data);
+            let data =
+                serde_json::to_vec(node).map_err(|e| StorageError::Serialization(e.to_string()))?;
+            self.db
+                .batch_put_jmt_node(&mut batch, &node_key(new_version, hash), &data);
             // R30-FIX: Also store under hash-only key for O(1) lookup
-            self.db.batch_put_jmt_node(&mut batch, &hash_only_key(hash), &data);
+            self.db
+                .batch_put_jmt_node(&mut batch, &hash_only_key(hash), &data);
         }
-        self.db.batch_put_jmt_node(&mut batch, &root_key(new_version), new_root.as_bytes());
+        self.db
+            .batch_put_jmt_node(&mut batch, &root_key(new_version), new_root.as_bytes());
         self.db.write_batch_sync(batch)?;
 
         // Update state
@@ -231,13 +234,16 @@ impl DbJellyfishMerkleTree {
         let new_version = *self.version.read() + 1;
         let mut batch = self.db.new_batch();
         for (hash, node) in &new_nodes {
-            let data = serde_json::to_vec(node)
-                .map_err(|e| StorageError::Serialization(e.to_string()))?;
-            self.db.batch_put_jmt_node(&mut batch, &node_key(new_version, hash), &data);
+            let data =
+                serde_json::to_vec(node).map_err(|e| StorageError::Serialization(e.to_string()))?;
+            self.db
+                .batch_put_jmt_node(&mut batch, &node_key(new_version, hash), &data);
             // R30-FIX: Also store under hash-only key for O(1) lookup
-            self.db.batch_put_jmt_node(&mut batch, &hash_only_key(hash), &data);
+            self.db
+                .batch_put_jmt_node(&mut batch, &hash_only_key(hash), &data);
         }
-        self.db.batch_put_jmt_node(&mut batch, &root_key(new_version), new_root.as_bytes());
+        self.db
+            .batch_put_jmt_node(&mut batch, &root_key(new_version), new_root.as_bytes());
         self.db.write_batch_sync(batch)?;
 
         *self.root.write() = new_root;
@@ -354,7 +360,8 @@ impl DbJellyfishMerkleTree {
                     let new_bit = Self::key_bit(key, depth);
 
                     if existing_bit == new_bit {
-                        let child = self.insert_recursive(node_hash, key, leaf_hash, depth + 1, new_nodes)?;
+                        let child =
+                            self.insert_recursive(node_hash, key, leaf_hash, depth + 1, new_nodes)?;
                         let (left, right) = if existing_bit {
                             (None, Some(child))
                         } else {
@@ -509,7 +516,10 @@ impl DbJellyfishMerkleTree {
                         }
                     }
                     // Also check new_nodes (just created in this batch)
-                    if new_nodes.iter().any(|(h, n)| *h == r && matches!(n, JmtNode::Leaf { .. })) {
+                    if new_nodes
+                        .iter()
+                        .any(|(h, n)| *h == r && matches!(n, JmtNode::Leaf { .. }))
+                    {
                         return Ok(r);
                     }
                 }
@@ -521,14 +531,25 @@ impl DbJellyfishMerkleTree {
                         }
                     }
                     // Also check new_nodes (just created in this batch)
-                    if new_nodes.iter().any(|(h, n)| *h == l && matches!(n, JmtNode::Leaf { .. })) {
+                    if new_nodes
+                        .iter()
+                        .any(|(h, n)| *h == l && matches!(n, JmtNode::Leaf { .. }))
+                    {
                         return Ok(l);
                     }
                 }
 
                 let internal = JmtNode::Internal {
-                    left: if l == PoseidonHash::ZERO { None } else { Some(l) },
-                    right: if r == PoseidonHash::ZERO { None } else { Some(r) },
+                    left: if l == PoseidonHash::ZERO {
+                        None
+                    } else {
+                        Some(l)
+                    },
+                    right: if r == PoseidonHash::ZERO {
+                        None
+                    } else {
+                        Some(r)
+                    },
                 };
                 let h = internal.hash();
                 new_nodes.push((h, internal));
@@ -620,7 +641,8 @@ mod tests {
         let tree = DbJellyfishMerkleTree::new(db);
 
         for i in 0..10u8 {
-            tree.put(&test_key(i), format!("val_{i}").as_bytes()).unwrap();
+            tree.put(&test_key(i), format!("val_{i}").as_bytes())
+                .unwrap();
         }
 
         for i in 0..10u8 {
@@ -658,7 +680,8 @@ mod tests {
 
         // Create 5 entries at versions 1-5
         for i in 0..5u8 {
-            tree.put(&test_key(i), format!("val_{i}").as_bytes()).unwrap();
+            tree.put(&test_key(i), format!("val_{i}").as_bytes())
+                .unwrap();
         }
         assert_eq!(tree.version(), 5);
 
@@ -686,7 +709,8 @@ mod tests {
 
         // Insert multiple keys to produce many internal + leaf nodes
         for i in 0..10u8 {
-            tree.put(&test_key(i), format!("val_{i}").as_bytes()).unwrap();
+            tree.put(&test_key(i), format!("val_{i}").as_bytes())
+                .unwrap();
         }
 
         // Clear cache to force reads from RocksDB

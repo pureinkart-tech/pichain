@@ -6,8 +6,8 @@
 //! through the marketplace, the royalty is automatically deducted and sent
 //! to the royalty recipient.
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use pichain_crypto::ed25519::Address;
 use pichain_types::nft::{CollectionId, Nft, NftAttribute, NftCollection, NftId};
 use pichain_types::transaction::{TransactionEvent, TransactionStatus};
@@ -105,17 +105,26 @@ impl NftExecutor {
 
     /// Snapshot all collections (for block-level persistence).
     pub fn all_collections(&self) -> HashMap<CollectionId, NftCollection> {
-        self.collections.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.collections
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all NFTs (for block-level persistence).
     pub fn all_nfts(&self) -> HashMap<NftId, Nft> {
-        self.nfts.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.nfts
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all collection nonces (for block-level persistence).
     pub fn all_collection_nonces(&self) -> HashMap<Address, u64> {
-        self.collection_nonces.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.collection_nonces
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     /// Create a new NFT collection.
@@ -164,7 +173,9 @@ impl NftExecutor {
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
         match self.collections.entry(collection_id) {
             Entry::Occupied(_) => return nft_error("collection ID collision (try again)"),
-            Entry::Vacant(v) => { v.insert(collection.clone()); }
+            Entry::Vacant(v) => {
+                v.insert(collection.clone());
+            }
         }
 
         let mut collection_changes = HashMap::new();
@@ -242,7 +253,9 @@ impl NftExecutor {
         // mutating the collection, keeping the counter consistent.
         match self.nfts.entry(nft_id) {
             Entry::Occupied(_) => return nft_error("NFT ID collision (try again)"),
-            Entry::Vacant(v) => { v.insert(nft.clone()); }
+            Entry::Vacant(v) => {
+                v.insert(nft.clone());
+            }
         }
 
         // Only increment after successful NFT insertion — ensures the counter
@@ -338,12 +351,7 @@ impl NftExecutor {
     }
 
     /// List an NFT for sale on the marketplace.
-    pub fn list_nft(
-        &self,
-        sender: Address,
-        nft_id: NftId,
-        price: u64,
-    ) -> NftExecutionResult {
+    pub fn list_nft(&self, sender: Address, nft_id: NftId, price: u64) -> NftExecutionResult {
         if price == 0 {
             return nft_error("listing price must be > 0");
         }
@@ -385,11 +393,7 @@ impl NftExecutor {
     }
 
     /// Buy a listed NFT (with royalty enforcement).
-    pub fn buy_nft(
-        &self,
-        buyer: Address,
-        nft_id: NftId,
-    ) -> NftExecutionResult {
+    pub fn buy_nft(&self, buyer: Address, nft_id: NftId) -> NftExecutionResult {
         // DEADLOCK PREVENTION: Read collection data FIRST (before acquiring nft write lock)
         // to avoid nested DashMap shard locks (nfts -> collections). Read the NFT first
         // to get collection_id, then read collection, then acquire write lock on nft.
@@ -443,9 +447,7 @@ impl NftExecutor {
         nft_changes.insert(nft_id, nft);
 
         // PI transfers: buyer pays, seller receives (minus royalty), royalty recipient gets royalty
-        let mut pi_transfers = vec![
-            (buyer, seller, seller_proceeds),
-        ];
+        let mut pi_transfers = vec![(buyer, seller, seller_proceeds)];
         if royalty > 0 {
             pi_transfers.push((buyer, collection.royalty_recipient, royalty));
         }
@@ -471,11 +473,7 @@ impl NftExecutor {
     }
 
     /// Delist an NFT from the marketplace.
-    pub fn delist_nft(
-        &self,
-        sender: Address,
-        nft_id: NftId,
-    ) -> NftExecutionResult {
+    pub fn delist_nft(&self, sender: Address, nft_id: NftId) -> NftExecutionResult {
         // Use get_mut() for atomic read-modify-write to prevent TOCTOU races
         let mut nft_ref = match self.nfts.get_mut(&nft_id) {
             Some(n) => n,
@@ -830,7 +828,9 @@ mod tests {
             5001, // Just over 50%
             String::new(),
         );
-        assert!(matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("royalty")));
+        assert!(
+            matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("royalty"))
+        );
 
         // 100% royalty should definitely be rejected
         let r = executor.create_collection(

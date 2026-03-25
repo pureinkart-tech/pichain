@@ -29,8 +29,7 @@ impl DepositStore {
         let mut processed = HashSet::new();
 
         if file_path.exists() {
-            let file =
-                std::fs::File::open(&file_path).context("failed to open deposit store")?;
+            let file = std::fs::File::open(&file_path).context("failed to open deposit store")?;
             let reader = std::io::BufReader::new(file);
             for line in reader.lines() {
                 let line = line.context("failed to read deposit store line")?;

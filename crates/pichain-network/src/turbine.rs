@@ -76,10 +76,7 @@ pub fn shred_block(block_data: &[u8], config: &TurbineConfig, block_height: u64)
     let original_size = block_data.len() as u64;
 
     // Compute a BLAKE3 hash binding all shreds to this block
-    let block_hash = pichain_crypto::hash_concat(&[
-        block_data,
-        &block_height.to_le_bytes(),
-    ]);
+    let block_hash = pichain_crypto::hash_concat(&[block_data, &block_height.to_le_bytes()]);
 
     // Calculate chunk size (padded to equal sizes)
     let chunk_size = block_data.len().div_ceil(data_count);
@@ -215,10 +212,7 @@ pub fn reconstruct_block(shreds: &[Shred], config: &TurbineConfig) -> Option<Vec
         block.truncate(original_size);
 
         // Verify block hash matches
-        let computed_hash = pichain_crypto::hash_concat(&[
-            &block,
-            &expected_height.to_le_bytes(),
-        ]);
+        let computed_hash = pichain_crypto::hash_concat(&[&block, &expected_height.to_le_bytes()]);
         if *computed_hash.as_bytes() != expected_block_hash {
             return None;
         }
@@ -244,10 +238,7 @@ pub fn reconstruct_block(shreds: &[Shred], config: &TurbineConfig) -> Option<Vec
     block.truncate(original_size);
 
     // Verify reconstructed block hash matches
-    let computed_hash = pichain_crypto::hash_concat(&[
-        &block,
-        &expected_height.to_le_bytes(),
-    ]);
+    let computed_hash = pichain_crypto::hash_concat(&[&block, &expected_height.to_le_bytes()]);
     if *computed_hash.as_bytes() != expected_block_hash {
         return None;
     }

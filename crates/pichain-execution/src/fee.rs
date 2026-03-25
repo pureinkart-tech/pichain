@@ -31,11 +31,7 @@ impl FeeCalculator {
     }
 
     /// Calculate base fee portion only (for burn/miner/staker split).
-    pub fn calculate_base_fee(
-        &self,
-        gas_used: Gas,
-        base_fee_per_gas: PiAmount,
-    ) -> PiAmount {
+    pub fn calculate_base_fee(&self, gas_used: Gas, base_fee_per_gas: PiAmount) -> PiAmount {
         Self::safe_mul(gas_used, base_fee_per_gas)
     }
 

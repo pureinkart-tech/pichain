@@ -69,8 +69,8 @@ impl AvalancheFastPath {
     /// Create with production parameters.
     pub fn new() -> Self {
         Self {
-            sample_size: 40,  // k
-            quorum_size: 30,  // alpha
+            sample_size: 40,        // k
+            quorum_size: 30,        // alpha
             decision_threshold: 20, // beta
             pending: HashMap::new(),
         }
@@ -181,7 +181,10 @@ impl AvalancheFastPath {
     ) {
         if let Some(state) = self.pending.get_mut(tx_hash) {
             state.sampled_validators = sample_with_stakes.iter().map(|(a, _)| *a).collect();
-            state.sampled_total_stake = sample_with_stakes.iter().map(|(_, s)| *s).fold(0u64, |a, b| a.saturating_add(b));
+            state.sampled_total_stake = sample_with_stakes
+                .iter()
+                .map(|(_, s)| *s)
+                .fold(0u64, |a, b| a.saturating_add(b));
         }
     }
 
@@ -435,12 +438,19 @@ mod tests {
 
         // All sampled validators should be from the active set
         for v in &sample {
-            assert!(validators.contains(v), "sampled validator should be in active set");
+            assert!(
+                validators.contains(v),
+                "sampled validator should be in active set"
+            );
         }
 
         // No duplicates in the sample
         let unique: HashSet<Address> = sample.iter().copied().collect();
-        assert_eq!(unique.len(), sample.len(), "sample should have no duplicates");
+        assert_eq!(
+            unique.len(),
+            sample.len(),
+            "sample should have no duplicates"
+        );
     }
 
     #[test]
@@ -449,14 +459,21 @@ mod tests {
         let validators: Vec<Address> = (0..3u8).map(voter).collect();
 
         let sample = fp.sample_validators(&validators);
-        assert_eq!(sample.len(), 3, "should return all validators when fewer than k");
+        assert_eq!(
+            sample.len(),
+            3,
+            "should return all validators when fewer than k"
+        );
     }
 
     #[test]
     fn sample_validators_empty_set() {
         let fp = AvalancheFastPath::new_test();
         let sample = fp.sample_validators(&[]);
-        assert!(sample.is_empty(), "should return empty for empty active set");
+        assert!(
+            sample.is_empty(),
+            "should return empty for empty active set"
+        );
     }
 
     #[test]
@@ -502,7 +519,10 @@ mod tests {
         setup_round_with_stakes(&mut fp, &tx_hash, &sample2);
         // Validator 0 (from round 1 sample) should now be rejected
         let rejected = fp.record_vote_weighted(&tx_hash, &voter(0), true, 1000);
-        assert!(!rejected, "validator from previous round's sample should be rejected");
+        assert!(
+            !rejected,
+            "validator from previous round's sample should be rejected"
+        );
         // Validators from new sample should be accepted
         for i in 5..10u8 {
             fp.record_vote_weighted(&tx_hash, &voter(i), true, 1000);

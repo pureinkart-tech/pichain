@@ -94,12 +94,7 @@ impl PiChainClient {
 
     /// Register custodial addresses with the PIChain node.
     /// Calls POST /api/v1/bridge/register-addresses (localhost-only).
-    pub async fn register_addresses(
-        &self,
-        eth: &str,
-        sol: &str,
-        btc: &str,
-    ) -> Result<()> {
+    pub async fn register_addresses(&self, eth: &str, sol: &str, btc: &str) -> Result<()> {
         let url = format!("{}/api/v1/bridge/register-addresses", self.base_url);
         let req = RegisterAddressesRequest {
             eth: eth.to_string(),

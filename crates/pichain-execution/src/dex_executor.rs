@@ -5,8 +5,8 @@
 //! Uses constant-product (x*y=k) formula with 0.30% trading fee.
 //! LP tokens are tracked per-pool per-user in an in-memory cache.
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use pichain_crypto::ed25519::Address;
 use pichain_types::dex::{LiquidityPool, PoolId};
 use pichain_types::token::MintId;
@@ -141,7 +141,8 @@ impl DexExecutor {
         // Capture current reserves for all existing pools
         for entry in self.pools.iter() {
             let pool = entry.value();
-            self.block_start_reserves.insert(*entry.key(), (pool.reserve_a, pool.reserve_b));
+            self.block_start_reserves
+                .insert(*entry.key(), (pool.reserve_a, pool.reserve_b));
         }
         // Mark that snapshot has been taken — any pools created after this point
         // will have their initial reserves captured on first swap access.
@@ -188,8 +189,12 @@ impl DexExecutor {
     /// Rollback a pool to a previous state (used when token delta application fails).
     pub fn rollback_pool(&self, pool_id: &PoolId, old_pool: Option<&LiquidityPool>) {
         match old_pool {
-            Some(pool) => { self.pools.insert(*pool_id, pool.clone()); }
-            None => { self.pools.remove(pool_id); }
+            Some(pool) => {
+                self.pools.insert(*pool_id, pool.clone());
+            }
+            None => {
+                self.pools.remove(pool_id);
+            }
         }
     }
 
@@ -209,12 +214,18 @@ impl DexExecutor {
 
     /// Snapshot all pools (for block-level persistence).
     pub fn all_pools(&self) -> HashMap<PoolId, LiquidityPool> {
-        self.pools.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.pools
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all LP balances (for block-level persistence).
     pub fn all_lp_balances(&self) -> HashMap<(PoolId, Address), u64> {
-        self.lp_balances.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.lp_balances
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     /// Set creator fee on a pool (called after launch graduation).
@@ -246,7 +257,9 @@ impl DexExecutor {
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
         match self.pools.entry(pool_id) {
             Entry::Occupied(_) => return dex_error("pool already exists for this token pair"),
-            Entry::Vacant(v) => { v.insert(pool.clone()); }
+            Entry::Vacant(v) => {
+                v.insert(pool.clone());
+            }
         }
 
         let mut pool_changes = HashMap::new();
@@ -346,7 +359,8 @@ impl DexExecutor {
             // SECURITY: Update deposit height while still holding the LP balance lock
             // to prevent a race where another tx reads stale height between the
             // balance update and height insert.
-            self.lp_deposit_height.insert((pool_id, sender), self.current_block_height());
+            self.lp_deposit_height
+                .insert((pool_id, sender), self.current_block_height());
             *lp_entry
         };
 
@@ -362,12 +376,12 @@ impl DexExecutor {
         lp_changes.insert((pool_id, sender), new_lp);
 
         // Map back to caller's mint ordering for deltas
-        let (debit_mint_a, debit_amount_a, debit_mint_b, debit_amount_b) =
-            if pool_mint_a == mint_a {
-                (pool_mint_a, actual_a, pool_mint_b, actual_b)
-            } else {
-                (pool_mint_b, actual_b, pool_mint_a, actual_a)
-            };
+        let (debit_mint_a, debit_amount_a, debit_mint_b, debit_amount_b) = if pool_mint_a == mint_a
+        {
+            (pool_mint_a, actual_a, pool_mint_b, actual_b)
+        } else {
+            (pool_mint_b, actual_b, pool_mint_a, actual_a)
+        };
 
         DexExecutionResult {
             status: TransactionStatus::Success,
@@ -426,7 +440,9 @@ impl DexExecutor {
             .unwrap_or(0);
         let current_height = self.current_block_height();
         if current_height < deposit_height.saturating_add(LP_LOCK_BLOCKS) {
-            let blocks_remaining = deposit_height.saturating_add(LP_LOCK_BLOCKS).saturating_sub(current_height);
+            let blocks_remaining = deposit_height
+                .saturating_add(LP_LOCK_BLOCKS)
+                .saturating_sub(current_height);
             return dex_error(&format!(
                 "LP tokens locked: {blocks_remaining} blocks remaining before removal allowed"
             ));
@@ -437,7 +453,8 @@ impl DexExecutor {
             Entry::Occupied(mut e) => {
                 if *e.get() < lp_amount {
                     return dex_error(&format!(
-                        "insufficient LP tokens: have {}, need {lp_amount}", e.get()
+                        "insufficient LP tokens: have {}, need {lp_amount}",
+                        e.get()
                     ));
                 }
                 let new_val = e.get() - lp_amount;
@@ -482,16 +499,26 @@ impl DexExecutor {
         pool.reserve_a = match pool.reserve_a.checked_sub(amount_a) {
             Some(v) => v,
             None => {
-                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) { *entry += lp_amount; }
-                return dex_error(&format!("reserve_a underflow: {} < {}", pool.reserve_a, amount_a));
+                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) {
+                    *entry += lp_amount;
+                }
+                return dex_error(&format!(
+                    "reserve_a underflow: {} < {}",
+                    pool.reserve_a, amount_a
+                ));
             }
         };
         pool.reserve_b = match pool.reserve_b.checked_sub(amount_b) {
             Some(v) => v,
             None => {
                 pool.reserve_a += amount_a; // undo reserve_a
-                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) { *entry += lp_amount; }
-                return dex_error(&format!("reserve_b underflow: {} < {}", pool.reserve_b, amount_b));
+                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) {
+                    *entry += lp_amount;
+                }
+                return dex_error(&format!(
+                    "reserve_b underflow: {} < {}",
+                    pool.reserve_b, amount_b
+                ));
             }
         };
         pool.lp_supply = match pool.lp_supply.checked_sub(lp_amount) {
@@ -499,8 +526,13 @@ impl DexExecutor {
             None => {
                 pool.reserve_a += amount_a; // undo
                 pool.reserve_b += amount_b; // undo
-                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) { *entry += lp_amount; }
-                return dex_error(&format!("lp_supply underflow: {} < {}", pool.lp_supply, lp_amount));
+                if let Some(mut entry) = self.lp_balances.get_mut(&(pool_id, sender)) {
+                    *entry += lp_amount;
+                }
+                return dex_error(&format!(
+                    "lp_supply underflow: {} < {}",
+                    pool.lp_supply, lp_amount
+                ));
             }
         };
 
@@ -584,14 +616,21 @@ impl DexExecutor {
         // a large position in newly graduated tokens, while allowing normal-sized
         // purchases. The limit is based on the pool's initial reserves at creation.
         if pool.created_at_height > 0 {
-            let blocks_since_creation = self.current_block_height().saturating_sub(pool.created_at_height);
+            let blocks_since_creation = self
+                .current_block_height()
+                .saturating_sub(pool.created_at_height);
             if blocks_since_creation < SNIPE_COOLDOWN_BLOCKS {
                 let is_a_to_b_check = pool.mint_a == mint_in;
-                let input_reserve = if is_a_to_b_check { pool.reserve_a } else { pool.reserve_b };
+                let input_reserve = if is_a_to_b_check {
+                    pool.reserve_a
+                } else {
+                    pool.reserve_b
+                };
                 // Use initial reserve estimate: for a pool that just graduated, the current
                 // reserve is close to the initial reserve. As swaps happen, reserve grows
                 // (for buy side), making the cap slightly more generous over time — this is fine.
-                let max_volume = (input_reserve as u128 * MAX_SNIPE_VOLUME_BPS as u128 / 10_000) as u64;
+                let max_volume =
+                    (input_reserve as u128 * MAX_SNIPE_VOLUME_BPS as u128 / 10_000) as u64;
                 if max_volume > 0 {
                     let key = (pool_id, sender);
                     let current_volume = self.snipe_volume.get(&key).map(|v| *v).unwrap_or(0);
@@ -763,7 +802,11 @@ impl DexExecutor {
             } else {
                 pool.reserve_b = pool.reserve_b.saturating_sub(holder_dividend_fee);
             }
-            let launched_mint = if pool.mint_a.is_native_pi() { pool.mint_b } else { pool.mint_a };
+            let launched_mint = if pool.mint_a.is_native_pi() {
+                pool.mint_b
+            } else {
+                pool.mint_a
+            };
             let mut entry = self.dividend_fees.entry(launched_mint).or_insert(0);
             *entry = entry.saturating_add(holder_dividend_fee);
         }
@@ -835,12 +878,19 @@ impl DexExecutor {
 
     /// Get accumulated dividend fees for all tokens.
     pub fn get_dividend_fees(&self) -> Vec<(MintId, u64)> {
-        self.dividend_fees.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.dividend_fees
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     /// Drain accumulated dividend fees (called after persisting to storage).
     pub fn drain_dividend_fees(&self) -> Vec<(MintId, u64)> {
-        let fees: Vec<_> = self.dividend_fees.iter().map(|e| (*e.key(), *e.value())).collect();
+        let fees: Vec<_> = self
+            .dividend_fees
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect();
         self.dividend_fees.clear();
         fees
     }
@@ -1184,7 +1234,10 @@ mod tests {
 
         // Verify snapshot was captured
         let snapshot = dex.block_start_reserves.get(&pool_id);
-        assert!(snapshot.is_some(), "Snapshot should exist after snapshot_block_start()");
+        assert!(
+            snapshot.is_some(),
+            "Snapshot should exist after snapshot_block_start()"
+        );
         let (snap_a, snap_b) = *snapshot.unwrap();
         assert!(snap_a > 0 && snap_b > 0, "Snapshot reserves should be > 0");
 
@@ -1196,12 +1249,21 @@ mod tests {
         // Verify that the snapshot is UNCHANGED after the swap
         let snapshot_after = dex.block_start_reserves.get(&pool_id).unwrap();
         let (snap_a2, snap_b2) = *snapshot_after;
-        assert_eq!(snap_a, snap_a2, "Snapshot reserve_a should not change after swap");
-        assert_eq!(snap_b, snap_b2, "Snapshot reserve_b should not change after swap");
+        assert_eq!(
+            snap_a, snap_a2,
+            "Snapshot reserve_a should not change after swap"
+        );
+        assert_eq!(
+            snap_b, snap_b2,
+            "Snapshot reserve_b should not change after swap"
+        );
 
         // Verify that live reserves DID change
         let pool_after = dex.get_pool(&pool_id).unwrap();
-        assert_ne!(pool_after.reserve_a, snap_a, "Live reserves should differ from snapshot after swap");
+        assert_ne!(
+            pool_after.reserve_a, snap_a,
+            "Live reserves should differ from snapshot after swap"
+        );
     }
 
     /// Fix 191: Pools created mid-block (after snapshot) should have their

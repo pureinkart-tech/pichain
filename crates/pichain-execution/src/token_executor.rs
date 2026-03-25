@@ -6,10 +6,10 @@
 //! All token state is stored in an in-memory DashMap cache (like the main executor)
 //! and persisted to RocksDB by the block processing pipeline.
 
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use pichain_crypto::ed25519::Address;
-use pichain_types::token::{MintId, TokenAccount, TokenMint, token_account_key};
+use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};
 use pichain_types::transaction::{TransactionEvent, TransactionStatus};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -82,7 +82,10 @@ impl TokenExecutor {
     }
 
     /// Get a mutable reference to a mint in the cache (holds shard lock).
-    pub fn get_mint_mut(&self, id: &MintId) -> Option<dashmap::mapref::one::RefMut<'_, MintId, TokenMint>> {
+    pub fn get_mint_mut(
+        &self,
+        id: &MintId,
+    ) -> Option<dashmap::mapref::one::RefMut<'_, MintId, TokenMint>> {
         self.mints.get_mut(id)
     }
 
@@ -104,17 +107,26 @@ impl TokenExecutor {
 
     /// Snapshot all mints (for block-level persistence).
     pub fn all_mints(&self) -> HashMap<MintId, TokenMint> {
-        self.mints.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.mints
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all token accounts (for block-level persistence).
     pub fn all_accounts(&self) -> HashMap<[u8; 32], TokenAccount> {
-        self.accounts.iter().map(|e| (*e.key(), e.value().clone())).collect()
+        self.accounts
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect()
     }
 
     /// Snapshot all mint nonces (for block-level persistence).
     pub fn all_mint_nonces(&self) -> HashMap<Address, u64> {
-        self.mint_nonces.iter().map(|e| (*e.key(), *e.value())).collect()
+        self.mint_nonces
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     /// Apply a token balance delta (used by DEX operations).
@@ -131,11 +143,17 @@ impl TokenExecutor {
         // mints, inflating balances without corresponding supply tracking.
         // Native PI (MintId::ZERO) is always valid.
         if !mint.is_native_pi() && !self.mints.contains_key(&mint) {
-            return Err(format!("cannot apply delta: mint {:?} does not exist", mint));
+            return Err(format!(
+                "cannot apply delta: mint {:?} does not exist",
+                mint
+            ));
         }
 
         let key = token_account_key(&owner, &mint);
-        let mut entry = self.accounts.entry(key).or_insert_with(|| TokenAccount::new(owner, mint));
+        let mut entry = self
+            .accounts
+            .entry(key)
+            .or_insert_with(|| TokenAccount::new(owner, mint));
         let account = entry.value_mut();
 
         if account.frozen {
@@ -143,15 +161,15 @@ impl TokenExecutor {
         }
 
         if amount > 0 {
-            let credit = u64::try_from(amount)
-                .map_err(|_| "token delta exceeds u64 range".to_string())?;
+            let credit =
+                u64::try_from(amount).map_err(|_| "token delta exceeds u64 range".to_string())?;
             account.balance = account
                 .balance
                 .checked_add(credit)
                 .ok_or("token account balance overflow")?;
         } else {
-            let debit = u64::try_from(-amount)
-                .map_err(|_| "token delta exceeds u64 range".to_string())?;
+            let debit =
+                u64::try_from(-amount).map_err(|_| "token delta exceeds u64 range".to_string())?;
             account.balance = account.balance.checked_sub(debit).ok_or_else(|| {
                 format!(
                     "insufficient token balance: have {}, need {}",
@@ -212,7 +230,9 @@ impl TokenExecutor {
         // Atomic check-and-insert to prevent TOCTOU race under parallel execution
         match self.mints.entry(mint_id) {
             Entry::Occupied(_) => return error_result("mint ID collision (try again)"),
-            Entry::Vacant(v) => { v.insert(mint.clone()); }
+            Entry::Vacant(v) => {
+                v.insert(mint.clone());
+            }
         }
 
         let mut mint_changes = HashMap::new();
@@ -229,7 +249,8 @@ impl TokenExecutor {
                     "symbol": symbol,
                     "decimals": decimals,
                     "max_supply": max_supply,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes,
             account_changes: HashMap::new(),
@@ -276,12 +297,14 @@ impl TokenExecutor {
         // R27-FIX: Use entry API for atomic read-modify-write on recipient account.
         // R28-FIX: Rollback total_supply if recipient credit fails (frozen or overflow).
         let account_key = token_account_key(&recipient, &mint_id);
-        let mut entry = self.accounts.entry(account_key)
+        let mut entry = self
+            .accounts
+            .entry(account_key)
             .or_insert_with(|| TokenAccount::new(recipient, mint_id));
 
         if entry.frozen {
             drop(entry); // Release account shard lock before accessing mints
-            // Rollback mint total_supply
+                         // Rollback mint total_supply
             if let Some(mut m) = self.mints.get_mut(&mint_id) {
                 m.total_supply = m.total_supply.saturating_sub(amount);
             }
@@ -294,7 +317,7 @@ impl TokenExecutor {
             }
             None => {
                 drop(entry); // Release account shard lock before accessing mints
-                // Rollback mint total_supply
+                             // Rollback mint total_supply
                 if let Some(mut m) = self.mints.get_mut(&mint_id) {
                     m.total_supply = m.total_supply.saturating_sub(amount);
                 }
@@ -319,7 +342,8 @@ impl TokenExecutor {
                     "mint": mint_id.to_string(),
                     "recipient": recipient.to_string(),
                     "amount": amount,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes,
             account_changes,
@@ -388,7 +412,9 @@ impl TokenExecutor {
         // The entry lock is released before re-acquiring sender lock to avoid
         // potential same-shard deadlock.
         let recipient_account = {
-            let mut recip_entry = self.accounts.entry(recipient_key)
+            let mut recip_entry = self
+                .accounts
+                .entry(recipient_key)
                 .or_insert_with(|| TokenAccount::new(recipient, mint_id));
 
             match recip_entry.balance.checked_add(amount) {
@@ -398,7 +424,7 @@ impl TokenExecutor {
                 }
                 None => {
                     drop(recip_entry); // Release recipient shard lock first
-                    // Rollback sender debit
+                                       // Rollback sender debit
                     if let Some(mut s) = self.accounts.get_mut(&sender_key) {
                         s.balance = s.balance.saturating_add(amount);
                     }
@@ -421,7 +447,8 @@ impl TokenExecutor {
                     "from": sender.to_string(),
                     "to": recipient.to_string(),
                     "amount": amount,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes: HashMap::new(),
             account_changes,
@@ -492,7 +519,8 @@ impl TokenExecutor {
                 data: serde_json::to_vec(&serde_json::json!({
                     "mint": mint_id.to_string(),
                     "amount": amount,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes,
             account_changes,
@@ -540,7 +568,8 @@ impl TokenExecutor {
                     "mint": mint_id.to_string(),
                     "delegate": delegate.to_string(),
                     "amount": amount,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes: HashMap::new(),
             account_changes,
@@ -548,11 +577,7 @@ impl TokenExecutor {
     }
 
     /// Revoke mint authority (permanently freeze supply).
-    pub fn revoke_mint_authority(
-        &self,
-        sender: Address,
-        mint_id: MintId,
-    ) -> TokenExecutionResult {
+    pub fn revoke_mint_authority(&self, sender: Address, mint_id: MintId) -> TokenExecutionResult {
         let mut mint_ref = match self.mints.get_mut(&mint_id) {
             Some(m) => m,
             None => return error_result("token mint not found"),
@@ -577,7 +602,8 @@ impl TokenExecutor {
                 event_type: "RevokeMintAuthority".to_string(),
                 data: serde_json::to_vec(&serde_json::json!({
                     "mint": mint_id.to_string(),
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes,
             account_changes: HashMap::new(),
@@ -626,7 +652,8 @@ impl TokenExecutor {
                 data: serde_json::to_vec(&serde_json::json!({
                     "mint": mint_id.to_string(),
                     "target": target.to_string(),
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes: HashMap::new(),
             account_changes,
@@ -675,7 +702,8 @@ impl TokenExecutor {
                 data: serde_json::to_vec(&serde_json::json!({
                     "mint": mint_id.to_string(),
                     "target": target.to_string(),
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
             }],
             mint_changes: HashMap::new(),
             account_changes,
@@ -736,15 +764,36 @@ mod tests {
         let (executor, creator) = setup();
 
         // Empty name
-        let r = executor.create_token(creator, "".to_string(), "TST".to_string(), 9, 0, String::new());
+        let r = executor.create_token(
+            creator,
+            "".to_string(),
+            "TST".to_string(),
+            9,
+            0,
+            String::new(),
+        );
         assert!(matches!(r.status, TransactionStatus::Reverted(_)));
 
         // Symbol too long
-        let r = executor.create_token(creator, "Test".to_string(), "TOOLONGSYMBOL".to_string(), 9, 0, String::new());
+        let r = executor.create_token(
+            creator,
+            "Test".to_string(),
+            "TOOLONGSYMBOL".to_string(),
+            9,
+            0,
+            String::new(),
+        );
         assert!(matches!(r.status, TransactionStatus::Reverted(_)));
 
         // Decimals too high
-        let r = executor.create_token(creator, "Test".to_string(), "TST".to_string(), 19, 0, String::new());
+        let r = executor.create_token(
+            creator,
+            "Test".to_string(),
+            "TST".to_string(),
+            19,
+            0,
+            String::new(),
+        );
         assert!(matches!(r.status, TransactionStatus::Reverted(_)));
     }
 
@@ -1026,7 +1075,9 @@ mod tests {
 
         // Second mint of 1 should overflow total_supply
         let r = executor.mint_tokens(creator, mint_id, creator, 1);
-        assert!(matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("overflow")));
+        assert!(
+            matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("overflow"))
+        );
     }
 
     #[test]
@@ -1051,7 +1102,9 @@ mod tests {
         // Minting 1 more to recipient should overflow their balance
         // (total_supply also overflows here, either way it's caught)
         let r = executor.mint_tokens(creator, mint_id, recipient, 1);
-        assert!(matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("overflow")));
+        assert!(
+            matches!(r.status, TransactionStatus::Reverted(ref msg) if msg.contains("overflow"))
+        );
     }
 
     #[test]

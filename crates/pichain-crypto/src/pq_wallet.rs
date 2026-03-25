@@ -55,12 +55,28 @@ pub fn restore_pq_wallet(export: &PqWalletExport) -> Result<PqKeypair, CryptoErr
 
     // SECURITY: Validate hex string lengths BEFORE decoding to prevent
     // acceptance of truncated key material.
-    use crate::pq::{ML_DSA_SK_BYTES, ML_DSA_PK_BYTES, SLH_DSA_SK_BYTES, SLH_DSA_PK_BYTES};
+    use crate::pq::{ML_DSA_PK_BYTES, ML_DSA_SK_BYTES, SLH_DSA_PK_BYTES, SLH_DSA_SK_BYTES};
     let expected_lengths = [
-        ("ml_dsa_secret_key", &export.ml_dsa_secret_key, ML_DSA_SK_BYTES * 2),
-        ("ml_dsa_public_key", &export.ml_dsa_public_key, ML_DSA_PK_BYTES * 2),
-        ("slh_dsa_secret_key", &export.slh_dsa_secret_key, SLH_DSA_SK_BYTES * 2),
-        ("slh_dsa_public_key", &export.slh_dsa_public_key, SLH_DSA_PK_BYTES * 2),
+        (
+            "ml_dsa_secret_key",
+            &export.ml_dsa_secret_key,
+            ML_DSA_SK_BYTES * 2,
+        ),
+        (
+            "ml_dsa_public_key",
+            &export.ml_dsa_public_key,
+            ML_DSA_PK_BYTES * 2,
+        ),
+        (
+            "slh_dsa_secret_key",
+            &export.slh_dsa_secret_key,
+            SLH_DSA_SK_BYTES * 2,
+        ),
+        (
+            "slh_dsa_public_key",
+            &export.slh_dsa_public_key,
+            SLH_DSA_PK_BYTES * 2,
+        ),
     ];
     for (name, hex_str, expected_hex_len) in &expected_lengths {
         if hex_str.len() != *expected_hex_len {
@@ -138,7 +154,9 @@ mod tests {
         // Restored keypair can sign and verify
         let msg = b"restored wallet test";
         let sig = restored.sign(msg);
-        assert!(sig.verify(msg, &restored.ml_dsa_pk, &restored.slh_dsa_pk).is_ok());
+        assert!(sig
+            .verify(msg, &restored.ml_dsa_pk, &restored.slh_dsa_pk)
+            .is_ok());
     }
 
     #[test]

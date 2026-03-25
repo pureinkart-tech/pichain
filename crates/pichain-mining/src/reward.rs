@@ -20,7 +20,10 @@ const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 85 / 100;
 /// Compile-time assertion: MINING_POOL_BASE must fit in u64.
 /// Multiple hot paths cast this to u64 for arithmetic with u64 fields.
 /// If TOTAL_SUPPLY ever grows beyond ~21.7B PI, this assertion will fail at compile time.
-const _: () = assert!(MINING_POOL_BASE <= u64::MAX as u128, "MINING_POOL_BASE exceeds u64::MAX");
+const _: () = assert!(
+    MINING_POOL_BASE <= u64::MAX as u128,
+    "MINING_POOL_BASE exceeds u64::MAX"
+);
 
 /// MINING_POOL_BASE as u64 — safe because of the compile-time assertion above.
 const MINING_POOL_U64: u64 = MINING_POOL_BASE as u64;
@@ -110,7 +113,7 @@ impl RewardCalculator {
             return 1;
         }
         let elapsed = block_timestamp_ms - self.genesis_timestamp_ms;
-        
+
         (elapsed / MS_PER_YEAR) as u32 + 1
     }
 
@@ -124,7 +127,6 @@ impl RewardCalculator {
     ///
     /// Returns at least 1 (never year 0).
     pub fn year_from_height(&self, block_height: u64) -> u32 {
-        
         (block_height / BLOCKS_PER_YEAR) as u32 + 1
     }
 
@@ -170,18 +172,15 @@ impl RewardCalculator {
 
     /// Calculate the total reward for a mining proof.
     pub fn calculate_reward(&self, year: u32, digit_count: u32) -> PiAmount {
-        self.reward_per_digit(year).saturating_mul(digit_count as u64)
+        self.reward_per_digit(year)
+            .saturating_mul(digit_count as u64)
     }
 
     /// Calculate reward for a given number of digits, using the block timestamp
     /// to determine the emission year. Enforces the mining pool supply cap.
     ///
     /// Returns 0 if the mining pool is exhausted.
-    pub fn reward_for_digits_at_time(
-        &self,
-        digit_count: u32,
-        block_timestamp_ms: u64,
-    ) -> PiAmount {
+    pub fn reward_for_digits_at_time(&self, digit_count: u32, block_timestamp_ms: u64) -> PiAmount {
         let year = self.year_from_timestamp(block_timestamp_ms);
         let reward = self.calculate_reward(year, digit_count);
 
@@ -234,11 +233,7 @@ impl RewardCalculator {
     /// so the emission year is derived deterministically from block height.
     ///
     /// Returns 0 if the mining pool is exhausted.
-    pub fn reward_for_digits_at_height(
-        &self,
-        digit_count: u32,
-        block_height: u64,
-    ) -> PiAmount {
+    pub fn reward_for_digits_at_height(&self, digit_count: u32, block_height: u64) -> PiAmount {
         let year = self.year_from_height(block_height);
         let reward = self.calculate_reward(year, digit_count);
 
@@ -363,10 +358,7 @@ mod tests {
             calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR / 2),
             1
         );
-        assert_eq!(
-            calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR),
-            2
-        );
+        assert_eq!(calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR), 2);
         assert_eq!(
             calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR * 3),
             4
@@ -444,7 +436,12 @@ mod tests {
         let year_h = calc.year_from_height(boundary_height);
         let year_t = calc.year_from_timestamp(boundary_ts);
         let diff = (year_h as i32 - year_t as i32).unsigned_abs();
-        assert!(diff <= 1, "height and timestamp year should differ by at most 1 at boundary, got h={} t={}", year_h, year_t);
+        assert!(
+            diff <= 1,
+            "height and timestamp year should differ by at most 1 at boundary, got h={} t={}",
+            year_h,
+            year_t
+        );
     }
 
     #[test]
@@ -456,8 +453,10 @@ mod tests {
             let remaining = calc.remaining_pool_at_year(year) as u128;
             let expected = (remaining * EMISSION_RATE_BPS / 10_000) as u64;
             assert_eq!(
-                calc.annual_emission(year), expected,
-                "year {} emission should be 2π% of remaining pool", year
+                calc.annual_emission(year),
+                expected,
+                "year {} emission should be 2π% of remaining pool",
+                year
             );
         }
 
@@ -479,7 +478,8 @@ mod tests {
         assert!(
             total_emitted < MINING_POOL_BASE,
             "total emitted over 100 years ({}) must be less than pool ({})",
-            total_emitted, MINING_POOL_BASE
+            total_emitted,
+            MINING_POOL_BASE
         );
 
         let y100 = calc.annual_emission(100);
@@ -515,7 +515,15 @@ mod tests {
 
         // Year 1 should be ~5.3% of total supply (not 25% like old model)
         let pct = y1_pi * 100 / total_supply_pi as u64;
-        assert!(pct <= 6, "year 1 should be ≤6% of total supply, got {}%", pct);
-        assert!(pct >= 4, "year 1 should be ≥4% of total supply, got {}%", pct);
+        assert!(
+            pct <= 6,
+            "year 1 should be ≤6% of total supply, got {}%",
+            pct
+        );
+        assert!(
+            pct >= 4,
+            "year 1 should be ≥4% of total supply, got {}%",
+            pct
+        );
     }
 }

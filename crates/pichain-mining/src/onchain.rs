@@ -10,8 +10,8 @@
 //! The verification is designed to be cheap enough to run on-chain
 //! while making fraud economically irrational.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use tracing::warn;
 
 use crate::difficulty::{self, DifficultyAdjuster};
@@ -177,8 +177,7 @@ pub fn frontier_bonus(proof_start: u64, frontier: u64) -> (u64, u64) {
         // multiplier = 3 - 2 * (distance / max_distance)
         // Integer form: (3 * max_dist - 2 * distance) / max_dist
         // Floor at 1x (i.e. num >= max_dist)
-        let num = (3u128 * max_dist as u128)
-            .saturating_sub(2u128 * distance.min(max_dist) as u128);
+        let num = (3u128 * max_dist as u128).saturating_sub(2u128 * distance.min(max_dist) as u128);
         let den = max_dist as u128;
         // Ensure floor of 1x and fit in u64
         let num = num.max(den).min(u64::MAX as u128) as u64;
@@ -258,7 +257,7 @@ impl MiningProcessor {
             registry: DigitRegistry::new(),
             reward_calc: RewardCalculator::new(),
             difficulty: DifficultyAdjuster::new(),
-            max_digits_per_proof: 1_000_000, // 1M hex digits max
+            max_digits_per_proof: 1_000_000,    // 1M hex digits max
             max_digit_position: 10_000_000_000, // 10B max position (prevents BBP DoS)
             current_height: 0,
             block_timestamp_ms: 0,
@@ -281,7 +280,8 @@ impl MiningProcessor {
         assert!(
             height >= self.current_height || self.current_height == 0,
             "MiningProcessor::set_height regression: {} -> {}",
-            self.current_height, height
+            self.current_height,
+            height
         );
         self.current_height = height;
     }
@@ -328,7 +328,9 @@ impl MiningProcessor {
     /// - 20+ miners: 2% cap (mature network, quantum-resistant)
     fn epoch_emission_cap(&self) -> u64 {
         let cap_bps = self.effective_miner_cap_bps();
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         let annual = self.reward_calc.annual_emission(year) as u128;
         let epochs_per_year = (reward::BLOCKS_PER_YEAR / BLOCKS_PER_MINING_EPOCH).max(1) as u128;
         let epoch_emission = annual / epochs_per_year;
@@ -370,7 +372,9 @@ impl MiningProcessor {
     /// Calculate and recycle unmined emission from the current epoch to staking rewards.
     /// Called at epoch boundaries.
     fn recycle_unmined_emission(&mut self) {
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         let expected = self.expected_epoch_emission(year);
         if expected == 0 {
             return;
@@ -395,7 +399,11 @@ impl MiningProcessor {
 
     /// Check whether a miner has remaining budget in this epoch.
     /// Returns the capped reward amount (may be 0 if cap exceeded).
-    fn check_miner_cap(&self, miner: &pichain_crypto::ed25519::Address, proposed_reward: u64) -> u64 {
+    fn check_miner_cap(
+        &self,
+        miner: &pichain_crypto::ed25519::Address,
+        proposed_reward: u64,
+    ) -> u64 {
         let cap = self.epoch_emission_cap();
         if cap == 0 {
             return 0; // zero emission means no mining rewards available
@@ -414,7 +422,11 @@ impl MiningProcessor {
 
     /// Process a mining proof submission.
     /// This is called during block execution when a MiningProof transaction is encountered.
-    pub fn process_proof(&mut self, proof: &MiningProof, anchor_block_hash: &[u8; 32]) -> VerificationResult {
+    pub fn process_proof(
+        &mut self,
+        proof: &MiningProof,
+        anchor_block_hash: &[u8; 32],
+    ) -> VerificationResult {
         // 0. Ensure genesis timestamp has been set — without it, year_from_timestamp()
         // always returns year 1, giving perpetual year-1 rewards regardless of chain age.
         if self.reward_calc.genesis_timestamp_ms() == 0 {
@@ -455,7 +467,9 @@ impl MiningProcessor {
                 digit_count: proof.digit_count,
                 error: Some(format!(
                     "too few digits: {} (minimum {} at frontier {})",
-                    proof.digit_count, current_min_batch, self.registry.frontier()
+                    proof.digit_count,
+                    current_min_batch,
+                    self.registry.frontier()
                 )),
                 epoch_remaining_budget: None,
             };
@@ -478,7 +492,11 @@ impl MiningProcessor {
         }
 
         // 1b. Reject proofs at positions beyond the max to prevent BBP DoS
-        if proof.start_position.saturating_add(proof.digit_count as u64) > self.max_digit_position {
+        if proof
+            .start_position
+            .saturating_add(proof.digit_count as u64)
+            > self.max_digit_position
+        {
             return VerificationResult {
                 valid: false,
                 spot_checks: 0,
@@ -516,7 +534,10 @@ impl MiningProcessor {
         // 2. Check if this range has already been computed (full range pre-check)
         // Reject early if the entire range is already covered by registered ranges,
         // avoiding expensive spot-check verification for duplicate submissions.
-        if self.registry.is_range_fully_computed(proof.start_position, proof.digit_count) {
+        if self
+            .registry
+            .is_range_fully_computed(proof.start_position, proof.digit_count)
+        {
             return VerificationResult {
                 valid: false,
                 spot_checks: 0,
@@ -527,7 +548,9 @@ impl MiningProcessor {
                 error: Some(format!(
                     "range {}..{} already fully computed",
                     proof.start_position,
-                    proof.start_position.saturating_add(proof.digit_count as u64)
+                    proof
+                        .start_position
+                        .saturating_add(proof.digit_count as u64)
                 )),
                 epoch_remaining_budget: None,
             };
@@ -535,16 +558,18 @@ impl MiningProcessor {
         // Also check individual boundary positions for partial overlaps
         let end = match proof.start_position.checked_add(proof.digit_count as u64) {
             Some(e) => e,
-            None => return VerificationResult {
-                valid: false,
-                spot_checks: 0,
-                all_checks_passed: false,
-                reward_amount: 0,
-                start_position: proof.start_position,
-                digit_count: proof.digit_count,
-                error: Some("start_position + digit_count overflows u64".to_string()),
-                epoch_remaining_budget: None,
-            },
+            None => {
+                return VerificationResult {
+                    valid: false,
+                    spot_checks: 0,
+                    all_checks_passed: false,
+                    reward_amount: 0,
+                    start_position: proof.start_position,
+                    digit_count: proof.digit_count,
+                    error: Some("start_position + digit_count overflows u64".to_string()),
+                    epoch_remaining_budget: None,
+                }
+            }
         };
         for pos in [proof.start_position, end.saturating_sub(1)] {
             if self.registry.is_computed(pos) {
@@ -602,8 +627,8 @@ impl MiningProcessor {
             .reward_for_digits_at_time(effective_digits, self.block_timestamp_ms);
         let (bonus_num, bonus_den) = frontier_bonus(proof.start_position, self.registry.frontier());
         let bonused = if bonus_den > 0 {
-            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128)
-                .min(u64::MAX as u128) as u64
+            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128).min(u64::MAX as u128)
+                as u64
         } else {
             base_reward
         };
@@ -616,7 +641,11 @@ impl MiningProcessor {
 
         if reward == 0 && raw_reward > 0 {
             // Miner has hit their epoch cap — reject BEFORE registering range
-            let already_earned = self.epoch_miner_rewards.get(&proof.miner).copied().unwrap_or(0);
+            let already_earned = self
+                .epoch_miner_rewards
+                .get(&proof.miner)
+                .copied()
+                .unwrap_or(0);
             return VerificationResult {
                 valid: false,
                 spot_checks,
@@ -626,7 +655,9 @@ impl MiningProcessor {
                 digit_count: proof.digit_count,
                 error: Some(format!(
                     "miner epoch cap reached: earned {} of {} cap in epoch {}",
-                    already_earned, self.epoch_emission_cap(), self.current_mining_epoch,
+                    already_earned,
+                    self.epoch_emission_cap(),
+                    self.current_mining_epoch,
                 )),
                 epoch_remaining_budget: Some(0),
             };
@@ -692,8 +723,12 @@ impl MiningProcessor {
             warn!("mining pool exhausted — no reward for valid proof");
         }
 
-        let remaining_budget = self.epoch_emission_cap()
-            .saturating_sub(self.epoch_miner_rewards.get(&proof.miner).copied().unwrap_or(0));
+        let remaining_budget = self.epoch_emission_cap().saturating_sub(
+            self.epoch_miner_rewards
+                .get(&proof.miner)
+                .copied()
+                .unwrap_or(0),
+        );
 
         VerificationResult {
             valid: true,
@@ -726,14 +761,17 @@ impl MiningProcessor {
     ) -> VerificationResult {
         // Compute frontier-scaled PoW difficulty
         let frontier = self.registry.frontier();
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         let required_bits = difficulty::frontier_pow_bits(frontier, year);
         let frontier_target = difficulty::frontier_difficulty_target(frontier, year);
 
         // Combine frontier-scaled and rate-based targets: use the HARDER (smaller) of the two.
         // This ensures that if proofs are arriving too fast, the rate-based adjuster
         // raises difficulty above the frontier floor.
-        let effective_target = difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
+        let effective_target =
+            difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
 
         if !difficulty::check_proof_difficulty(
             &proof.digits,
@@ -790,7 +828,8 @@ impl MiningProcessor {
                 digit_count: proof.digit_count,
                 error: Some(format!(
                     "VDF iterations exceed maximum: {} > {}",
-                    vdf_proof.iterations, crate::vdf::MAX_VDF_ITERATIONS
+                    vdf_proof.iterations,
+                    crate::vdf::MAX_VDF_ITERATIONS
                 )),
                 epoch_remaining_budget: None,
             };
@@ -817,11 +856,7 @@ impl MiningProcessor {
         }
 
         // 2. Verify VDF input seed matches the proof components
-        let expected_seed = crate::vdf::vdf_seed(
-            &proof.digits,
-            anchor_block_hash,
-            &proof.miner.0,
-        );
+        let expected_seed = crate::vdf::vdf_seed(&proof.digits, anchor_block_hash, &proof.miner.0);
         if vdf_proof.input != expected_seed {
             return VerificationResult {
                 valid: false,
@@ -844,7 +879,9 @@ impl MiningProcessor {
                 reward_amount: 0,
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
-                error: Some("VDF verification failed: output does not match hash chain".to_string()),
+                error: Some(
+                    "VDF verification failed: output does not match hash chain".to_string(),
+                ),
                 epoch_remaining_budget: None,
             };
         }
@@ -875,13 +912,17 @@ impl MiningProcessor {
 
     /// Get the current frontier-scaled difficulty target.
     pub fn difficulty_target(&self) -> [u8; 32] {
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         difficulty::frontier_difficulty_target(self.registry.frontier(), year)
     }
 
     /// Get current difficulty as approximate leading zero bits (frontier-scaled).
     pub fn difficulty_bits(&self) -> u32 {
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         difficulty::frontier_pow_bits(self.registry.frontier(), year)
     }
 
@@ -918,7 +959,8 @@ impl MiningProcessor {
 
         let slot_index = if let Some(&(idx, _)) = self.active_miners.get(miner) {
             // Already has a slot — update last_proof_height
-            self.active_miners.insert(*miner, (idx, self.current_height));
+            self.active_miners
+                .insert(*miner, (idx, self.current_height));
             idx
         } else {
             // Try to reuse a freed slot index
@@ -931,7 +973,8 @@ impl MiningProcessor {
                     self.next_slot_index = self.next_slot_index.saturating_add(1);
                     i
                 });
-            self.active_miners.insert(*miner, (idx, self.current_height));
+            self.active_miners
+                .insert(*miner, (idx, self.current_height));
             idx
         };
 
@@ -944,7 +987,8 @@ impl MiningProcessor {
     /// Remove miners that haven't submitted a proof within one mining epoch.
     fn cleanup_stale_miners(&mut self) {
         let cutoff = self.current_height.saturating_sub(BLOCKS_PER_MINING_EPOCH);
-        self.active_miners.retain(|_, (_, last_height)| *last_height >= cutoff);
+        self.active_miners
+            .retain(|_, (_, last_height)| *last_height >= cutoff);
     }
 
     /// Record that a miner submitted a proof (updates their last_proof_height).
@@ -989,14 +1033,17 @@ impl MiningProcessor {
     /// Get mining statistics.
     pub fn stats(&self) -> MiningStats {
         let reg_stats = self.registry.stats();
-        let year = self.reward_calc.year_from_timestamp(self.block_timestamp_ms);
+        let year = self
+            .reward_calc
+            .year_from_timestamp(self.block_timestamp_ms);
         let frontier = reg_stats.frontier_position;
         let min_batch = min_batch_size(frontier);
         let (next_pos, gap_size) = self.registry.find_mineable_gap(min_batch);
         let pow_bits = difficulty::frontier_pow_bits(frontier, year);
         let frontier_target = difficulty::frontier_difficulty_target(frontier, year);
         // Effective target is the harder (smaller) of frontier-scaled and rate-based targets
-        let effective_target = difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
+        let effective_target =
+            difficulty::harder_target(&frontier_target, &self.difficulty.current_target);
         let effective_bits = pow_bits.max(self.difficulty.difficulty_bits());
         MiningStats {
             total_digits_verified: reg_stats.total_digits_verified,
@@ -1019,8 +1066,11 @@ impl MiningProcessor {
             max_allowed_position: frontier.saturating_add(max_frontier_distance(frontier)),
             frontier_bonus_at_next: {
                 let (n, d) = frontier_bonus(next_pos, frontier);
-                if d == 0 { "3.0x".to_string() }
-                else { format!("{:.1}x", n as f64 / d as f64) }
+                if d == 0 {
+                    "3.0x".to_string()
+                } else {
+                    format!("{:.1}x", n as f64 / d as f64)
+                }
             },
             staking_reward_pool: self.staking_reward_pool,
             epoch_actual_minted: self.epoch_actual_minted,
@@ -1059,18 +1109,18 @@ impl MiningProcessor {
             committed_at_ms: block_timestamp_ms,
         };
 
-        self.registry
-            .register(range)
-            .map_err(|e| e.to_string())?;
+        self.registry.register(range).map_err(|e| e.to_string())?;
 
         // Replay the reward using timestamp-based year calculation — the same
         // method used by live process_proof(). Apply frontier bonus just like
         // live processing does.
-        let base_reward = self.reward_calc.reward_for_digits_at_time(digit_count, block_timestamp_ms);
+        let base_reward = self
+            .reward_calc
+            .reward_for_digits_at_time(digit_count, block_timestamp_ms);
         let (bonus_num, bonus_den) = frontier_bonus(start_position, self.registry.frontier());
         let bonused = if bonus_den > 0 {
-            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128)
-                .min(u64::MAX as u128) as u64
+            ((base_reward as u128) * bonus_num as u128 / bonus_den as u128).min(u64::MAX as u128)
+                as u64
         } else {
             base_reward
         };
@@ -1095,7 +1145,8 @@ impl MiningProcessor {
         self.block_timestamp_ms = saved_ts;
 
         if capped_reward > 0 {
-            self.reward_calc.record_reward(capped_reward)
+            self.reward_calc
+                .record_reward(capped_reward)
                 .map_err(|e| format!("replay reward tracking failed: {e}"))?;
         }
 
@@ -1314,7 +1365,10 @@ mod tests {
 
         // Submitting with zero anchor and zero nonce should still require PoW
         let result = processor.process_proof_with_pow(&proof, 0, &[0u8; 32]);
-        assert!(!result.valid, "PoW should be enforced even with zero anchor");
+        assert!(
+            !result.valid,
+            "PoW should be enforced even with zero anchor"
+        );
         assert!(result.error.unwrap().contains("PoW difficulty not met"));
     }
 
@@ -1326,12 +1380,22 @@ mod tests {
         let digits = BbpComputer::compute_hex_digits(0, 200);
         let anchor = [1u8; 32];
         // Find a valid nonce bound to the miner address
-        let nonce = difficulty::find_nonce(&digits, &anchor, &difficulty::INITIAL_DIFFICULTY, 10_000, &miner_addr.0)
-            .expect("should find nonce with easy difficulty");
+        let nonce = difficulty::find_nonce(
+            &digits,
+            &anchor,
+            &difficulty::INITIAL_DIFFICULTY,
+            10_000,
+            &miner_addr.0,
+        )
+        .expect("should find nonce with easy difficulty");
 
         let proof = MiningProof::new(0, digits, miner_addr, 42);
         let result = processor.process_proof_with_pow(&proof, nonce, &anchor);
-        assert!(result.valid, "proof with valid PoW should pass: {:?}", result.error);
+        assert!(
+            result.valid,
+            "proof with valid PoW should pass: {:?}",
+            result.error
+        );
         assert!(result.reward_amount > 0);
     }
 
@@ -1346,7 +1410,10 @@ mod tests {
 
         // Difficulty adjuster should have recorded the proof timestamp
         assert_eq!(processor.difficulty().recent_proof_times.len(), 1);
-        assert_eq!(processor.difficulty().recent_proof_times[0], TEST_GENESIS_TS + 1000);
+        assert_eq!(
+            processor.difficulty().recent_proof_times[0],
+            TEST_GENESIS_TS + 1000
+        );
     }
 
     #[test]
@@ -1356,10 +1423,20 @@ mod tests {
 
         let digits = BbpComputer::compute_hex_digits(0, 200);
         processor
-            .register_historical(0, 200, &digits, Address([1; 20]), 1, TEST_GENESIS_TS + 1_000)
+            .register_historical(
+                0,
+                200,
+                &digits,
+                Address([1; 20]),
+                1,
+                TEST_GENESIS_TS + 1_000,
+            )
             .unwrap();
 
-        assert!(processor.total_mined() > 0, "historical replay should track supply");
+        assert!(
+            processor.total_mined() > 0,
+            "historical replay should track supply"
+        );
         assert_eq!(processor.frontier(), 200);
     }
 
@@ -1389,9 +1466,12 @@ mod tests {
         let mined_y2_increment = processor.total_mined() - mined_y1;
 
         // Year 1 reward > Year 2 reward for same digit count
-        assert!(mined_y1 > mined_y2_increment,
+        assert!(
+            mined_y1 > mined_y2_increment,
             "year 1 reward ({}) should exceed year 2 reward ({})",
-            mined_y1, mined_y2_increment);
+            mined_y1,
+            mined_y2_increment
+        );
     }
 
     #[test]
@@ -1410,7 +1490,10 @@ mod tests {
         let proof2 = MiningProof::new(0, digits2, Address([2; 20]), 43);
         let r2 = processor.process_proof(&proof2, &[0u8; 32]);
         assert!(!r2.valid, "duplicate range should be rejected");
-        assert_eq!(r2.spot_checks, 0, "rejection should happen before spot-checking");
+        assert_eq!(
+            r2.spot_checks, 0,
+            "rejection should happen before spot-checking"
+        );
         assert!(
             r2.error.as_ref().unwrap().contains("already"),
             "error should mention range already computed: {:?}",
@@ -1429,9 +1512,16 @@ mod tests {
         let proof = MiningProof::new(0, digits, Address([1; 20]), 42);
         let result = processor.process_proof(&proof, &[0u8; 32]);
 
-        assert!(!result.valid, "should reject when genesis timestamp not set");
         assert!(
-            result.error.as_ref().unwrap().contains("genesis timestamp not set"),
+            !result.valid,
+            "should reject when genesis timestamp not set"
+        );
+        assert!(
+            result
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("genesis timestamp not set"),
             "error should mention genesis timestamp: {:?}",
             result.error
         );
@@ -1443,10 +1533,12 @@ mod tests {
         // Deliberately do NOT call set_genesis_timestamp()
 
         let digits = BbpComputer::compute_hex_digits(0, 200);
-        let result = processor.register_historical(
-            0, 200, &digits, Address([1; 20]), 1, 1_000_000_001_000,
+        let result =
+            processor.register_historical(0, 200, &digits, Address([1; 20]), 1, 1_000_000_001_000);
+        assert!(
+            result.is_err(),
+            "should reject when genesis timestamp not set"
         );
-        assert!(result.is_err(), "should reject when genesis timestamp not set");
         assert!(
             result.unwrap_err().contains("genesis timestamp not set"),
             "error should mention genesis timestamp"
@@ -1456,10 +1548,16 @@ mod tests {
     #[test]
     fn is_genesis_configured_reflects_state() {
         let mut processor = MiningProcessor::new();
-        assert!(!processor.is_genesis_configured(), "should be false before set");
+        assert!(
+            !processor.is_genesis_configured(),
+            "should be false before set"
+        );
 
         processor.set_genesis_timestamp(TEST_GENESIS_TS);
-        assert!(processor.is_genesis_configured(), "should be true after set");
+        assert!(
+            processor.is_genesis_configured(),
+            "should be true after set"
+        );
     }
 
     // ==================== Per-Address Mining Cap Tests ====================
@@ -1495,16 +1593,26 @@ mod tests {
         let proof2 = MiningProof::new(200, digits2, miner, 2);
         let r2 = processor.process_proof(&proof2, &[0u8; 32]);
         // Reward per proof of 200 digits >> 1, so cap should reduce it
-        assert!(r2.valid, "should still succeed with partial reward: {:?}", r2.error);
-        assert!(r2.reward_amount <= 1, "reward should be capped to remaining budget (1)");
+        assert!(
+            r2.valid,
+            "should still succeed with partial reward: {:?}",
+            r2.error
+        );
+        assert!(
+            r2.reward_amount <= 1,
+            "reward should be capped to remaining budget (1)"
+        );
 
         // Now the miner is at or over the cap. Next proof should be rejected.
         let digits3 = BbpComputer::compute_hex_digits(400, 200);
         let proof3 = MiningProof::new(400, digits3, miner, 3);
         let r3 = processor.process_proof(&proof3, &[0u8; 32]);
         assert!(!r3.valid, "should be rejected after hitting cap");
-        assert!(r3.error.as_ref().unwrap().contains("epoch cap"),
-            "expected epoch cap error, got: {:?}", r3.error);
+        assert!(
+            r3.error.as_ref().unwrap().contains("epoch cap"),
+            "expected epoch cap error, got: {:?}",
+            r3.error
+        );
         assert_eq!(r3.epoch_remaining_budget, Some(0));
     }
 
@@ -1525,7 +1633,11 @@ mod tests {
         let digits_b = BbpComputer::compute_hex_digits(500, 500);
         let proof_b = MiningProof::new(500, digits_b, miner_b, 2);
         let result_b = processor.process_proof(&proof_b, &[0u8; 32]);
-        assert!(result_b.valid, "miner B should succeed: {:?}", result_b.error);
+        assert!(
+            result_b.valid,
+            "miner B should succeed: {:?}",
+            result_b.error
+        );
 
         // Check budgets are independent
         let (earned_a, _) = processor.miner_epoch_budget(&miner_a);
@@ -1647,12 +1759,20 @@ mod tests {
         let digits_100 = BbpComputer::compute_hex_digits(0, 100);
         let proof_100 = MiningProof::new(0, digits_100, Address([1u8; 20]), 42);
         let result_100 = processor.process_proof(&proof_100, &[0u8; 32]);
-        assert!(result_100.valid, "proof should be valid: {:?}", result_100.error);
+        assert!(
+            result_100.valid,
+            "proof should be valid: {:?}",
+            result_100.error
+        );
 
         let digits_200 = BbpComputer::compute_hex_digits(100, 200);
         let proof_200 = MiningProof::new(100, digits_200, Address([2u8; 20]), 42);
         let result_200 = processor.process_proof(&proof_200, &[0u8; 32]);
-        assert!(result_200.valid, "proof should be valid: {:?}", result_200.error);
+        assert!(
+            result_200.valid,
+            "proof should be valid: {:?}",
+            result_200.error
+        );
 
         // At genesis with linear scaling, 2x digits ≈ 2x reward
         // (frontier bonus may vary slightly, but should be close)
@@ -1711,7 +1831,11 @@ mod tests {
         let result = processor.process_proof_with_vdf(&proof, 0, &anchor, &vdf);
         assert!(!result.valid);
         assert!(
-            result.error.as_ref().unwrap().contains("VDF iterations too low"),
+            result
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("VDF iterations too low"),
             "expected VDF iterations error, got: {:?}",
             result.error
         );

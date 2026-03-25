@@ -33,18 +33,11 @@ pub enum SyncMode {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncRequest {
     /// Request block headers in a range.
-    GetHeaders {
-        start_height: u64,
-        max_count: u32,
-    },
+    GetHeaders { start_height: u64, max_count: u32 },
     /// Request full blocks (with transactions) by height.
-    GetBlocks {
-        heights: Vec<u64>,
-    },
+    GetBlocks { heights: Vec<u64> },
     /// Request a state snapshot at a specific height.
-    GetStateSnapshot {
-        height: u64,
-    },
+    GetStateSnapshot { height: u64 },
     /// Request the peer's chain tip info.
     GetChainTip,
     /// Request specific account states for verification.
@@ -142,13 +135,26 @@ pub enum SyncState {
     /// Discovering peers and finding the best chain.
     Discovering,
     /// Downloading block headers.
-    DownloadingHeaders { target_height: u64, current_height: u64 },
+    DownloadingHeaders {
+        target_height: u64,
+        current_height: u64,
+    },
     /// Downloading block bodies.
-    DownloadingBlocks { target_height: u64, current_height: u64 },
+    DownloadingBlocks {
+        target_height: u64,
+        current_height: u64,
+    },
     /// Downloading a state snapshot.
-    DownloadingSnapshot { target_height: u64, chunks_done: u32, total_chunks: u32 },
+    DownloadingSnapshot {
+        target_height: u64,
+        chunks_done: u32,
+        total_chunks: u32,
+    },
     /// Applying downloaded blocks.
-    Applying { target_height: u64, current_height: u64 },
+    Applying {
+        target_height: u64,
+        current_height: u64,
+    },
 }
 
 /// Maximum headers to request at once.
@@ -221,7 +227,8 @@ impl StateSyncManager {
 
     /// Register a peer's chain status.
     pub fn register_peer(&mut self, peer_id: String, height: u64, head_hash: Hash) {
-        self.peers.insert(peer_id, PeerSyncStatus::new(height, head_hash));
+        self.peers
+            .insert(peer_id, PeerSyncStatus::new(height, head_hash));
         if height > self.target_height {
             self.target_height = height;
         }
@@ -265,7 +272,12 @@ impl StateSyncManager {
                 };
                 // Request snapshot from the best peer
                 if let Some(peer_id) = self.best_peer() {
-                    vec![(peer_id, SyncRequest::GetStateSnapshot { height: snap_height })]
+                    vec![(
+                        peer_id,
+                        SyncRequest::GetStateSnapshot {
+                            height: snap_height,
+                        },
+                    )]
                 } else {
                     vec![]
                 }
@@ -285,13 +297,16 @@ impl StateSyncManager {
         let mut requests = Vec::new();
         let start = self.local_height + 1 + self.pending_headers.len() as u64;
 
-        let responsive_peers: Vec<String> = self.peers.iter()
+        let responsive_peers: Vec<String> = self
+            .peers
+            .iter()
             .filter(|(_, s)| s.is_responsive() && s.inflight_requests < MAX_INFLIGHT_PER_PEER)
             .map(|(id, _)| id.clone())
             .collect();
 
         for (i, peer_id) in responsive_peers.iter().enumerate() {
-            let req_start = start.saturating_add((i as u64).saturating_mul(MAX_HEADERS_PER_REQUEST as u64));
+            let req_start =
+                start.saturating_add((i as u64).saturating_mul(MAX_HEADERS_PER_REQUEST as u64));
             if req_start > self.target_height {
                 break;
             }
@@ -315,13 +330,17 @@ impl StateSyncManager {
         let mut requests = Vec::new();
 
         // Collect heights we have headers for but not blocks
-        let needed: Vec<u64> = self.pending_headers.keys()
+        let needed: Vec<u64> = self
+            .pending_headers
+            .keys()
             .filter(|h| !self.pending_blocks.contains_key(h) && !self.inflight_heights.contains(h))
             .copied()
             .take(MAX_BLOCKS_PER_REQUEST * 4) // Request ahead
             .collect();
 
-        let responsive_peers: Vec<String> = self.peers.iter()
+        let responsive_peers: Vec<String> = self
+            .peers
+            .iter()
             .filter(|(_, s)| s.is_responsive() && s.inflight_requests < MAX_INFLIGHT_PER_PEER)
             .map(|(id, _)| id.clone())
             .collect();
@@ -333,10 +352,7 @@ impl StateSyncManager {
                 for h in &heights {
                     self.inflight_heights.insert(*h);
                 }
-                requests.push((
-                    peer_id.clone(),
-                    SyncRequest::GetBlocks { heights },
-                ));
+                requests.push((peer_id.clone(), SyncRequest::GetBlocks { heights }));
                 if let Some(status) = self.peers.get_mut(peer_id) {
                     status.inflight_requests = status.inflight_requests.saturating_add(1);
                 }
@@ -378,7 +394,10 @@ impl StateSyncManager {
                         None => return self.generate_header_requests(),
                     };
                     if first_height > last_height || last_height > self.target_height + 10 {
-                        warn!(peer = peer_id, first_height, last_height, "rejected headers: out of range");
+                        warn!(
+                            peer = peer_id,
+                            first_height, last_height, "rejected headers: out of range"
+                        );
                         if let Some(status) = self.peers.get_mut(peer_id) {
                             status.failures += 1;
                         }
@@ -394,20 +413,21 @@ impl StateSyncManager {
                     // leading us to download and attempt to apply forged blocks.
                     if first_height > 0 {
                         let prev_height = first_height - 1;
-                        let connects = if let Some(prev_header) = self.pending_headers.get(&prev_height) {
-                            // The first header must chain to the pending header at prev_height
-                            headers[0].parent_hash == prev_header.hash()
-                        } else if prev_height == self.local_height {
-                            // The first header chains directly to the local tip.
-                            // We don't have the local tip header hash stored here,
-                            // so we accept it when it follows immediately from local_height.
-                            // The block-body validation later will catch mismatches.
-                            true
-                        } else {
-                            // No anchor — we have no header at prev_height to verify against.
-                            // Accept only if first_height <= local_height + 1 (optimistic).
-                            first_height <= self.local_height + 1
-                        };
+                        let connects =
+                            if let Some(prev_header) = self.pending_headers.get(&prev_height) {
+                                // The first header must chain to the pending header at prev_height
+                                headers[0].parent_hash == prev_header.hash()
+                            } else if prev_height == self.local_height {
+                                // The first header chains directly to the local tip.
+                                // We don't have the local tip header hash stored here,
+                                // so we accept it when it follows immediately from local_height.
+                                // The block-body validation later will catch mismatches.
+                                true
+                            } else {
+                                // No anchor — we have no header at prev_height to verify against.
+                                // Accept only if first_height <= local_height + 1 (optimistic).
+                                first_height <= self.local_height + 1
+                            };
 
                         if !connects {
                             warn!(
@@ -429,15 +449,17 @@ impl StateSyncManager {
 
                 // Check if we have enough headers to start downloading blocks
                 let headers_ahead = self.pending_headers.len() as u64;
-                if (headers_ahead >= MAX_HEADERS_PER_REQUEST as u64 ||
-                   self.pending_headers.keys().last().copied().unwrap_or(0) >= self.target_height)
-                    && self.mode != SyncMode::Light {
-                        self.state = SyncState::DownloadingBlocks {
-                            target_height: self.target_height,
-                            current_height: self.local_height,
-                        };
-                        return self.generate_block_requests();
-                    }
+                if (headers_ahead >= MAX_HEADERS_PER_REQUEST as u64
+                    || self.pending_headers.keys().last().copied().unwrap_or(0)
+                        >= self.target_height)
+                    && self.mode != SyncMode::Light
+                {
+                    self.state = SyncState::DownloadingBlocks {
+                        target_height: self.target_height,
+                        current_height: self.local_height,
+                    };
+                    return self.generate_block_requests();
+                }
 
                 self.generate_header_requests()
             }
@@ -452,8 +474,8 @@ impl StateSyncManager {
                     if let Some(expected_header) = self.pending_headers.get(&height) {
                         if block.header.hash() != expected_header.hash() {
                             warn!(
-                                peer = peer_id, height,
-                                "rejected block: header hash mismatch"
+                                peer = peer_id,
+                                height, "rejected block: header hash mismatch"
                             );
                             if let Some(status) = self.peers.get_mut(peer_id) {
                                 status.failures += 1;
@@ -468,8 +490,8 @@ impl StateSyncManager {
                         let computed_tx_root = block.compute_tx_root();
                         if computed_tx_root != expected_header.tx_root {
                             warn!(
-                                peer = peer_id, height,
-                                "rejected block: tx_root mismatch (tampered transactions)"
+                                peer = peer_id,
+                                height, "rejected block: tx_root mismatch (tampered transactions)"
                             );
                             if let Some(status) = self.peers.get_mut(peer_id) {
                                 status.failures += 1;
@@ -483,8 +505,19 @@ impl StateSyncManager {
                 self.generate_block_requests()
             }
 
-            SyncResponse::StateChunk { height, chunk_index, total_chunks, data } => {
-                debug!(height, chunk_index, total_chunks, bytes = data.len(), "received state chunk");
+            SyncResponse::StateChunk {
+                height,
+                chunk_index,
+                total_chunks,
+                data,
+            } => {
+                debug!(
+                    height,
+                    chunk_index,
+                    total_chunks,
+                    bytes = data.len(),
+                    "received state chunk"
+                );
 
                 // SECURITY: Reject oversized chunks to prevent OOM attacks.
                 // A malicious peer could send multi-GB chunks to exhaust memory.
@@ -533,7 +566,10 @@ impl StateSyncManager {
 
                 // Validate chunk_index is in range
                 if chunk_index >= self.snapshot_total_chunks {
-                    warn!(peer = peer_id, chunk_index, "rejected state chunk: index out of range");
+                    warn!(
+                        peer = peer_id,
+                        chunk_index, "rejected state chunk: index out of range"
+                    );
                     return vec![];
                 }
 
@@ -571,7 +607,10 @@ impl StateSyncManager {
                             }
                             return vec![];
                         }
-                        info!(height, "state snapshot verified against chain tip state root");
+                        info!(
+                            height,
+                            "state snapshot verified against chain tip state root"
+                        );
                     } else {
                         // SECURITY: Reject snapshot entirely — never accept unverified state.
                         // This prevents single-peer state poisoning attacks.
@@ -603,7 +642,11 @@ impl StateSyncManager {
                 vec![]
             }
 
-            SyncResponse::ChainTip { height, block_hash, state_root } => {
+            SyncResponse::ChainTip {
+                height,
+                block_hash,
+                state_root,
+            } => {
                 if let Some(status) = self.peers.get_mut(peer_id) {
                     status.height = height;
                     status.head_hash = block_hash;
@@ -627,8 +670,7 @@ impl StateSyncManager {
                         self.expected_state_root = Some(state_root);
                         info!(
                             votes = vote_count,
-                            height,
-                            "state root verified by {vote_count} peers — accepted"
+                            height, "state root verified by {vote_count} peers — accepted"
                         );
                     } else {
                         debug!(
@@ -757,7 +799,8 @@ impl StateSyncManager {
 
     /// Get the best peer (highest chain, most responsive).
     fn best_peer(&self) -> Option<String> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .filter(|(_, s)| s.is_responsive())
             .max_by_key(|(_, s)| (s.height, (s.speed_score * 1000.0) as u64))
             .map(|(id, _)| id.clone())
@@ -810,8 +853,12 @@ impl StateSyncManager {
         const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
         // Detect peers that haven't responded and have inflight requests
-        let stale_peers: Vec<String> = self.peers.iter()
-            .filter(|(_, s)| s.inflight_requests > 0 && s.last_seen.elapsed() > SYNC_REQUEST_TIMEOUT)
+        let stale_peers: Vec<String> = self
+            .peers
+            .iter()
+            .filter(|(_, s)| {
+                s.inflight_requests > 0 && s.last_seen.elapsed() > SYNC_REQUEST_TIMEOUT
+            })
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -905,7 +952,10 @@ mod tests {
         h1.proposer = pichain_crypto::ed25519::Address([1u8; 20]); // non-zero proposer
         h1.parent_hash = Hash::ZERO; // Wrong parent!
 
-        assert!(!StateSyncManager::verify_header_chain(&[genesis.header, h1]));
+        assert!(!StateSyncManager::verify_header_chain(&[
+            genesis.header,
+            h1
+        ]));
     }
 
     #[test]
@@ -1103,10 +1153,7 @@ mod tests {
         valid_h2.parent_hash = h1.hash(); // Correct parent!
         valid_h2.timestamp_ms = 3000;
 
-        let _requests = mgr.handle_response(
-            peer_id,
-            SyncResponse::Headers(vec![valid_h2.clone()]),
-        );
+        let _requests = mgr.handle_response(peer_id, SyncResponse::Headers(vec![valid_h2.clone()]));
 
         // This one should be accepted
         assert!(

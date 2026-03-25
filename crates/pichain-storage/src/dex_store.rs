@@ -67,19 +67,15 @@ impl<'a> DexStore<'a> {
     /// Store a liquidity pool.
     pub fn put_pool(&self, pool: &LiquidityPool) -> Result<(), StorageError> {
         let key = pool_key(&pool.id);
-        let data = serde_json::to_vec(pool)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(pool).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.put_state(&key, &data)
     }
 
     // --- LP balance operations ---
 
     /// Get an LP token balance.
-    pub fn get_lp_balance(
-        &self,
-        pool_id: &PoolId,
-        owner: &Address,
-    ) -> Result<u64, StorageError> {
+    pub fn get_lp_balance(&self, pool_id: &PoolId, owner: &Address) -> Result<u64, StorageError> {
         let key = lp_balance_key(pool_id, owner);
         match self.db.get_state(&key)? {
             Some(data) => {
@@ -96,17 +92,27 @@ impl<'a> DexStore<'a> {
     }
 
     /// Add a pool write to a batch (for atomic commits).
-    pub fn batch_put_pool(&self, batch: &mut rocksdb::WriteBatch, pool: &LiquidityPool) -> Result<(), StorageError> {
+    pub fn batch_put_pool(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        pool: &LiquidityPool,
+    ) -> Result<(), StorageError> {
         let mut key = vec![POOL_PREFIX];
         key.extend_from_slice(&pool.id.0);
-        let data = serde_json::to_vec(pool)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(pool).map_err(|e| StorageError::Serialization(e.to_string()))?;
         self.db.batch_put_state(batch, &key, &data);
         Ok(())
     }
 
     /// Add an LP balance write to a batch (for atomic commits).
-    pub fn batch_put_lp_balance(&self, batch: &mut rocksdb::WriteBatch, pool_id: &PoolId, address: &Address, balance: u64) -> Result<(), StorageError> {
+    pub fn batch_put_lp_balance(
+        &self,
+        batch: &mut rocksdb::WriteBatch,
+        pool_id: &PoolId,
+        address: &Address,
+        balance: u64,
+    ) -> Result<(), StorageError> {
         let mut key = vec![LP_BALANCE_PREFIX];
         key.extend_from_slice(&pool_id.0);
         key.extend_from_slice(&address.0);
@@ -134,7 +140,9 @@ impl<'a> DexStore<'a> {
         let entries = self.db.scan_state_prefix(prefix)?;
         let mut result = Vec::new();
         for (key_suffix, value) in entries {
-            if key_suffix.len() != 52 { continue; } // 32 (pool_id) + 20 (address)
+            if key_suffix.len() != 52 {
+                continue;
+            } // 32 (pool_id) + 20 (address)
             let mut pool_bytes = [0u8; 32];
             pool_bytes.copy_from_slice(&key_suffix[..32]);
             let pool_id = PoolId(pool_bytes);
@@ -170,8 +178,8 @@ impl<'a> DexStore<'a> {
         trade: &TradeRecord,
         idx: u16,
     ) -> Result<(), StorageError> {
-        let data = serde_json::to_vec(trade)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let data =
+            serde_json::to_vec(trade).map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         // Per-pool index: T + pool_id(32) + inverted_ts(8) + idx(2)
         let inv_ts = !trade.timestamp_ms;
@@ -208,11 +216,15 @@ impl<'a> DexStore<'a> {
         let entries = self.db.scan_state_prefix(&prefix)?;
         let mut trades = Vec::new();
         for (_, value) in entries {
-            if trades.len() >= limit { break; }
+            if trades.len() >= limit {
+                break;
+            }
             let trade: TradeRecord = serde_json::from_slice(&value)
                 .map_err(|e| StorageError::Serialization(e.to_string()))?;
             if let Some(before) = before_ms {
-                if trade.timestamp_ms >= before { continue; }
+                if trade.timestamp_ms >= before {
+                    continue;
+                }
             }
             trades.push(trade);
         }
@@ -225,7 +237,9 @@ impl<'a> DexStore<'a> {
         let entries = self.db.scan_state_prefix(prefix)?;
         let mut trades = Vec::new();
         for (_, value) in entries {
-            if trades.len() >= limit { break; }
+            if trades.len() >= limit {
+                break;
+            }
             let trade: TradeRecord = serde_json::from_slice(&value)
                 .map_err(|e| StorageError::Serialization(e.to_string()))?;
             trades.push(trade);

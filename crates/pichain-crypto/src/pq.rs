@@ -24,8 +24,7 @@
 use pqcrypto_dilithium::dilithium3;
 use pqcrypto_sphincsplus::sphincsshake128fsimple;
 use pqcrypto_traits::sign::{
-    DetachedSignature as PqDetachedSignature, PublicKey as PqPublicKey,
-    SecretKey as PqSecretKey,
+    DetachedSignature as PqDetachedSignature, PublicKey as PqPublicKey, SecretKey as PqSecretKey,
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -103,7 +102,9 @@ impl<'de> Deserialize<'de> for MlDsaPublicKey {
         let s = String::deserialize(deserializer)?;
         if s.len() != ML_DSA_PK_BYTES * 2 {
             return Err(serde::de::Error::custom(format!(
-                "ML-DSA public key hex must be {} chars, got {}", ML_DSA_PK_BYTES * 2, s.len()
+                "ML-DSA public key hex must be {} chars, got {}",
+                ML_DSA_PK_BYTES * 2,
+                s.len()
             )));
         }
         let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
@@ -204,7 +205,9 @@ impl<'de> Deserialize<'de> for MlDsaSignature {
         let s = String::deserialize(deserializer)?;
         if s.len() != ML_DSA_SIG_BYTES * 2 {
             return Err(serde::de::Error::custom(format!(
-                "ML-DSA signature hex must be {} chars, got {}", ML_DSA_SIG_BYTES * 2, s.len()
+                "ML-DSA signature hex must be {} chars, got {}",
+                ML_DSA_SIG_BYTES * 2,
+                s.len()
             )));
         }
         let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
@@ -262,7 +265,9 @@ impl<'de> Deserialize<'de> for SlhDsaPublicKey {
         let s = String::deserialize(deserializer)?;
         if s.len() != SLH_DSA_PK_BYTES * 2 {
             return Err(serde::de::Error::custom(format!(
-                "SLH-DSA public key hex must be {} chars, got {}", SLH_DSA_PK_BYTES * 2, s.len()
+                "SLH-DSA public key hex must be {} chars, got {}",
+                SLH_DSA_PK_BYTES * 2,
+                s.len()
             )));
         }
         let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
@@ -351,7 +356,9 @@ impl<'de> Deserialize<'de> for SlhDsaSignature {
         let s = String::deserialize(deserializer)?;
         if s.len() != SLH_DSA_SIG_BYTES * 2 {
             return Err(serde::de::Error::custom(format!(
-                "SLH-DSA signature hex must be {} chars, got {}", SLH_DSA_SIG_BYTES * 2, s.len()
+                "SLH-DSA signature hex must be {} chars, got {}",
+                SLH_DSA_SIG_BYTES * 2,
+                s.len()
             )));
         }
         let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
@@ -888,7 +895,10 @@ mod tests {
 
     #[test]
     fn crypto_version_roundtrip() {
-        assert_eq!(CryptoVersion::from_u8(0), Some(CryptoVersion::Ed25519Legacy));
+        assert_eq!(
+            CryptoVersion::from_u8(0),
+            Some(CryptoVersion::Ed25519Legacy)
+        );
         assert_eq!(CryptoVersion::from_u8(1), Some(CryptoVersion::PqDualV1));
         assert_eq!(CryptoVersion::from_u8(2), None);
         assert!(CryptoVersion::PqDualV1.is_post_quantum());

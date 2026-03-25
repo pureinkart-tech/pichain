@@ -18,9 +18,9 @@ use tracing::{debug, info, warn};
 use crate::dag::{Certificate, DagMempool, Header};
 use crate::fast_path::AvalancheFastPath;
 use crate::staking::StakingManager;
-use crate::validator::ValidatorSet;
 #[cfg(test)]
 use crate::validator::Validator;
+use crate::validator::ValidatorSet;
 
 /// Finality status for a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,7 +187,9 @@ impl ConsensusEngine {
         }
 
         // Inject validator stakes for stake-weighted quorum
-        let stakes: HashMap<Address, u64> = validator_set.validators().iter()
+        let stakes: HashMap<Address, u64> = validator_set
+            .validators()
+            .iter()
             .map(|v| (v.address, v.stake))
             .collect();
         dag.update_stakes(stakes);
@@ -223,12 +225,21 @@ impl ConsensusEngine {
     /// This method is retained only for tests and single-node development.
     #[allow(dead_code)]
     pub(crate) fn propose_block(&mut self, block_hash: Hash, tx_batch_hashes: Vec<Hash>) -> Hash {
-        self.propose_block_at(block_hash, tx_batch_hashes, chrono::Utc::now().timestamp_millis().max(0) as u64)
+        self.propose_block_at(
+            block_hash,
+            tx_batch_hashes,
+            chrono::Utc::now().timestamp_millis().max(0) as u64,
+        )
     }
 
     /// Propose a block with an explicit timestamp (deterministic, consensus-safe).
     /// Prefer this over `propose_block` in production to avoid wall-clock dependency.
-    pub fn propose_block_at(&mut self, block_hash: Hash, tx_batch_hashes: Vec<Hash>, timestamp_ms: u64) -> Hash {
+    pub fn propose_block_at(
+        &mut self,
+        block_hash: Hash,
+        tx_batch_hashes: Vec<Hash>,
+        timestamp_ms: u64,
+    ) -> Hash {
         // SECURITY: Refuse to produce unsigned certificates in multi-validator mode
         if self.bls_secret_key.is_none() && self.validator_set.validator_count() > 1 {
             warn!("SECURITY: refusing to propose block without BLS signing key in multi-validator mode");
@@ -291,7 +302,8 @@ impl ConsensusEngine {
             );
             return Hash::ZERO;
         }
-        self.pending_blocks.insert(cert_digest, (block_hash, self.current_round));
+        self.pending_blocks
+            .insert(cert_digest, (block_hash, self.current_round));
         self.finality.insert(block_hash, FinalityStatus::Proposed);
 
         self.metrics.certificates_produced += 1;
@@ -403,7 +415,9 @@ impl ConsensusEngine {
 
                 // Mark all committed certificates' blocks as finalized
                 for cert in &committed_certs {
-                    if let Some((block_hash, _proposed_round)) = self.pending_blocks.remove(&cert.digest) {
+                    if let Some((block_hash, _proposed_round)) =
+                        self.pending_blocks.remove(&cert.digest)
+                    {
                         // Finality is immutable: never overwrite Committed or FastFinalized
                         if !matches!(
                             self.finality.get(&block_hash),
@@ -437,9 +451,10 @@ impl ConsensusEngine {
 
         // Prune pending blocks that are too old (> PENDING_BLOCK_TTL_ROUNDS behind current)
         let current_for_prune = self.current_round;
-        self.pending_blocks.retain(|_cert_digest, (_block_hash, proposed_round)| {
-            current_for_prune.saturating_sub(*proposed_round) <= PENDING_BLOCK_TTL_ROUNDS
-        });
+        self.pending_blocks
+            .retain(|_cert_digest, (_block_hash, proposed_round)| {
+                current_for_prune.saturating_sub(*proposed_round) <= PENDING_BLOCK_TTL_ROUNDS
+            });
 
         // Process any equivocation evidence — slash misbehaving validators
         self.process_equivocations();
@@ -488,7 +503,8 @@ impl ConsensusEngine {
         self.consecutive_timeouts = self.consecutive_timeouts.saturating_add(1);
 
         // Determine who was the expected leader for the timed-out round
-        let leader_addr = self.validator_set
+        let leader_addr = self
+            .validator_set
             .select_leader(old_round, &self.config.pi_seed)
             .map(|v| v.address);
 
@@ -523,7 +539,9 @@ impl ConsensusEngine {
         // double-slashing of recently-processed equivocations (M-3 fix).
         if self.slashed_evidence.len() > Self::MAX_SLASHED_EVIDENCE {
             let to_keep = Self::MAX_SLASHED_EVIDENCE / 2;
-            let to_remove: Vec<Hash> = self.slashed_evidence.iter()
+            let to_remove: Vec<Hash> = self
+                .slashed_evidence
+                .iter()
                 .take(self.slashed_evidence.len() - to_keep)
                 .copied()
                 .collect();
@@ -558,7 +576,12 @@ impl ConsensusEngine {
             }
 
             let evidence_epoch = self.staking.current_epoch();
-            match self.staking.slash(ev.author, crate::staking::SlashReason::DoubleSigning, evidence_hash, evidence_epoch) {
+            match self.staking.slash(
+                ev.author,
+                crate::staking::SlashReason::DoubleSigning,
+                evidence_hash,
+                evidence_epoch,
+            ) {
                 Ok(event) => {
                     // Record this evidence as slashed to prevent double-slashing.
                     self.slashed_evidence.insert(evidence_hash);
@@ -603,11 +626,12 @@ impl ConsensusEngine {
     /// Without this, any peer could slash any validator by sending fabricated evidence.
     pub fn process_remote_evidence(&mut self, evidence: crate::dag::EquivocationEvidence) -> bool {
         // Canonicalize evidence hash
-        let (first, second) = if evidence.cert_a.digest.as_bytes() <= evidence.cert_b.digest.as_bytes() {
-            (evidence.cert_a.digest, evidence.cert_b.digest)
-        } else {
-            (evidence.cert_b.digest, evidence.cert_a.digest)
-        };
+        let (first, second) =
+            if evidence.cert_a.digest.as_bytes() <= evidence.cert_b.digest.as_bytes() {
+                (evidence.cert_a.digest, evidence.cert_b.digest)
+            } else {
+                (evidence.cert_b.digest, evidence.cert_a.digest)
+            };
         let mut hash_input = Vec::new();
         hash_input.extend_from_slice(first.as_bytes());
         hash_input.extend_from_slice(second.as_bytes());
@@ -689,7 +713,9 @@ impl ConsensusEngine {
                     return false;
                 }
                 // Resolve signer public keys
-                let signer_pks: Vec<&pichain_crypto::bls::BlsPublicKey> = cert.signers.iter()
+                let signer_pks: Vec<&pichain_crypto::bls::BlsPublicKey> = cert
+                    .signers
+                    .iter()
                     .filter_map(|addr| keys.get(addr))
                     .collect();
                 if signer_pks.len() != cert.signers.len() {
@@ -701,12 +727,17 @@ impl ConsensusEngine {
                 // slash any honest validator by creating conflicting evidence.
                 let signer_refs: Vec<&Address> = cert.signers.iter().collect();
                 if !self.dag.has_stake_quorum(&signer_refs) {
-                    warn!("rejecting evidence: {label} lacks quorum signers ({} of {} required)",
-                        cert.signers.len(), self.validator_set.validator_count() * 2 / 3 + 1);
+                    warn!(
+                        "rejecting evidence: {label} lacks quorum signers ({} of {} required)",
+                        cert.signers.len(),
+                        self.validator_set.validator_count() * 2 / 3 + 1
+                    );
                     return false;
                 }
                 // Verify aggregate BLS signature
-                if pichain_crypto::bls::AggregateSignature::verify(&signer_pks, &message, &bls_sig).is_err() {
+                if pichain_crypto::bls::AggregateSignature::verify(&signer_pks, &message, &bls_sig)
+                    .is_err()
+                {
                     warn!("rejecting evidence: {label} BLS verification failed");
                     return false;
                 }
@@ -714,7 +745,12 @@ impl ConsensusEngine {
         }
 
         let evidence_epoch = self.staking.current_epoch();
-        match self.staking.slash(cert_author, crate::staking::SlashReason::DoubleSigning, evidence_hash, evidence_epoch) {
+        match self.staking.slash(
+            cert_author,
+            crate::staking::SlashReason::DoubleSigning,
+            evidence_hash,
+            evidence_epoch,
+        ) {
             Ok(event) => {
                 self.slashed_evidence.insert(evidence_hash);
                 warn!(
@@ -758,15 +794,21 @@ impl ConsensusEngine {
 
         // R27-FIX: Use stake-weighted voting instead of count-based.
         // This prevents sybil attacks via many low-stake validators.
-        let finalized = self.fast_path.record_vote_weighted(tx_hash, voter, vote, voter_stake);
+        let finalized = self
+            .fast_path
+            .record_vote_weighted(tx_hash, voter, vote, voter_stake);
         if finalized {
             self.metrics.fast_path_finalized += 1;
             self.metrics.total_finalized += 1;
             // R28-FIX: Only insert if not already finalized (prevents overwriting
             // Committed status with FastFinalized). Also track in committed_order
             // for proper pruning — otherwise fast-path entries leak forever.
-            if !matches!(self.finality.get(tx_hash), Some(FinalityStatus::Committed) | Some(FinalityStatus::FastFinalized)) {
-                self.finality.insert(*tx_hash, FinalityStatus::FastFinalized);
+            if !matches!(
+                self.finality.get(tx_hash),
+                Some(FinalityStatus::Committed) | Some(FinalityStatus::FastFinalized)
+            ) {
+                self.finality
+                    .insert(*tx_hash, FinalityStatus::FastFinalized);
                 self.committed_order.push_back(*tx_hash);
             }
             // Clean up the fast-path pending entry to free memory
@@ -876,9 +918,7 @@ impl ConsensusEngine {
                 new_count
             );
         } else if old_count > 1 && new_count <= 1 {
-            warn!(
-                "=== CONSENSUS TRANSITION: multi-validator → single-validator mode ==="
-            );
+            warn!("=== CONSENSUS TRANSITION: multi-validator → single-validator mode ===");
         }
 
         info!(
@@ -902,7 +942,10 @@ impl ConsensusEngine {
         let mut dropped_blocks = Vec::new();
         let stale = self.pending_blocks.len();
         if stale > 0 {
-            warn!(stale_blocks = stale, "draining pending blocks on validator set change — returning for re-queue");
+            warn!(
+                stale_blocks = stale,
+                "draining pending blocks on validator set change — returning for re-queue"
+            );
             for (_cert_digest, (block_hash, _round)) in self.pending_blocks.drain() {
                 dropped_blocks.push(block_hash);
             }
@@ -945,7 +988,9 @@ impl ConsensusEngine {
         // eviction strategy as process_equivocations() for cross-node consistency.
         if self.slashed_evidence.len() > Self::MAX_SLASHED_EVIDENCE {
             let to_keep = Self::MAX_SLASHED_EVIDENCE / 2;
-            let to_remove: Vec<Hash> = self.slashed_evidence.iter()
+            let to_remove: Vec<Hash> = self
+                .slashed_evidence
+                .iter()
                 .take(self.slashed_evidence.len() - to_keep)
                 .copied()
                 .collect();
@@ -957,10 +1002,14 @@ impl ConsensusEngine {
         // Update DAG committee size atomically with the validator set swap.
         // This must happen immediately after the assignment, before any metrics
         // or logging, to prevent a window where the DAG uses stale quorum thresholds.
-        self.dag.update_committee_size(self.validator_set.validator_count());
+        self.dag
+            .update_committee_size(self.validator_set.validator_count());
 
         // Update stake map for stake-weighted quorum
-        let stakes: HashMap<Address, u64> = self.validator_set.validators().iter()
+        let stakes: HashMap<Address, u64> = self
+            .validator_set
+            .validators()
+            .iter()
             .map(|v| (v.address, v.stake))
             .collect();
         self.dag.update_stakes(stakes);
@@ -1230,23 +1279,17 @@ mod tests {
         let validator_set = ValidatorSet::new(vec![validator]);
         let mut staking = StakingManager::new();
         // Register 3 validators for bootstrap-safe setup
-        staking.register_validator(
-            validator_address,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(validator_address, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         let dummy_addr = pichain_crypto::ed25519::Address([99u8; 20]);
-        staking.register_validator(
-            dummy_addr,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(dummy_addr, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         let dummy_addr2 = pichain_crypto::ed25519::Address([98u8; 20]);
-        staking.register_validator(
-            dummy_addr2,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(dummy_addr2, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
 
         let config = ConsensusConfig {
             validator_address,
@@ -1268,11 +1311,8 @@ mod tests {
             payload: vec![pichain_crypto::hash(b"conflicting_payload")],
             timestamp_ms: 0,
         };
-        let conflicting_cert = crate::dag::Certificate::new(
-            conflicting_header,
-            vec![validator_address],
-            vec![],
-        );
+        let conflicting_cert =
+            crate::dag::Certificate::new(conflicting_header, vec![validator_address], vec![]);
         // This should fail (duplicate) but collect equivocation evidence
         let _ = engine.dag.insert_certificate(conflicting_cert, None);
 
@@ -1290,7 +1330,10 @@ mod tests {
         let slash_history = staking.slash_history();
         assert_eq!(slash_history.len(), 1);
         assert_eq!(slash_history[0].validator, validator_address);
-        assert!(matches!(slash_history[0].reason, crate::staking::SlashReason::DoubleSigning));
+        assert!(matches!(
+            slash_history[0].reason,
+            crate::staking::SlashReason::DoubleSigning
+        ));
         assert!(slash_history[0].amount_slashed > 0);
     }
 
@@ -1449,16 +1492,21 @@ mod tests {
         assert_ne!(cert_digest, Hash::ZERO, "certificate should be created");
 
         // Extract the certificate from the DAG (round 0)
-        let round_0 = engine.dag().get_round(0)
-            .expect("round 0 should exist");
-        let cert = round_0.get(&validator_address)
+        let round_0 = engine.dag().get_round(0).expect("round 0 should exist");
+        let cert = round_0
+            .get(&validator_address)
             .expect("certificate should be in round 0");
 
         // The certificate should have a non-empty aggregate signature
-        assert_eq!(cert.aggregate_signature.len(), 96,
-            "BLS signature should be 96 bytes");
-        assert!(!cert.aggregate_signature.iter().all(|&b| b == 0),
-            "signature should not be all zeros");
+        assert_eq!(
+            cert.aggregate_signature.len(),
+            96,
+            "BLS signature should be 96 bytes"
+        );
+        assert!(
+            !cert.aggregate_signature.iter().all(|&b| b == 0),
+            "signature should not be all zeros"
+        );
 
         // Verify the BLS signature manually using the public key
         // The signing domain is "CERT_HDR" + chain_id + header_digest (same as propose_block_at)
@@ -1472,7 +1520,8 @@ mod tests {
         let sig = pichain_crypto::bls::BlsSignature::from_bytes(&sig_bytes)
             .expect("signature should be valid BLS point");
 
-        bls_pk.verify(&sign_msg, &sig)
+        bls_pk
+            .verify(&sign_msg, &sig)
             .expect("BLS signature verification should succeed");
     }
 
@@ -1484,23 +1533,17 @@ mod tests {
         let validator_set = ValidatorSet::new(vec![validator]);
         let mut staking = StakingManager::new();
         // Register 3 validators for bootstrap-safe setup
-        staking.register_validator(
-            validator_address,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(validator_address, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         let dummy_addr = pichain_crypto::ed25519::Address([99u8; 20]);
-        staking.register_validator(
-            dummy_addr,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(dummy_addr, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
         let dummy_addr2 = pichain_crypto::ed25519::Address([98u8; 20]);
-        staking.register_validator(
-            dummy_addr2,
-            crate::staking::MIN_VALIDATOR_STAKE,
-            1000,
-        ).unwrap();
+        staking
+            .register_validator(dummy_addr2, crate::staking::MIN_VALIDATOR_STAKE, 1000)
+            .unwrap();
 
         let config = ConsensusConfig {
             validator_address,
@@ -1523,17 +1566,17 @@ mod tests {
             payload: vec![pichain_crypto::hash(b"conflict_1")],
             timestamp_ms: 0,
         };
-        let conflicting_cert_1 = crate::dag::Certificate::new(
-            conflicting_header_1,
-            vec![validator_address],
-            vec![],
-        );
+        let conflicting_cert_1 =
+            crate::dag::Certificate::new(conflicting_header_1, vec![validator_address], vec![]);
         let _ = engine.dag.insert_certificate(conflicting_cert_1, None);
 
         // Process first equivocation
         engine.try_advance();
         let slash_count_1 = engine.staking().slash_history().len();
-        assert_eq!(slash_count_1, 1, "first equivocation should trigger one slash");
+        assert_eq!(
+            slash_count_1, 1,
+            "first equivocation should trigger one slash"
+        );
 
         // Inject the same conflicting cert again (different payload but same effect)
         let conflicting_header_2 = crate::dag::Header {
@@ -1543,11 +1586,8 @@ mod tests {
             payload: vec![pichain_crypto::hash(b"conflict_1")], // same payload = same digest
             timestamp_ms: 0,
         };
-        let conflicting_cert_2 = crate::dag::Certificate::new(
-            conflicting_header_2,
-            vec![validator_address],
-            vec![],
-        );
+        let conflicting_cert_2 =
+            crate::dag::Certificate::new(conflicting_header_2, vec![validator_address], vec![]);
         let _ = engine.dag.insert_certificate(conflicting_cert_2, None);
 
         // Process second equivocation — should be deduplicated

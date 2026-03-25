@@ -121,7 +121,10 @@ impl HostState {
 
     /// Total bytes currently stored in state_changes.
     fn state_changes_size(&self) -> usize {
-        self.state_changes.iter().map(|(k, v)| k.len() + v.len()).sum()
+        self.state_changes
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum()
     }
 }
 
@@ -171,8 +174,9 @@ impl WasmVM {
         config.cranelift_opt_level(OptLevel::Speed);
         config.memory_init_cow(true);
 
-        let engine = Engine::new(&config)
-            .map_err(|e| ExecutionError::ContractError(format!("failed to create WASM engine: {e}")))?;
+        let engine = Engine::new(&config).map_err(|e| {
+            ExecutionError::ContractError(format!("failed to create WASM engine: {e}"))
+        })?;
 
         info!("WASM VM initialized (Wasmtime JIT)");
         Ok(Self { engine })
@@ -188,9 +192,8 @@ impl WasmVM {
             )));
         }
 
-        Module::validate(&self.engine, bytecode).map_err(|e| {
-            ExecutionError::ContractError(format!("invalid WASM module: {e}"))
-        })?;
+        Module::validate(&self.engine, bytecode)
+            .map_err(|e| ExecutionError::ContractError(format!("invalid WASM module: {e}")))?;
 
         Ok(())
     }
@@ -309,7 +312,9 @@ impl WasmVM {
                                 let effective_remaining = state.gas_remaining.min(fuel_remaining);
                                 return WasmExecutionResult {
                                     return_data: state.return_data,
-                                    gas_used: gas_limit.saturating_sub(effective_remaining).max(BASE_CONTRACT_CALL_GAS),
+                                    gas_used: gas_limit
+                                        .saturating_sub(effective_remaining)
+                                        .max(BASE_CONTRACT_CALL_GAS),
                                     state_changes: state.state_changes,
                                     logs: state.logs,
                                     success: true,
@@ -323,7 +328,9 @@ impl WasmVM {
                                 let effective_remaining = state.gas_remaining.min(fuel_remaining);
                                 return WasmExecutionResult {
                                     return_data: vec![],
-                                    gas_used: gas_limit.saturating_sub(effective_remaining).max(BASE_CONTRACT_CALL_GAS),
+                                    gas_used: gas_limit
+                                        .saturating_sub(effective_remaining)
+                                        .max(BASE_CONTRACT_CALL_GAS),
                                     state_changes: HashMap::new(),
                                     logs: vec![],
                                     success: false,
@@ -381,7 +388,9 @@ impl WasmVM {
                     success: false,
                     error: Some(format!(
                         "args require {} bytes at offset {}, exceeds {}MB memory limit",
-                        args.len(), args_offset, MAX_WASM_MEMORY_BYTES / (1024 * 1024)
+                        args.len(),
+                        args_offset,
+                        MAX_WASM_MEMORY_BYTES / (1024 * 1024)
                     )),
                 };
             }
@@ -431,7 +440,9 @@ impl WasmVM {
 
                 WasmExecutionResult {
                     return_data: state.return_data,
-                    gas_used: gas_limit.saturating_sub(effective_remaining).max(BASE_CONTRACT_CALL_GAS),
+                    gas_used: gas_limit
+                        .saturating_sub(effective_remaining)
+                        .max(BASE_CONTRACT_CALL_GAS),
                     state_changes: state.state_changes,
                     logs: state.logs,
                     success: true,
@@ -448,7 +459,9 @@ impl WasmVM {
                 let effective_remaining = state.gas_remaining.min(fuel_remaining);
                 WasmExecutionResult {
                     return_data: vec![],
-                    gas_used: gas_limit.saturating_sub(effective_remaining).max(BASE_CONTRACT_CALL_GAS),
+                    gas_used: gas_limit
+                        .saturating_sub(effective_remaining)
+                        .max(BASE_CONTRACT_CALL_GAS),
                     state_changes: HashMap::new(), // Revert on failure
                     logs: vec![],
                     success: false,
@@ -502,7 +515,12 @@ fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), String>
         .func_wrap(
             "pichain",
             "storage_read",
-            |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_max_len: i32| -> i32 {
+            |mut caller: Caller<'_, HostState>,
+             key_ptr: i32,
+             key_len: i32,
+             val_ptr: i32,
+             val_max_len: i32|
+             -> i32 {
                 let state = caller.data_mut();
                 if state.consume_gas(GAS_PER_STATE_READ).is_err() {
                     return -1;
@@ -546,7 +564,11 @@ fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), String>
 
                 // Lookup in state_changes first (read-after-write), then storage
                 let state = caller.data();
-                match state.state_changes.get(&key).or_else(|| state.storage.get(&key)) {
+                match state
+                    .state_changes
+                    .get(&key)
+                    .or_else(|| state.storage.get(&key))
+                {
                     Some(value) => {
                         let actual_len = value.len() as i32;
                         // Only write up to val_max_len bytes to prevent guest buffer overflow.
@@ -596,8 +618,10 @@ fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), String>
                     None => return -1,
                 };
 
-                if key_len < 0 || key_len as usize > MAX_HOST_ALLOC_SIZE
-                    || val_len < 0 || val_len as usize > MAX_HOST_ALLOC_SIZE
+                if key_len < 0
+                    || key_len as usize > MAX_HOST_ALLOC_SIZE
+                    || val_len < 0
+                    || val_len as usize > MAX_HOST_ALLOC_SIZE
                 {
                     return -2; // Invalid length
                 }
@@ -646,7 +670,11 @@ fn register_host_functions(linker: &mut Linker<HostState>) -> Result<(), String>
                 let state = caller.data_mut();
                 // Enforce total state changes size limit to prevent memory exhaustion.
                 // Account for replaced keys: subtract old entry size if key already exists.
-                let old_size: usize = state.state_changes.get(&key).map(|v| key.len() + v.len()).unwrap_or(0);
+                let old_size: usize = state
+                    .state_changes
+                    .get(&key)
+                    .map(|v| key.len() + v.len())
+                    .unwrap_or(0);
                 let new_size = state.state_changes_size() - old_size + key.len() + val.len();
                 if new_size > MAX_CONTRACT_STATE_CHANGES {
                     return -1;
@@ -853,7 +881,11 @@ mod tests {
             1000,
         );
 
-        assert!(result.success, "execution should succeed: {:?}", result.error);
+        assert!(
+            result.success,
+            "execution should succeed: {:?}",
+            result.error
+        );
     }
 
     #[test]
@@ -925,7 +957,11 @@ mod tests {
             1000,
         );
 
-        assert!(result.success, "execution should succeed: {:?}", result.error);
+        assert!(
+            result.success,
+            "execution should succeed: {:?}",
+            result.error
+        );
     }
 
     #[test]
@@ -1028,6 +1064,10 @@ mod tests {
             1000,
         );
 
-        assert!(result.success, "should succeed after growing memory: {:?}", result.error);
+        assert!(
+            result.success,
+            "should succeed after growing memory: {:?}",
+            result.error
+        );
     }
 }

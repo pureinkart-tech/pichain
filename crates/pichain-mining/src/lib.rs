@@ -17,12 +17,12 @@ pub mod reward;
 pub mod vdf;
 
 pub use bbp::BbpComputer;
-pub use difficulty::{DifficultyAdjuster, check_proof_difficulty, find_nonce_parallel};
+pub use difficulty::{check_proof_difficulty, find_nonce_parallel, DifficultyAdjuster};
 pub use onchain::{MiningProcessor, MiningStats, VerificationResult};
 pub use proof::{MiningProof, ProofVerifier};
 pub use registry::{DigitRange, DigitRegistry, DigitStats};
 pub use reward::RewardCalculator;
-pub use vdf::{VdfProof, vdf_compute, vdf_verify, vdf_seed, required_iterations};
+pub use vdf::{required_iterations, vdf_compute, vdf_seed, vdf_verify, VdfProof};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MiningError {

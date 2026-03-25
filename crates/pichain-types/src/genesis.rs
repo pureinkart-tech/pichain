@@ -3,9 +3,9 @@
 //! Defines the initial state of the blockchain at genesis,
 //! including token distribution and initial validators.
 
-use std::collections::HashSet;
 use pichain_crypto::ed25519::Address;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::{PiAmount, BASE_UNITS_PER_PI, TOTAL_SUPPLY};
 
@@ -239,22 +239,14 @@ impl GenesisConfig {
 
     /// Verify that total allocations equal the fixed supply.
     pub fn verify_supply(&self) -> bool {
-        let total: u128 = self
-            .allocations
-            .iter()
-            .map(|a| a.amount as u128)
-            .sum();
+        let total: u128 = self.allocations.iter().map(|a| a.amount as u128).sum();
         total == TOTAL_SUPPLY
     }
 
     /// Validate the genesis configuration. Returns an error if supply doesn't match.
     /// Should be called during node startup to prevent misconfigured deployments.
     pub fn validate(&self) -> Result<(), String> {
-        let total: u128 = self
-            .allocations
-            .iter()
-            .map(|a| a.amount as u128)
-            .sum();
+        let total: u128 = self.allocations.iter().map(|a| a.amount as u128).sum();
         if total != TOTAL_SUPPLY {
             return Err(format!(
                 "genesis supply mismatch: allocations sum to {} but expected {}",
@@ -272,7 +264,8 @@ impl GenesisConfig {
                 return Err(format!(
                     "genesis allocation '{}' sends {} PI to Address::ZERO — \
                      funds will be permanently lost. Replace with real addresses before launch.",
-                    alloc.label, alloc.amount / BASE_UNITS_PER_PI
+                    alloc.label,
+                    alloc.amount / BASE_UNITS_PER_PI
                 ));
             }
         }
@@ -306,11 +299,7 @@ mod tests {
     #[test]
     fn mainnet_genesis_supply() {
         let genesis = GenesisConfig::pichain_mainnet();
-        let total: u128 = genesis
-            .allocations
-            .iter()
-            .map(|a| a.amount as u128)
-            .sum();
+        let total: u128 = genesis.allocations.iter().map(|a| a.amount as u128).sum();
         // Should equal 3,141,592,653 * 10^9
         assert_eq!(total, TOTAL_SUPPLY, "Total supply mismatch!");
     }
@@ -320,11 +309,7 @@ mod tests {
         let genesis = GenesisConfig::devnet();
         assert_eq!(genesis.chain_id, 31415);
         // Devnet must also allocate the full TOTAL_SUPPLY
-        let total: u128 = genesis
-            .allocations
-            .iter()
-            .map(|a| a.amount as u128)
-            .sum();
+        let total: u128 = genesis.allocations.iter().map(|a| a.amount as u128).sum();
         assert_eq!(total, TOTAL_SUPPLY, "Devnet supply must equal TOTAL_SUPPLY");
     }
 

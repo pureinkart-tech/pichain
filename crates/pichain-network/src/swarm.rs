@@ -16,8 +16,7 @@ use libp2p::{
     identify,
     identity::Keypair,
     kad::{self, store::MemoryStore},
-    noise,
-    relay,
+    noise, relay,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Swarm,
 };
@@ -189,9 +188,8 @@ impl PeerByteTracker {
     /// Periodic cleanup of stale entries whose windows have long expired.
     fn cleanup(&self) {
         let now = Instant::now();
-        self.counters.retain(|_, (_, window_start)| {
-            now.duration_since(*window_start) < self.window * 2
-        });
+        self.counters
+            .retain(|_, (_, window_start)| now.duration_since(*window_start) < self.window * 2);
     }
 }
 
@@ -369,7 +367,9 @@ impl PiChainSwarm {
                 .behaviour_mut()
                 .gossipsub
                 .subscribe(&topic)
-                .map_err(|e| NetworkError::Gossip(format!("failed to subscribe to {topic_name}: {e}")))?;
+                .map_err(|e| {
+                    NetworkError::Gossip(format!("failed to subscribe to {topic_name}: {e}"))
+                })?;
         }
 
         // Connect to bootstrap peers
@@ -403,7 +403,14 @@ impl PiChainSwarm {
         // Spawn the swarm event loop
         let swarm_peer_id = peer_id;
         tokio::spawn(async move {
-            run_swarm_loop(swarm, inbound_tx, &mut outbound_rx, peer_count_clone, byte_tracker).await;
+            run_swarm_loop(
+                swarm,
+                inbound_tx,
+                &mut outbound_rx,
+                peer_count_clone,
+                byte_tracker,
+            )
+            .await;
             info!("swarm event loop exited");
         });
 
@@ -436,17 +443,20 @@ impl PiChainSwarm {
     /// Parse bootstrap peer strings in multiaddr format (e.g. "/ip4/1.2.3.4/tcp/9314/p2p/<peer_id>").
     /// Invalid entries are silently skipped.
     pub fn parse_bootstrap_peers(addrs: &[String]) -> Vec<(PeerId, Multiaddr)> {
-        addrs.iter().filter_map(|s| {
-            let addr: Multiaddr = s.parse().ok()?;
-            let peer_id = addr.iter().find_map(|proto| {
-                if let libp2p::multiaddr::Protocol::P2p(id) = proto {
-                    Some(id)
-                } else {
-                    None
-                }
-            })?;
-            Some((peer_id, addr))
-        }).collect()
+        addrs
+            .iter()
+            .filter_map(|s| {
+                let addr: Multiaddr = s.parse().ok()?;
+                let peer_id = addr.iter().find_map(|proto| {
+                    if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                })?;
+                Some((peer_id, addr))
+            })
+            .collect()
     }
 
     /// Resolve seed nodes for the given chain_id.
@@ -457,10 +467,7 @@ impl PiChainSwarm {
     /// 3. Fallback to config-provided bootstrap_peers
     ///
     /// Returns peers merged from all sources (deduplicated by PeerId).
-    pub fn resolve_seeds(
-        chain_id: u64,
-        config_peers: &[String],
-    ) -> Vec<(PeerId, Multiaddr)> {
+    pub fn resolve_seeds(chain_id: u64, config_peers: &[String]) -> Vec<(PeerId, Multiaddr)> {
         let mut peers = Vec::new();
         let mut seen_ids = std::collections::HashSet::new();
 
@@ -585,7 +592,10 @@ impl PiChainSwarm {
 }
 
 /// Build the libp2p swarm with all behaviours configured.
-fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChainBehaviour>, NetworkError> {
+fn build_swarm(
+    local_key: Keypair,
+    config: &SwarmConfig,
+) -> Result<Swarm<PiChainBehaviour>, NetworkError> {
     // GossipSub configuration with peer scoring and collision-resistant message IDs
     let gossipsub_config = gossipsub::ConfigBuilder::default()
         .heartbeat_interval(config.heartbeat_interval)
@@ -606,7 +616,11 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
             // to prevent collision-based message suppression attacks
             let hash = pichain_crypto::hash_concat(&[
                 &message.data,
-                message.source.map(|p| p.to_bytes()).unwrap_or_default().as_slice(),
+                message
+                    .source
+                    .map(|p| p.to_bytes())
+                    .unwrap_or_default()
+                    .as_slice(),
             ]);
             MessageId::from(hash.as_bytes().to_vec())
         })
@@ -637,7 +651,8 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
         graylist_threshold: -400.0,
         ..Default::default()
     };
-    gossipsub.with_peer_score(peer_score_params, peer_score_thresholds)
+    gossipsub
+        .with_peer_score(peer_score_params, peer_score_thresholds)
         .map_err(|e| NetworkError::Gossip(format!("peer score config error: {e}")))?;
 
     // Kademlia configuration
@@ -705,9 +720,7 @@ fn build_swarm(local_key: Keypair, config: &SwarmConfig) -> Result<Swarm<PiChain
             })
         })
         .map_err(|e| NetworkError::Transport(format!("behaviour error: {e}")))?
-        .with_swarm_config(|cfg| {
-            cfg.with_idle_connection_timeout(Duration::from_secs(300))
-        })
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(300)))
         .build();
 
     info!(
@@ -918,7 +931,8 @@ fn is_routable_address(addr: &Multiaddr) -> bool {
                 // Documentation ranges
                 if (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)       // 192.0.2.0/24
                     || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100) // 198.51.100.0/24
-                    || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24
+                    || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+                // 203.0.113.0/24
                 {
                     return false;
                 }
@@ -936,26 +950,39 @@ fn is_routable_address(addr: &Multiaddr) -> bool {
                 let segments = ip.segments();
                 if segments[0] == 0xfe80                    // Link-local
                     || (segments[0] & 0xfe00) == 0xfc00     // Unique local (fc00::/7)
-                    || (segments[0] == 0x2001 && segments[1] == 0x0db8) // Documentation
+                    || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                // Documentation
                 {
                     return false;
                 }
                 // Check IPv4-mapped IPv6 (::ffff:x.x.x.x) — extract the IPv4
                 // and apply all IPv4 rules to prevent filter bypass via mapped addrs.
                 if let Some(ipv4) = ip.to_ipv4_mapped() {
-                    if ipv4.is_loopback() || ipv4.is_private() || ipv4.is_link_local()
-                        || ipv4.is_unspecified() || ipv4.is_broadcast()
+                    if ipv4.is_loopback()
+                        || ipv4.is_private()
+                        || ipv4.is_link_local()
+                        || ipv4.is_unspecified()
+                        || ipv4.is_broadcast()
                     {
                         return false;
                     }
                     // Also check CGNAT, benchmarking, documentation, reserved ranges
                     let octets = ipv4.octets();
-                    if octets[0] == 100 && (octets[1] & 0xC0) == 64 { return false; }
-                    if octets[0] == 198 && (octets[1] == 18 || octets[1] == 19) { return false; }
+                    if octets[0] == 100 && (octets[1] & 0xC0) == 64 {
+                        return false;
+                    }
+                    if octets[0] == 198 && (octets[1] == 18 || octets[1] == 19) {
+                        return false;
+                    }
                     if (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
                         || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
-                        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113) { return false; }
-                    if octets[0] >= 240 { return false; }
+                        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+                    {
+                        return false;
+                    }
+                    if octets[0] >= 240 {
+                        return false;
+                    }
                 }
             }
             _ => {}
@@ -963,7 +990,10 @@ fn is_routable_address(addr: &Multiaddr) -> bool {
     }
     // Reject addresses with no IP component at all
     let has_ip = addr.iter().any(|p| {
-        matches!(p, libp2p::multiaddr::Protocol::Ip4(_) | libp2p::multiaddr::Protocol::Ip6(_))
+        matches!(
+            p,
+            libp2p::multiaddr::Protocol::Ip4(_) | libp2p::multiaddr::Protocol::Ip6(_)
+        )
     });
     has_ip
 }
@@ -1156,27 +1186,51 @@ mod tests {
         let cgnat: Multiaddr = "/ip4/100.64.0.1/tcp/9314".parse().unwrap();
         assert!(!is_routable_address(&cgnat), "CGNAT should be rejected");
         let cgnat_high: Multiaddr = "/ip4/100.127.255.254/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&cgnat_high), "CGNAT high end should be rejected");
+        assert!(
+            !is_routable_address(&cgnat_high),
+            "CGNAT high end should be rejected"
+        );
 
         // Benchmarking (198.18.0.0/15)
         let bench18: Multiaddr = "/ip4/198.18.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&bench18), "198.18.x.x should be rejected");
+        assert!(
+            !is_routable_address(&bench18),
+            "198.18.x.x should be rejected"
+        );
         let bench19: Multiaddr = "/ip4/198.19.255.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&bench19), "198.19.x.x should be rejected");
+        assert!(
+            !is_routable_address(&bench19),
+            "198.19.x.x should be rejected"
+        );
 
         // Documentation ranges
         let doc1: Multiaddr = "/ip4/192.0.2.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&doc1), "192.0.2.0/24 should be rejected");
+        assert!(
+            !is_routable_address(&doc1),
+            "192.0.2.0/24 should be rejected"
+        );
         let doc2: Multiaddr = "/ip4/198.51.100.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&doc2), "198.51.100.0/24 should be rejected");
+        assert!(
+            !is_routable_address(&doc2),
+            "198.51.100.0/24 should be rejected"
+        );
         let doc3: Multiaddr = "/ip4/203.0.113.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&doc3), "203.0.113.0/24 should be rejected");
+        assert!(
+            !is_routable_address(&doc3),
+            "203.0.113.0/24 should be rejected"
+        );
 
         // Reserved/Future (240.0.0.0/4)
         let reserved: Multiaddr = "/ip4/240.0.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&reserved), "240.x.x.x should be rejected");
+        assert!(
+            !is_routable_address(&reserved),
+            "240.x.x.x should be rejected"
+        );
         let reserved_high: Multiaddr = "/ip4/255.255.255.254/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&reserved_high), "255.x.x.x should be rejected");
+        assert!(
+            !is_routable_address(&reserved_high),
+            "255.x.x.x should be rejected"
+        );
 
         // Public IP should still be accepted
         let public: Multiaddr = "/ip4/8.8.8.8/tcp/9314".parse().unwrap();
@@ -1184,34 +1238,55 @@ mod tests {
 
         // 100.63.x.x is NOT CGNAT — should be routable
         let not_cgnat: Multiaddr = "/ip4/100.63.255.1/tcp/9314".parse().unwrap();
-        assert!(is_routable_address(&not_cgnat), "100.63.x.x is not CGNAT, should be accepted");
+        assert!(
+            is_routable_address(&not_cgnat),
+            "100.63.x.x is not CGNAT, should be accepted"
+        );
 
         // 198.20.x.x is NOT benchmarking — should be routable
         let not_bench: Multiaddr = "/ip4/198.20.0.1/tcp/9314".parse().unwrap();
-        assert!(is_routable_address(&not_bench), "198.20.x.x is not benchmarking, should be accepted");
+        assert!(
+            is_routable_address(&not_bench),
+            "198.20.x.x is not benchmarking, should be accepted"
+        );
     }
 
     #[test]
     fn ipv4_mapped_ipv6_rejected() {
         // IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) should be rejected
         let mapped_loopback: Multiaddr = "/ip6/::ffff:127.0.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&mapped_loopback), "mapped loopback should be rejected");
+        assert!(
+            !is_routable_address(&mapped_loopback),
+            "mapped loopback should be rejected"
+        );
 
         // IPv4-mapped IPv6 private (::ffff:10.0.0.1) should be rejected
         let mapped_private: Multiaddr = "/ip6/::ffff:10.0.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&mapped_private), "mapped private should be rejected");
+        assert!(
+            !is_routable_address(&mapped_private),
+            "mapped private should be rejected"
+        );
 
         // IPv4-mapped IPv6 CGNAT (::ffff:100.64.0.1) should be rejected
         let mapped_cgnat: Multiaddr = "/ip6/::ffff:100.64.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&mapped_cgnat), "mapped CGNAT should be rejected");
+        assert!(
+            !is_routable_address(&mapped_cgnat),
+            "mapped CGNAT should be rejected"
+        );
 
         // IPv4-mapped IPv6 reserved (::ffff:240.0.0.1) should be rejected
         let mapped_reserved: Multiaddr = "/ip6/::ffff:240.0.0.1/tcp/9314".parse().unwrap();
-        assert!(!is_routable_address(&mapped_reserved), "mapped reserved should be rejected");
+        assert!(
+            !is_routable_address(&mapped_reserved),
+            "mapped reserved should be rejected"
+        );
 
         // IPv4-mapped IPv6 public (::ffff:8.8.8.8) should be accepted
         let mapped_public: Multiaddr = "/ip6/::ffff:8.8.8.8/tcp/9314".parse().unwrap();
-        assert!(is_routable_address(&mapped_public), "mapped public IP should be accepted");
+        assert!(
+            is_routable_address(&mapped_public),
+            "mapped public IP should be accepted"
+        );
     }
 
     /// Integration test: SwarmMessage variants preserve their payload bytes across
@@ -1239,7 +1314,10 @@ mod tests {
         let cloned = consensus_msg.clone();
         match cloned {
             SwarmMessage::Consensus(data) => {
-                assert_eq!(data, consensus_data, "Consensus payload should survive roundtrip");
+                assert_eq!(
+                    data, consensus_data,
+                    "Consensus payload should survive roundtrip"
+                );
             }
             _ => panic!("expected SwarmMessage::Consensus"),
         }
@@ -1250,7 +1328,10 @@ mod tests {
         let cloned = tx_msg.clone();
         match cloned {
             SwarmMessage::Transaction(data) => {
-                assert_eq!(data, tx_data, "Transaction payload should survive roundtrip");
+                assert_eq!(
+                    data, tx_data,
+                    "Transaction payload should survive roundtrip"
+                );
             }
             _ => panic!("expected SwarmMessage::Transaction"),
         }
@@ -1261,7 +1342,10 @@ mod tests {
         let cloned = mining_msg.clone();
         match cloned {
             SwarmMessage::MiningProof(data) => {
-                assert_eq!(data, mining_data, "MiningProof payload should survive roundtrip");
+                assert_eq!(
+                    data, mining_data,
+                    "MiningProof payload should survive roundtrip"
+                );
             }
             _ => panic!("expected SwarmMessage::MiningProof"),
         }
@@ -1302,7 +1386,11 @@ mod tests {
         let large_msg = SwarmMessage::Transaction(large_data.clone());
         match large_msg {
             SwarmMessage::Transaction(data) => {
-                assert_eq!(data.len(), 64 * 1024, "large payload size should be preserved");
+                assert_eq!(
+                    data.len(),
+                    64 * 1024,
+                    "large payload size should be preserved"
+                );
                 assert_eq!(data, large_data, "large payload bytes should match");
             }
             _ => panic!("expected SwarmMessage::Transaction"),
@@ -1313,10 +1401,9 @@ mod tests {
     fn deterministic_peer_id_from_ed25519() {
         // Same secret key must always produce the same peer ID
         let secret: [u8; 32] = [
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
-            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-            0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C,
+            0x1D, 0x1E, 0x1F, 0x20,
         ];
         let id1 = peer_id_from_ed25519(&secret).expect("valid key");
         let id2 = peer_id_from_ed25519(&secret).expect("valid key");
@@ -1324,18 +1411,23 @@ mod tests {
 
         // Different secret must produce different peer ID
         let secret2: [u8; 32] = [
-            0xFF, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
-            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-            0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+            0xFF, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C,
+            0x1D, 0x1E, 0x1F, 0x20,
         ];
         let id3 = peer_id_from_ed25519(&secret2).expect("valid key");
-        assert_ne!(id1, id3, "different secrets must produce different peer IDs");
+        assert_ne!(
+            id1, id3,
+            "different secrets must produce different peer IDs"
+        );
     }
 
     #[test]
     fn swarm_config_identity_secret_default_is_none() {
         let config = SwarmConfig::default();
-        assert!(config.identity_secret.is_none(), "default config should have no identity_secret");
+        assert!(
+            config.identity_secret.is_none(),
+            "default config should have no identity_secret"
+        );
     }
 }

@@ -291,18 +291,12 @@ impl JellyfishMerkleTree {
             JmtNode::Internal { left, right } => {
                 let bit = Self::key_bit(key, depth);
                 let (new_left, new_right) = if bit {
-                    let new_right = self.delete_recursive(
-                        right.unwrap_or(PoseidonHash::ZERO),
-                        key,
-                        depth + 1,
-                    );
+                    let new_right =
+                        self.delete_recursive(right.unwrap_or(PoseidonHash::ZERO), key, depth + 1);
                     (left, Some(new_right))
                 } else {
-                    let new_left = self.delete_recursive(
-                        left.unwrap_or(PoseidonHash::ZERO),
-                        key,
-                        depth + 1,
-                    );
+                    let new_left =
+                        self.delete_recursive(left.unwrap_or(PoseidonHash::ZERO), key, depth + 1);
                     (Some(new_left), right)
                 };
 
@@ -334,8 +328,16 @@ impl JellyfishMerkleTree {
                 }
 
                 let internal = JmtNode::Internal {
-                    left: if l == PoseidonHash::ZERO { None } else { Some(l) },
-                    right: if r == PoseidonHash::ZERO { None } else { Some(r) },
+                    left: if l == PoseidonHash::ZERO {
+                        None
+                    } else {
+                        Some(l)
+                    },
+                    right: if r == PoseidonHash::ZERO {
+                        None
+                    } else {
+                        Some(r)
+                    },
                 };
                 let h = internal.hash();
                 self.nodes.insert(h, internal);

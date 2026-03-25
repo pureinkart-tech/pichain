@@ -3,7 +3,6 @@
 use pichain_crypto::bls::{BlsPublicKey, BlsSignature};
 use pichain_crypto::ed25519::Address;
 
-
 /// A validator in the PIChain network.
 #[derive(Clone, Debug)]
 pub struct Validator {
@@ -31,25 +30,19 @@ impl Validator {
     /// PI-Weight = f(stake, uptime, contribution_score, pi_hash_position)
     pub fn pi_weight(&self, pi_seed: &[u8; 32]) -> u64 {
         let stake_weight = self.stake / 1_000_000_000; // normalize to PI units
-        // uptime_bps is 0..10000; divide by 100 to get 0..100 range
+                                                       // uptime_bps is 0..10000; divide by 100 to get 0..100 range
         let uptime_weight = self.uptime_bps / 100;
         let contribution_weight = self.contribution_score.min(1000);
 
         // PI hash position — deterministic position from PI digits
-        let pi_hash = pichain_crypto::hash_concat(&[
-            pi_seed,
-            &self.address.0,
-        ]);
+        let pi_hash = pichain_crypto::hash_concat(&[pi_seed, &self.address.0]);
         let mut pi_bytes = [0u8; 8];
         pi_bytes.copy_from_slice(&pi_hash.as_bytes()[0..8]);
         let pi_position = u64::from_le_bytes(pi_bytes) % 1000;
 
         // Weighted combination (stake is dominant).
         // Single division to avoid premature truncation of each term.
-        (stake_weight * 60
-            + uptime_weight * 20
-            + contribution_weight * 10
-            + pi_position * 10) / 100
+        (stake_weight * 60 + uptime_weight * 20 + contribution_weight * 10 + pi_position * 10) / 100
     }
 }
 
@@ -70,7 +63,10 @@ impl ValidatorSet {
         // different leader selections for the same round (consensus fork risk).
         validators.sort_by(|a, b| a.address.0.cmp(&b.address.0));
 
-        let total_stake: u64 = validators.iter().map(|v| v.stake).fold(0u64, |acc, s| acc.saturating_add(s));
+        let total_stake: u64 = validators
+            .iter()
+            .map(|v| v.stake)
+            .fold(0u64, |acc, s| acc.saturating_add(s));
         let quorum_stake = (total_stake as u128 * 2 / 3 + 1) as u64;
         Self {
             validators,
@@ -112,10 +108,7 @@ impl ValidatorSet {
         }
 
         // Compute selection hash from round + PI seed
-        let selection_hash = pichain_crypto::hash_concat(&[
-            &round.to_le_bytes(),
-            pi_seed,
-        ]);
+        let selection_hash = pichain_crypto::hash_concat(&[&round.to_le_bytes(), pi_seed]);
         let mut selection_bytes = [0u8; 8];
         selection_bytes.copy_from_slice(&selection_hash.as_bytes()[0..8]);
         let selection_value = u64::from_le_bytes(selection_bytes);

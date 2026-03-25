@@ -229,12 +229,10 @@ mod tests {
             owner: addr,
             metadata_uri: "ipfs://test".to_string(),
             name: "Test NFT #0".to_string(),
-            attributes: vec![
-                NftAttribute {
-                    trait_type: "Background".to_string(),
-                    value: "Blue".to_string(),
-                },
-            ],
+            attributes: vec![NftAttribute {
+                trait_type: "Background".to_string(),
+                value: "Blue".to_string(),
+            }],
             listed: false,
             listed_price: 0,
             created_at_ms: 0,

@@ -3,23 +3,6 @@
 //! Executes transactions optimistically in parallel, tracking state reads/writes.
 //! Conflicts are detected post-execution and conflicting transactions are retried.
 
-use dashmap::DashMap;
-use pichain_crypto::ed25519::Address;
-use pichain_crypto::Hash;
-use pichain_types::account::{Account, AccountState};
-use pichain_types::transaction::{
-    SignedTransaction, TransactionEffect, TransactionEvent, TransactionKind, TransactionStatus,
-};
-use pichain_types::PiAmount;
-use rayon::prelude::*;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use pichain_types::token::{MintId, TokenMint, TokenAccount};
-use pichain_types::dex::{LiquidityPool, PoolId};
-use pichain_types::nft::{CollectionId, NftCollection, NftId, Nft};
-use pichain_types::betting::{BettingMatch, MatchId};
-use pichain_types::launchpad::{LaunchId, TokenLaunch};
 use crate::betting_executor::BettingExecutor;
 use crate::dex_executor::{DexExecutionResult, DexExecutor};
 use crate::fee::FeeCalculator;
@@ -28,6 +11,23 @@ use crate::nft_executor::NftExecutor;
 use crate::sdk::{ContractAbi, ContractRegistry};
 use crate::token_executor::TokenExecutor;
 use crate::wasm_vm::WasmVM;
+use dashmap::DashMap;
+use pichain_crypto::ed25519::Address;
+use pichain_crypto::Hash;
+use pichain_types::account::{Account, AccountState};
+use pichain_types::betting::{BettingMatch, MatchId};
+use pichain_types::dex::{LiquidityPool, PoolId};
+use pichain_types::launchpad::{LaunchId, TokenLaunch};
+use pichain_types::nft::{CollectionId, Nft, NftCollection, NftId};
+use pichain_types::token::{MintId, TokenAccount, TokenMint};
+use pichain_types::transaction::{
+    SignedTransaction, TransactionEffect, TransactionEvent, TransactionKind, TransactionStatus,
+};
+use pichain_types::PiAmount;
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Maximum lengths for user-controlled string fields (XSS/DoS prevention).
 const MAX_TOKEN_NAME_LEN: usize = 64;
@@ -100,14 +100,19 @@ struct StakeTracker {
 /// Rejects HTML control characters (`<`, `>`, `&`, `"`, `'`) to prevent XSS.
 fn validate_string_field(value: &str, field_name: &str, max_len: usize) -> Result<(), String> {
     if value.len() > max_len {
-        return Err(format!("{field_name} too long: {} chars (max {max_len})", value.len()));
+        return Err(format!(
+            "{field_name} too long: {} chars (max {max_len})",
+            value.len()
+        ));
     }
     if value.is_empty() {
         return Err(format!("{field_name} cannot be empty"));
     }
     for b in value.bytes() {
         if !(0x20..=0x7E).contains(&b) {
-            return Err(format!("{field_name} contains non-printable or non-ASCII characters"));
+            return Err(format!(
+                "{field_name} contains non-printable or non-ASCII characters"
+            ));
         }
         if b == b'<' || b == b'>' || b == b'&' || b == b'"' || b == b'\'' {
             return Err(format!("{field_name} contains forbidden HTML characters"));
@@ -200,7 +205,9 @@ impl TransactionExecutor {
         let wasm_vm = match WasmVM::new() {
             Ok(vm) => vm,
             Err(e) => {
-                tracing::error!("WASM VM initialization failed: {e} — contract execution will be unavailable");
+                tracing::error!(
+                    "WASM VM initialization failed: {e} — contract execution will be unavailable"
+                );
                 // Re-try once — if it fails again, panic is acceptable at startup
                 WasmVM::new().expect("WASM VM initialization failed on retry")
             }
@@ -236,7 +243,8 @@ impl TransactionExecutor {
     /// Must be called before `execute_block()`. All sub-executors will use this
     /// timestamp instead of wall-clock time.
     pub fn set_block_timestamp(&self, timestamp_ms: u64) {
-        self.block_timestamp_ms.store(timestamp_ms, Ordering::Release);
+        self.block_timestamp_ms
+            .store(timestamp_ms, Ordering::Release);
         self.token_executor.set_block_timestamp(timestamp_ms);
         self.dex_executor.set_block_timestamp(timestamp_ms);
         self.nft_executor.set_block_timestamp(timestamp_ms);
@@ -372,21 +380,35 @@ impl TransactionExecutor {
     ) -> (TransactionStatus, Vec<TransactionEvent>) {
         if dex_result.status == TransactionStatus::Success {
             // Snapshot pool state so we can rollback on token delta failure
-            let pool_snapshots: Vec<_> = dex_result.pool_changes.keys().map(|pool_id| (*pool_id, self.dex_executor.get_pool(pool_id)))
+            let pool_snapshots: Vec<_> = dex_result
+                .pool_changes
+                .keys()
+                .map(|pool_id| (*pool_id, self.dex_executor.get_pool(pool_id)))
                 .collect();
-            let lp_snapshots: Vec<_> = dex_result.lp_changes.iter()
-                .map(|((pool_id, addr), _)| ((*pool_id, *addr), self.dex_executor.get_lp_balance(pool_id, addr)))
+            let lp_snapshots: Vec<_> = dex_result
+                .lp_changes
+                .iter()
+                .map(|((pool_id, addr), _)| {
+                    (
+                        (*pool_id, *addr),
+                        self.dex_executor.get_lp_balance(pool_id, addr),
+                    )
+                })
                 .collect();
 
             // Track applied deltas for rollback: (owner, mint, amount, is_native)
-            let mut applied_deltas: Vec<(Address, pichain_types::token::MintId, i128, bool)> = Vec::new();
+            let mut applied_deltas: Vec<(Address, pichain_types::token::MintId, i128, bool)> =
+                Vec::new();
             for delta in &dex_result.token_deltas {
                 let is_native = delta.mint.is_native_pi();
 
                 let result = if is_native {
                     // Native PI: modify AccountState.balance in state_changes
                     Self::apply_native_pi_delta_to_state(
-                        &self.state_cache, state_changes, delta.owner, delta.amount,
+                        &self.state_cache,
+                        state_changes,
+                        delta.owner,
+                        delta.amount,
                     )
                 } else {
                     // Custom token: use token executor as before
@@ -399,7 +421,10 @@ impl TransactionExecutor {
                     for (owner, mint, amount, was_native) in applied_deltas.iter().rev() {
                         if *was_native {
                             let _ = Self::apply_native_pi_delta_to_state(
-                                &self.state_cache, state_changes, *owner, -*amount,
+                                &self.state_cache,
+                                state_changes,
+                                *owner,
+                                -*amount,
                             );
                         } else {
                             let _ = self.token_executor.apply_delta(*owner, *mint, -*amount);
@@ -410,7 +435,8 @@ impl TransactionExecutor {
                         self.dex_executor.rollback_pool(pool_id, old_pool.as_ref());
                     }
                     for ((pool_id, addr), old_balance) in &lp_snapshots {
-                        self.dex_executor.rollback_lp_balance(pool_id, addr, *old_balance);
+                        self.dex_executor
+                            .rollback_lp_balance(pool_id, addr, *old_balance);
                     }
                     return (
                         TransactionStatus::Reverted(format!("DEX token delta failed: {e}")),
@@ -436,18 +462,26 @@ impl TransactionExecutor {
             return Ok(());
         }
         let state = state_changes.entry(owner).or_insert_with(|| {
-            state_cache.get(&owner).map(|v| v.clone()).unwrap_or_default()
+            state_cache
+                .get(&owner)
+                .map(|v| v.clone())
+                .unwrap_or_default()
         });
         if amount > 0 {
             let credit = u64::try_from(amount)
                 .map_err(|_| "native PI delta exceeds u64 range".to_string())?;
-            state.balance = state.balance.checked_add(credit)
+            state.balance = state
+                .balance
+                .checked_add(credit)
                 .ok_or("native PI balance overflow")?;
         } else {
             let debit = u64::try_from(-amount)
                 .map_err(|_| "native PI delta exceeds u64 range".to_string())?;
             state.balance = state.balance.checked_sub(debit).ok_or_else(|| {
-                format!("insufficient native PI balance: have {}, need {}", state.balance, debit)
+                format!(
+                    "insufficient native PI balance: have {}, need {}",
+                    state.balance, debit
+                )
             })?;
         }
         Ok(())
@@ -477,10 +511,14 @@ impl TransactionExecutor {
         let pool_id = self.dex_executor.derive_pool_id(mint, &pi_mint);
 
         // Set creator royalty on the pool: 33.3% of the 0.30% swap fee (~0.10%) goes to creator
-        self.dex_executor.set_creator_fee(&pool_id, seed.creator, 3333);
+        self.dex_executor
+            .set_creator_fee(&pool_id, seed.creator, 3333);
 
         // Step 2: Mint tokens for pool liquidity
-        if let Err(e) = self.token_executor.apply_delta(actor, *mint, seed.token_amount as i128) {
+        if let Err(e) = self
+            .token_executor
+            .apply_delta(actor, *mint, seed.token_amount as i128)
+        {
             self.dex_executor.rollback_pool(&pool_id, None);
             self.launchpad_executor.rollback_finalization(&launch_id);
             return Err(format!("token mint for liquidity error: {e}"));
@@ -494,7 +532,9 @@ impl TransactionExecutor {
             false
         };
         if pool_mint_exceeded {
-            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            let _ = self
+                .token_executor
+                .apply_delta(actor, *mint, -(seed.token_amount as i128));
             self.dex_executor.rollback_pool(&pool_id, None);
             self.launchpad_executor.rollback_finalization(&launch_id);
             return Err("pool mint would exceed max_supply".to_string());
@@ -507,10 +547,17 @@ impl TransactionExecutor {
 
         // Step 3: Add initial liquidity
         let liq_result = self.dex_executor.add_liquidity(
-            actor, *mint, pi_mint, seed.token_amount, seed.pi_amount, 0,
+            actor,
+            *mint,
+            pi_mint,
+            seed.token_amount,
+            seed.pi_amount,
+            0,
         );
         if liq_result.status != TransactionStatus::Success {
-            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            let _ = self
+                .token_executor
+                .apply_delta(actor, *mint, -(seed.token_amount as i128));
             if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
                 mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount);
             }
@@ -520,9 +567,14 @@ impl TransactionExecutor {
         }
 
         // Step 3b: Debit tokens from actor (they now live in pool reserves)
-        if let Err(e) = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128)) {
+        if let Err(e) = self
+            .token_executor
+            .apply_delta(actor, *mint, -(seed.token_amount as i128))
+        {
             self.dex_executor.rollback_pool(&pool_id, None);
-            let _ = self.token_executor.apply_delta(actor, *mint, -(seed.token_amount as i128));
+            let _ = self
+                .token_executor
+                .apply_delta(actor, *mint, -(seed.token_amount as i128));
             if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
                 mint_ref.total_supply = mint_ref.total_supply.saturating_sub(seed.token_amount);
             }
@@ -533,7 +585,10 @@ impl TransactionExecutor {
         // Credit creator's PI share
         if seed.creator_pi > 0 {
             let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
-                self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_default()
+                self.state_cache
+                    .get(&seed.creator)
+                    .map(|v| v.clone())
+                    .unwrap_or_default()
             });
             creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
         }
@@ -561,9 +616,11 @@ impl TransactionExecutor {
             if state.staked > 0 {
                 tracker.total_staked = tracker.total_staked.saturating_add(state.staked);
                 if let Some(validator) = state.delegate {
-                    *tracker.validator_stakes.entry(validator).or_insert(0) =
-                        tracker.validator_stakes.get(&validator).unwrap_or(&0)
-                            .saturating_add(state.staked);
+                    *tracker.validator_stakes.entry(validator).or_insert(0) = tracker
+                        .validator_stakes
+                        .get(&validator)
+                        .unwrap_or(&0)
+                        .saturating_add(state.staked);
                 }
             }
         }
@@ -603,9 +660,11 @@ impl TransactionExecutor {
             if new_staked > 0 {
                 tracker.total_staked = tracker.total_staked.saturating_add(new_staked);
                 if let Some(new_v) = new_delegate {
-                    *tracker.validator_stakes.entry(new_v).or_insert(0) =
-                        tracker.validator_stakes.get(&new_v).unwrap_or(&0)
-                            .saturating_add(new_staked);
+                    *tracker.validator_stakes.entry(new_v).or_insert(0) = tracker
+                        .validator_stakes
+                        .get(&new_v)
+                        .unwrap_or(&0)
+                        .saturating_add(new_staked);
                 }
             }
         }
@@ -795,11 +854,7 @@ impl TransactionExecutor {
     }
 
     /// Execute a single transaction.
-    fn execute_transaction(
-        &self,
-        tx: &SignedTransaction,
-        base_fee: PiAmount,
-    ) -> ExecutionResult {
+    fn execute_transaction(&self, tx: &SignedTransaction, base_fee: PiAmount) -> ExecutionResult {
         let tx_hash = tx.hash();
         let mut state_changes: HashMap<Address, AccountState> = HashMap::new();
 
@@ -1030,7 +1085,11 @@ impl TransactionExecutor {
         // users with matured unbonding funds can spend them without being blocked.
         if sender.unbonding > 0 {
             let current_height = self.current_block_height();
-            if current_height >= sender.unbonding_height.saturating_add(AccountState::UNBONDING_BLOCKS) {
+            if current_height
+                >= sender
+                    .unbonding_height
+                    .saturating_add(AccountState::UNBONDING_BLOCKS)
+            {
                 // In the "balance = total" model, unbonding funds are already part of
                 // balance (never subtracted). Just clear the unbonding earmark so
                 // available_balance() increases.
@@ -1063,7 +1122,8 @@ impl TransactionExecutor {
                     tx_hash,
                     status: TransactionStatus::Reverted(format!(
                         "insufficient balance: need {total_cost}, have {} (+ {} locked for fees)",
-                        sender.available_balance(), sender.locked_balance
+                        sender.available_balance(),
+                        sender.locked_balance
                     )),
                     gas_used,
                     base_fee,
@@ -1091,7 +1151,9 @@ impl TransactionExecutor {
                 tx_hash,
                 effect: TransactionEffect {
                     tx_hash,
-                    status: TransactionStatus::Reverted("nonce overflow: account has exhausted all nonces".to_string()),
+                    status: TransactionStatus::Reverted(
+                        "nonce overflow: account has exhausted all nonces".to_string(),
+                    ),
                     gas_used: 0,
                     base_fee,
                     created_objects: vec![],
@@ -1175,55 +1237,64 @@ impl TransactionExecutor {
                         vec![],
                     )
                 } else {
-                // Defense-in-depth: use checked_sub even though balance >= amount is verified above
-                sender.balance = sender.balance.checked_sub(*amount).unwrap_or_else(|| {
-                    tracing::error!(balance = sender.balance, amount, "transfer balance underflow after check — should be impossible");
-                    0
-                });
-                state_changes.insert(tx.data.sender, sender.clone());
+                    // Defense-in-depth: use checked_sub even though balance >= amount is verified above
+                    sender.balance = sender.balance.checked_sub(*amount).unwrap_or_else(|| {
+                        tracing::error!(
+                            balance = sender.balance,
+                            amount,
+                            "transfer balance underflow after check — should be impossible"
+                        );
+                        0
+                    });
+                    state_changes.insert(tx.data.sender, sender.clone());
 
-                // Read recipient state from cache (scheduler ensures no concurrent modification)
-                let mut recipient_state = self
-                    .state_cache
-                    .entry(*recipient)
-                    .or_default()
-                    .clone();
-                recipient_state.balance = match recipient_state.balance.checked_add(*amount) {
-                    Some(v) => v,
-                    None => {
-                        tracing::error!(balance = recipient_state.balance, amount, "recipient balance overflow");
-                        state_changes.insert(tx.data.sender, sender.clone());
-                        return ExecutionResult {
-                            tx_hash,
-                            effect: TransactionEffect {
+                    // Read recipient state from cache (scheduler ensures no concurrent modification)
+                    let mut recipient_state =
+                        self.state_cache.entry(*recipient).or_default().clone();
+                    recipient_state.balance = match recipient_state.balance.checked_add(*amount) {
+                        Some(v) => v,
+                        None => {
+                            tracing::error!(
+                                balance = recipient_state.balance,
+                                amount,
+                                "recipient balance overflow"
+                            );
+                            state_changes.insert(tx.data.sender, sender.clone());
+                            return ExecutionResult {
                                 tx_hash,
-                                status: TransactionStatus::Reverted("recipient balance overflow".to_string()),
-                                gas_used,
-                                base_fee,
-                                created_objects: vec![],
-                                modified_objects: vec![],
-                                deleted_objects: vec![],
-                                events: vec![],
-                            },
-                            state_changes,
-                            pi_burned,
-                            pi_minted: 0,
-                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                            miner_fee: fee_split.miners,
-                            state_reads: vec![tx.data.sender, *recipient],
-                        };
-                    }
-                };
-                state_changes.insert(*recipient, recipient_state);
+                                effect: TransactionEffect {
+                                    tx_hash,
+                                    status: TransactionStatus::Reverted(
+                                        "recipient balance overflow".to_string(),
+                                    ),
+                                    gas_used,
+                                    base_fee,
+                                    created_objects: vec![],
+                                    modified_objects: vec![],
+                                    deleted_objects: vec![],
+                                    events: vec![],
+                                },
+                                state_changes,
+                                pi_burned,
+                                pi_minted: 0,
+                                proposer_reward: fee_split
+                                    .proposer
+                                    .saturating_add(fee_split.stakers),
+                                miner_fee: fee_split.miners,
+                                state_reads: vec![tx.data.sender, *recipient],
+                            };
+                        }
+                    };
+                    state_changes.insert(*recipient, recipient_state);
 
-                (
-                    TransactionStatus::Success,
-                    vec![TransactionEvent {
-                        emitter: tx.data.sender,
-                        event_type: "Transfer".to_string(),
-                        data: amount.to_le_bytes().to_vec(),
-                    }],
-                )
+                    (
+                        TransactionStatus::Success,
+                        vec![TransactionEvent {
+                            emitter: tx.data.sender,
+                            event_type: "Transfer".to_string(),
+                            data: amount.to_le_bytes().to_vec(),
+                        }],
+                    )
                 }
             }
             TransactionKind::Stake { validator, amount } => {
@@ -1238,88 +1309,104 @@ impl TransactionExecutor {
                     (
                         TransactionStatus::Reverted(format!(
                             "insufficient available balance for stake: have {}, need {}",
-                            sender.available_balance(), amount
+                            sender.available_balance(),
+                            amount
                         )),
                         vec![],
                     )
                 } else {
-                // ── Anti-concentration check (atomic under stake_tracker lock) ──
-                let old_delegate = sender.delegate;
-                let old_staked = sender.staked;
-                let new_staked = old_staked.saturating_add(*amount);
-                {
-                    let mut tracker = self.stake_tracker.lock();
-                    // Advance staking epoch if block height crossed an epoch boundary.
-                    // Deterministic: derived purely from block height, no consensus coordination needed.
-                    let current_epoch = self.current_block_height() / BLOCKS_PER_STAKING_EPOCH;
-                    if current_epoch != tracker.current_epoch {
-                        tracker.epoch_start_stakes = tracker.validator_stakes.clone();
-                        tracker.current_epoch = current_epoch;
-                    }
-                    // Compute what the validator's total and network total will be
-                    let new_total_staked = tracker.total_staked.saturating_add(*amount);
-                    // Delta for the target validator: if sender changes delegation, move
-                    // old staked amount from old validator to new one.
-                    let val_add = if old_delegate == Some(*validator) {
-                        // Same validator — just adding amount
-                        *amount
-                    } else {
-                        // Switching or first-time — validator gets sender's entire new staked
-                        new_staked
-                    };
-                    let current_val_total = *tracker.validator_stakes.get(validator).unwrap_or(&0);
-                    let new_val_total = current_val_total.saturating_add(val_add);
-                    // Count validators that meet MIN_VALIDATOR_STAKE — prevents
-                    // Sybil slot-filling with 1-lamport stakes.
-                    let validator_count = tracker.validator_stakes.values()
-                        .filter(|&&v| v >= MIN_VALIDATOR_STAKE).count();
-
-                    // Anti-Sybil: cap maximum active validator count.
-                    // Only counts validators meeting MIN_VALIDATOR_STAKE threshold.
-                    let would_be_new = current_val_total < MIN_VALIDATOR_STAKE
-                        && new_val_total >= MIN_VALIDATOR_STAKE;
-                    if validator_count >= MAX_ACTIVE_VALIDATORS && would_be_new {
-                        state_changes.insert(tx.data.sender, sender.clone());
-                        return ExecutionResult {
-                            tx_hash,
-                            effect: TransactionEffect {
-                                tx_hash,
-                                status: TransactionStatus::Reverted(format!(
-                                    "maximum active validator count reached ({})",
-                                    MAX_ACTIVE_VALIDATORS
-                                )),
-                                gas_used,
-                                base_fee,
-                                created_objects: vec![],
-                                modified_objects: vec![],
-                                deleted_objects: vec![],
-                                events: vec![],
-                            },
-                            state_changes,
-                            pi_burned,
-                            pi_minted: 0,
-                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                            miner_fee: fee_split.miners,
-                            state_reads: vec![tx.data.sender],
+                    // ── Anti-concentration check (atomic under stake_tracker lock) ──
+                    let old_delegate = sender.delegate;
+                    let old_staked = sender.staked;
+                    let new_staked = old_staked.saturating_add(*amount);
+                    {
+                        let mut tracker = self.stake_tracker.lock();
+                        // Advance staking epoch if block height crossed an epoch boundary.
+                        // Deterministic: derived purely from block height, no consensus coordination needed.
+                        let current_epoch = self.current_block_height() / BLOCKS_PER_STAKING_EPOCH;
+                        if current_epoch != tracker.current_epoch {
+                            tracker.epoch_start_stakes = tracker.validator_stakes.clone();
+                            tracker.current_epoch = current_epoch;
+                        }
+                        // Compute what the validator's total and network total will be
+                        let new_total_staked = tracker.total_staked.saturating_add(*amount);
+                        // Delta for the target validator: if sender changes delegation, move
+                        // old staked amount from old validator to new one.
+                        let val_add = if old_delegate == Some(*validator) {
+                            // Same validator — just adding amount
+                            *amount
+                        } else {
+                            // Switching or first-time — validator gets sender's entire new staked
+                            new_staked
                         };
-                    }
+                        let current_val_total =
+                            *tracker.validator_stakes.get(validator).unwrap_or(&0);
+                        let new_val_total = current_val_total.saturating_add(val_add);
+                        // Count validators that meet MIN_VALIDATOR_STAKE — prevents
+                        // Sybil slot-filling with 1-lamport stakes.
+                        let validator_count = tracker
+                            .validator_stakes
+                            .values()
+                            .filter(|&&v| v >= MIN_VALIDATOR_STAKE)
+                            .count();
 
-                    // Concentration caps: use bootstrap 41.3% cap or full caps.
-                    // During bootstrap, skip caps for NEW validators (first-time staking
-                    // above MIN_VALIDATOR_STAKE), same as register_validator() in StakingManager.
-                    let is_bootstrap = validator_count < MIN_VALIDATORS_FOR_STAKE_CAP;
-                    let is_new_validator = current_val_total < MIN_VALIDATOR_STAKE
-                        && new_val_total >= MIN_VALIDATOR_STAKE;
-                    let val_cap = if is_bootstrap { BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS } else { MAX_VALIDATOR_STAKE_PCT_BPS };
-                    let addr_cap = if is_bootstrap { BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS } else { MAX_ADDRESS_STAKE_PCT_BPS };
-                    let skip_concentration = is_bootstrap && is_new_validator;
-
-                    if new_total_staked > 0 && !skip_concentration {
-                        // Layer 2: Per-validator concentration cap
-                        let val_bps = (new_val_total as u128 * 10_000 / new_total_staked as u128) as u32;
-                        if val_bps > val_cap {
+                        // Anti-Sybil: cap maximum active validator count.
+                        // Only counts validators meeting MIN_VALIDATOR_STAKE threshold.
+                        let would_be_new = current_val_total < MIN_VALIDATOR_STAKE
+                            && new_val_total >= MIN_VALIDATOR_STAKE;
+                        if validator_count >= MAX_ACTIVE_VALIDATORS && would_be_new {
                             state_changes.insert(tx.data.sender, sender.clone());
                             return ExecutionResult {
+                                tx_hash,
+                                effect: TransactionEffect {
+                                    tx_hash,
+                                    status: TransactionStatus::Reverted(format!(
+                                        "maximum active validator count reached ({})",
+                                        MAX_ACTIVE_VALIDATORS
+                                    )),
+                                    gas_used,
+                                    base_fee,
+                                    created_objects: vec![],
+                                    modified_objects: vec![],
+                                    deleted_objects: vec![],
+                                    events: vec![],
+                                },
+                                state_changes,
+                                pi_burned,
+                                pi_minted: 0,
+                                proposer_reward: fee_split
+                                    .proposer
+                                    .saturating_add(fee_split.stakers),
+                                miner_fee: fee_split.miners,
+                                state_reads: vec![tx.data.sender],
+                            };
+                        }
+
+                        // Concentration caps: use bootstrap 41.3% cap or full caps.
+                        // During bootstrap, skip caps for NEW validators (first-time staking
+                        // above MIN_VALIDATOR_STAKE), same as register_validator() in StakingManager.
+                        let is_bootstrap = validator_count < MIN_VALIDATORS_FOR_STAKE_CAP;
+                        let is_new_validator = current_val_total < MIN_VALIDATOR_STAKE
+                            && new_val_total >= MIN_VALIDATOR_STAKE;
+                        let val_cap = if is_bootstrap {
+                            BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS
+                        } else {
+                            MAX_VALIDATOR_STAKE_PCT_BPS
+                        };
+                        let addr_cap = if is_bootstrap {
+                            BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS
+                        } else {
+                            MAX_ADDRESS_STAKE_PCT_BPS
+                        };
+                        let skip_concentration = is_bootstrap && is_new_validator;
+
+                        if new_total_staked > 0 && !skip_concentration {
+                            // Layer 2: Per-validator concentration cap
+                            let val_bps =
+                                (new_val_total as u128 * 10_000 / new_total_staked as u128) as u32;
+                            if val_bps > val_cap {
+                                state_changes.insert(tx.data.sender, sender.clone());
+                                return ExecutionResult {
                                 tx_hash,
                                 effect: TransactionEffect {
                                     tx_hash,
@@ -1341,12 +1428,13 @@ impl TransactionExecutor {
                             miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
-                        }
-                        // Layer 3: Per-address concentration cap
-                        let addr_bps = (new_staked as u128 * 10_000 / new_total_staked as u128) as u32;
-                        if addr_bps > addr_cap {
-                            state_changes.insert(tx.data.sender, sender.clone());
-                            return ExecutionResult {
+                            }
+                            // Layer 3: Per-address concentration cap
+                            let addr_bps =
+                                (new_staked as u128 * 10_000 / new_total_staked as u128) as u32;
+                            if addr_bps > addr_cap {
+                                state_changes.insert(tx.data.sender, sender.clone());
+                                return ExecutionResult {
                                 tx_hash,
                                 effect: TransactionEffect {
                                     tx_hash,
@@ -1368,16 +1456,18 @@ impl TransactionExecutor {
                             miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
-                        }
-                        // Layer 4: Per-epoch stake velocity limit (50% growth max)
-                        // Skipped during bootstrap — velocity limit only applies when network is established.
-                        let epoch_start = *tracker.epoch_start_stakes.get(validator).unwrap_or(&0);
-                        if !is_bootstrap && epoch_start > 0 {
-                            let growth = new_val_total.saturating_sub(epoch_start);
-                            let growth_bps = (growth as u128 * 10_000 / epoch_start as u128) as u32;
-                            if growth_bps > MAX_STAKE_GROWTH_PCT_BPS {
-                                state_changes.insert(tx.data.sender, sender.clone());
-                                return ExecutionResult {
+                            }
+                            // Layer 4: Per-epoch stake velocity limit (50% growth max)
+                            // Skipped during bootstrap — velocity limit only applies when network is established.
+                            let epoch_start =
+                                *tracker.epoch_start_stakes.get(validator).unwrap_or(&0);
+                            if !is_bootstrap && epoch_start > 0 {
+                                let growth = new_val_total.saturating_sub(epoch_start);
+                                let growth_bps =
+                                    (growth as u128 * 10_000 / epoch_start as u128) as u32;
+                                if growth_bps > MAX_STAKE_GROWTH_PCT_BPS {
+                                    state_changes.insert(tx.data.sender, sender.clone());
+                                    return ExecutionResult {
                                     tx_hash,
                                     effect: TransactionEffect {
                                         tx_hash,
@@ -1399,45 +1489,48 @@ impl TransactionExecutor {
                             miner_fee: fee_split.miners,
                                     state_reads: vec![tx.data.sender],
                                 };
+                                }
                             }
+                            // epoch_start == 0 means new validator this epoch — no velocity limit
                         }
-                        // epoch_start == 0 means new validator this epoch — no velocity limit
-                    }
-                    // All checks passed — commit tracking updates
-                    tracker.total_staked = new_total_staked;
-                    if let Some(old_v) = old_delegate {
-                        if old_v != *validator {
-                            // Switching validator: remove old staked from old validator
-                            if let Some(old_val) = tracker.validator_stakes.get_mut(&old_v) {
-                                *old_val = old_val.saturating_sub(old_staked);
-                                if *old_val == 0 {
-                                    tracker.validator_stakes.remove(&old_v);
+                        // All checks passed — commit tracking updates
+                        tracker.total_staked = new_total_staked;
+                        if let Some(old_v) = old_delegate {
+                            if old_v != *validator {
+                                // Switching validator: remove old staked from old validator
+                                if let Some(old_val) = tracker.validator_stakes.get_mut(&old_v) {
+                                    *old_val = old_val.saturating_sub(old_staked);
+                                    if *old_val == 0 {
+                                        tracker.validator_stakes.remove(&old_v);
+                                    }
                                 }
                             }
                         }
-                    }
-                    *tracker.validator_stakes.entry(*validator).or_insert(0) = new_val_total;
-                } // release stake_tracker lock
+                        *tracker.validator_stakes.entry(*validator).or_insert(0) = new_val_total;
+                    } // release stake_tracker lock
 
-                // Balance-is-total model: staking locks funds within balance by incrementing
-                // staked. Do NOT subtract from balance — available_balance() already
-                // accounts for the staked earmark. This prevents the fund-lock bug where
-                // multiple sequential stakes would make balance < staked.
-                sender.staked = new_staked;
-                sender.delegate = Some(*validator);
-                state_changes.insert(tx.data.sender, sender.clone());
+                    // Balance-is-total model: staking locks funds within balance by incrementing
+                    // staked. Do NOT subtract from balance — available_balance() already
+                    // accounts for the staked earmark. This prevents the fund-lock bug where
+                    // multiple sequential stakes would make balance < staked.
+                    sender.staked = new_staked;
+                    sender.delegate = Some(*validator);
+                    state_changes.insert(tx.data.sender, sender.clone());
 
-                (
-                    TransactionStatus::Success,
-                    vec![TransactionEvent {
-                        emitter: tx.data.sender,
-                        event_type: "Stake".to_string(),
-                        data: amount.to_le_bytes().to_vec(),
-                    }],
-                )
+                    (
+                        TransactionStatus::Success,
+                        vec![TransactionEvent {
+                            emitter: tx.data.sender,
+                            event_type: "Stake".to_string(),
+                            data: amount.to_le_bytes().to_vec(),
+                        }],
+                    )
                 }
             }
-            TransactionKind::Unstake { validator: _, amount } => {
+            TransactionKind::Unstake {
+                validator: _,
+                amount,
+            } => {
                 if *amount == 0 {
                     // R36-FIX: Use normal (status, events) return instead of early return
                     // to ensure gas refund and fee split logic at the bottom runs correctly.
@@ -1463,13 +1556,19 @@ impl TransactionExecutor {
                     sender.staked = match sender.staked.checked_sub(*amount) {
                         Some(v) => v,
                         None => {
-                            tracing::error!(staked = sender.staked, amount, "unstake underflow after check — should be impossible");
+                            tracing::error!(
+                                staked = sender.staked,
+                                amount,
+                                "unstake underflow after check — should be impossible"
+                            );
                             state_changes.insert(tx.data.sender, sender.clone());
                             return ExecutionResult {
                                 tx_hash,
                                 effect: TransactionEffect {
                                     tx_hash,
-                                    status: TransactionStatus::Reverted("staked balance underflow".to_string()),
+                                    status: TransactionStatus::Reverted(
+                                        "staked balance underflow".to_string(),
+                                    ),
                                     gas_used,
                                     base_fee,
                                     created_objects: vec![],
@@ -1480,8 +1579,10 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                            miner_fee: fee_split.miners,
+                                proposer_reward: fee_split
+                                    .proposer
+                                    .saturating_add(fee_split.stakers),
+                                miner_fee: fee_split.miners,
                                 state_reads: vec![tx.data.sender],
                             };
                         }
@@ -1543,95 +1644,93 @@ impl TransactionExecutor {
                     (
                         TransactionStatus::Reverted(format!(
                             "mining proof too large: {} digits (max {})",
-                            digits.len(), MAX_PROOF_DIGITS
+                            digits.len(),
+                            MAX_PROOF_DIGITS
                         )),
                         vec![],
                     )
                 } else {
-                // Construct the mining proof from transaction data
-                let mining_proof = pichain_mining::MiningProof::new(
-                    *start_position,
-                    digits.clone(),
-                    tx.data.sender,
-                    tx.data.nonce,
-                );
-
-                // Process through the mining processor (verify digits + PoW + register + reward)
-                let mut processor = self.mining_processor.lock();
-                processor.set_block_timestamp(self.block_timestamp());
-
-                // Validate anchor_block_hash length — reject if not exactly 32 bytes
-                if anchor_block_hash.len() != 32 {
-                    state_changes.insert(tx.data.sender, sender.clone());
-                    return ExecutionResult {
-                        tx_hash,
-                        effect: TransactionEffect {
-                            tx_hash,
-                            status: TransactionStatus::Reverted(format!(
-                                "invalid anchor_block_hash length: expected 32, got {}",
-                                anchor_block_hash.len()
-                            )),
-                            gas_used,
-                            base_fee,
-                            created_objects: vec![],
-                            modified_objects: vec![],
-                            deleted_objects: vec![],
-                            events: vec![],
-                        },
-                        state_changes,
-                        pi_burned,
-                        pi_minted: 0,
-                        proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                        miner_fee: fee_split.miners,
-                        state_reads: vec![tx.data.sender],
-                    };
-                }
-                let mut anchor = [0u8; 32];
-                anchor.copy_from_slice(anchor_block_hash);
-
-                let verification = processor.process_proof_with_pow(
-                    &mining_proof,
-                    *pow_nonce,
-                    &anchor,
-                );
-
-                if verification.valid {
-                    // Credit mining reward to sender (saturating to prevent overflow)
-                    sender.balance = sender.balance.saturating_add(verification.reward_amount);
-                    pi_minted = verification.reward_amount;
-                    state_changes.insert(tx.data.sender, sender.clone());
-                    (
-                        TransactionStatus::Success,
-                        vec![TransactionEvent {
-                            emitter: tx.data.sender,
-                            event_type: "MiningReward".to_string(),
-                            data: serde_json::to_vec(&serde_json::json!({
-                                "start_position": start_position,
-                                "digit_count": digit_count,
-                                "reward": verification.reward_amount,
-                                "frontier": processor.frontier(),
-                            }))
-                            .unwrap_or_default(),
-                        }],
-                    )
-                } else {
-                    let err_msg = verification.error.unwrap_or_default();
-                    tracing::warn!(
-                        %tx.data.sender,
-                        start_position,
-                        digit_count,
-                        error = %err_msg,
-                        "mining proof REVERTED"
+                    // Construct the mining proof from transaction data
+                    let mining_proof = pichain_mining::MiningProof::new(
+                        *start_position,
+                        digits.clone(),
+                        tx.data.sender,
+                        tx.data.nonce,
                     );
-                    state_changes.insert(tx.data.sender, sender.clone());
-                    (
-                        TransactionStatus::Reverted(format!(
-                            "mining proof rejected: {}",
-                            err_msg
-                        )),
-                        vec![],
-                    )
-                }
+
+                    // Process through the mining processor (verify digits + PoW + register + reward)
+                    let mut processor = self.mining_processor.lock();
+                    processor.set_block_timestamp(self.block_timestamp());
+
+                    // Validate anchor_block_hash length — reject if not exactly 32 bytes
+                    if anchor_block_hash.len() != 32 {
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        return ExecutionResult {
+                            tx_hash,
+                            effect: TransactionEffect {
+                                tx_hash,
+                                status: TransactionStatus::Reverted(format!(
+                                    "invalid anchor_block_hash length: expected 32, got {}",
+                                    anchor_block_hash.len()
+                                )),
+                                gas_used,
+                                base_fee,
+                                created_objects: vec![],
+                                modified_objects: vec![],
+                                deleted_objects: vec![],
+                                events: vec![],
+                            },
+                            state_changes,
+                            pi_burned,
+                            pi_minted: 0,
+                            proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                            miner_fee: fee_split.miners,
+                            state_reads: vec![tx.data.sender],
+                        };
+                    }
+                    let mut anchor = [0u8; 32];
+                    anchor.copy_from_slice(anchor_block_hash);
+
+                    let verification =
+                        processor.process_proof_with_pow(&mining_proof, *pow_nonce, &anchor);
+
+                    if verification.valid {
+                        // Credit mining reward to sender (saturating to prevent overflow)
+                        sender.balance = sender.balance.saturating_add(verification.reward_amount);
+                        pi_minted = verification.reward_amount;
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (
+                            TransactionStatus::Success,
+                            vec![TransactionEvent {
+                                emitter: tx.data.sender,
+                                event_type: "MiningReward".to_string(),
+                                data: serde_json::to_vec(&serde_json::json!({
+                                    "start_position": start_position,
+                                    "digit_count": digit_count,
+                                    "reward": verification.reward_amount,
+                                    "frontier": processor.frontier(),
+                                }))
+                                .unwrap_or_default(),
+                            }],
+                        )
+                    } else {
+                        let err_msg = verification.error.unwrap_or_default();
+                        tracing::warn!(
+                            %tx.data.sender,
+                            start_position,
+                            digit_count,
+                            error = %err_msg,
+                            "mining proof REVERTED"
+                        );
+                        state_changes.insert(tx.data.sender, sender.clone());
+                        (
+                            TransactionStatus::Reverted(format!(
+                                "mining proof rejected: {}",
+                                err_msg
+                            )),
+                            vec![],
+                        )
+                    }
                 } // close else from digit size check
             }
             TransactionKind::DeployContract {
@@ -1647,7 +1746,8 @@ impl TransactionExecutor {
                     (
                         TransactionStatus::Reverted(format!(
                             "init_data too large: {} bytes (max {})",
-                            init_data.len(), MAX_INIT_DATA_SIZE
+                            init_data.len(),
+                            MAX_INIT_DATA_SIZE
                         )),
                         vec![],
                     )
@@ -1707,10 +1807,8 @@ impl TransactionExecutor {
                                 } else {
                                     // Persist init state changes
                                     if !result.state_changes.is_empty() {
-                                        self.contract_storage.insert(
-                                            contract_addr,
-                                            result.state_changes,
-                                        );
+                                        self.contract_storage
+                                            .insert(contract_addr, result.state_changes);
                                     }
                                     (
                                         TransactionStatus::Success,
@@ -1755,95 +1853,102 @@ impl TransactionExecutor {
                 // Validate function name length to prevent abuse
                 if function.len() > MAX_FUNCTION_NAME_LEN {
                     state_changes.insert(tx.data.sender, sender.clone());
-                    (TransactionStatus::Reverted(format!(
-                        "function name too long: {} > {MAX_FUNCTION_NAME_LEN}",
-                        function.len()
-                    )), vec![])
-                } else {
-                state_changes.insert(tx.data.sender, sender.clone());
-
-                // 1. Look up the contract and its bytecode in the registry
-                let registry = self.contract_registry.lock();
-                let lookup = registry.get(contract).cloned().and_then(|meta| {
-                    registry.get_code(&meta.code_hash).map(|code| (meta, code.to_vec()))
-                });
-                drop(registry);
-
-                match lookup {
-                    None => (
-                        TransactionStatus::Reverted(format!("contract not found: {}", contract)),
+                    (
+                        TransactionStatus::Reverted(format!(
+                            "function name too long: {} > {MAX_FUNCTION_NAME_LEN}",
+                            function.len()
+                        )),
                         vec![],
-                    ),
-                    Some((_meta, code)) => {
-                        // 2. Load contract storage from persistent cache
-                        let storage = self.contract_storage
-                            .get(contract)
-                            .map(|entry| entry.value().clone())
-                            .unwrap_or_default();
+                    )
+                } else {
+                    state_changes.insert(tx.data.sender, sender.clone());
 
-                        // 3. Execute the WASM contract
-                        let result = self.wasm_vm.execute(
-                            &code,
-                            function,
-                            args,
-                            tx.data.sender,
-                            *contract,
-                            storage,
-                            tx.data.gas_limit,
-                            self.current_block_height(),
-                            self.block_timestamp(),
-                        );
+                    // 1. Look up the contract and its bytecode in the registry
+                    let registry = self.contract_registry.lock();
+                    let lookup = registry.get(contract).cloned().and_then(|meta| {
+                        registry
+                            .get_code(&meta.code_hash)
+                            .map(|code| (meta, code.to_vec()))
+                    });
+                    drop(registry);
 
-                        // Use actual WASM fuel consumed for gas metering.
-                        // Cap at gas_limit to prevent undercharge: the pre-charged fee
-                        // was based on estimated_gas, so actual must not exceed gas_limit
-                        // (which bounds the pre-charge). If WASM reports more gas than
-                        // the limit, the excess was unbounded execution we didn't pay for.
-                        if result.gas_used > 0 {
-                            gas_used = result.gas_used.min(tx.data.gas_limit);
-                        }
+                    match lookup {
+                        None => (
+                            TransactionStatus::Reverted(format!(
+                                "contract not found: {}",
+                                contract
+                            )),
+                            vec![],
+                        ),
+                        Some((_meta, code)) => {
+                            // 2. Load contract storage from persistent cache
+                            let storage = self
+                                .contract_storage
+                                .get(contract)
+                                .map(|entry| entry.value().clone())
+                                .unwrap_or_default();
 
-                        if result.success {
-                            // 4. Persist state changes back to contract storage
-                            if !result.state_changes.is_empty() {
-                                let mut entry = self.contract_storage
-                                    .entry(*contract)
-                                    .or_default();
-                                for (key, value) in &result.state_changes {
-                                    if value.is_empty() {
-                                        entry.remove(key);
-                                    } else {
-                                        entry.insert(key.clone(), value.clone());
-                                    }
-                                }
+                            // 3. Execute the WASM contract
+                            let result = self.wasm_vm.execute(
+                                &code,
+                                function,
+                                args,
+                                tx.data.sender,
+                                *contract,
+                                storage,
+                                tx.data.gas_limit,
+                                self.current_block_height(),
+                                self.block_timestamp(),
+                            );
+
+                            // Use actual WASM fuel consumed for gas metering.
+                            // Cap at gas_limit to prevent undercharge: the pre-charged fee
+                            // was based on estimated_gas, so actual must not exceed gas_limit
+                            // (which bounds the pre-charge). If WASM reports more gas than
+                            // the limit, the excess was unbounded execution we didn't pay for.
+                            if result.gas_used > 0 {
+                                gas_used = result.gas_used.min(tx.data.gas_limit);
                             }
 
-                            let events = result
-                                .logs
-                                .iter()
-                                .map(|log| TransactionEvent {
-                                    emitter: *contract,
-                                    event_type: "ContractLog".to_string(),
-                                    data: log.data.clone(),
-                                })
-                                .collect();
-                            (TransactionStatus::Success, events)
-                        } else {
-                            (
-                                TransactionStatus::Reverted(format!(
-                                    "contract call failed: {}",
-                                    result.error.unwrap_or_default()
-                                )),
-                                vec![],
-                            )
+                            if result.success {
+                                // 4. Persist state changes back to contract storage
+                                if !result.state_changes.is_empty() {
+                                    let mut entry =
+                                        self.contract_storage.entry(*contract).or_default();
+                                    for (key, value) in &result.state_changes {
+                                        if value.is_empty() {
+                                            entry.remove(key);
+                                        } else {
+                                            entry.insert(key.clone(), value.clone());
+                                        }
+                                    }
+                                }
+
+                                let events = result
+                                    .logs
+                                    .iter()
+                                    .map(|log| TransactionEvent {
+                                        emitter: *contract,
+                                        event_type: "ContractLog".to_string(),
+                                        data: log.data.clone(),
+                                    })
+                                    .collect();
+                                (TransactionStatus::Success, events)
+                            } else {
+                                (
+                                    TransactionStatus::Reverted(format!(
+                                        "contract call failed: {}",
+                                        result.error.unwrap_or_default()
+                                    )),
+                                    vec![],
+                                )
+                            }
                         }
                     }
-                }
                 } // close function name validation else
             }
 
             // --- Native Token Program ---
-
             TransactionKind::CreateToken {
                 name,
                 symbol,
@@ -1857,19 +1962,32 @@ impl TransactionExecutor {
                 let current_mint_nonce = self.token_executor.get_mint_nonce(&tx.data.sender);
                 if current_mint_nonce >= MAX_MINTS_PER_ADDRESS {
                     state_changes.insert(tx.data.sender, sender.clone());
-                    (TransactionStatus::Reverted(format!(
-                        "token creation limit reached: {} mints per address",
-                        MAX_MINTS_PER_ADDRESS
-                    )), vec![])
+                    (
+                        TransactionStatus::Reverted(format!(
+                            "token creation limit reached: {} mints per address",
+                            MAX_MINTS_PER_ADDRESS
+                        )),
+                        vec![],
+                    )
                 }
                 // Validate string fields to prevent XSS and storage abuse
                 // metadata_uri uses length-only check: it's structured JSON data (not display text)
                 // and legitimately contains quotes, braces, base64 characters, etc.
                 else if let Err(e) = validate_string_field(name, "name", MAX_TOKEN_NAME_LEN)
                     .and_then(|_| validate_string_field(symbol, "symbol", MAX_TOKEN_SYMBOL_LEN))
-                    .and_then(|_| if metadata_uri.is_empty() { Ok(()) } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
-                        Err(format!("metadata_uri too long: {} bytes (max {})", metadata_uri.len(), MAX_METADATA_URI_LEN))
-                    } else { Ok(()) })
+                    .and_then(|_| {
+                        if metadata_uri.is_empty() {
+                            Ok(())
+                        } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
+                            Err(format!(
+                                "metadata_uri too long: {} bytes (max {})",
+                                metadata_uri.len(),
+                                MAX_METADATA_URI_LEN
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    })
                 {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (TransactionStatus::Reverted(e), vec![])
@@ -1903,19 +2021,16 @@ impl TransactionExecutor {
                 amount,
             } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let token_result = self.token_executor.transfer_tokens(
-                    tx.data.sender,
-                    *mint,
-                    *recipient,
-                    *amount,
-                );
+                let token_result =
+                    self.token_executor
+                        .transfer_tokens(tx.data.sender, *mint, *recipient, *amount);
                 (token_result.status, token_result.events)
             }
             TransactionKind::BurnToken { mint, amount } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let token_result =
-                    self.token_executor
-                        .burn_tokens(tx.data.sender, *mint, *amount);
+                let token_result = self
+                    .token_executor
+                    .burn_tokens(tx.data.sender, *mint, *amount);
                 (token_result.status, token_result.events)
             }
             TransactionKind::ApproveToken {
@@ -1924,19 +2039,16 @@ impl TransactionExecutor {
                 amount,
             } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let token_result = self.token_executor.approve_token(
-                    tx.data.sender,
-                    *mint,
-                    *delegate,
-                    *amount,
-                );
+                let token_result =
+                    self.token_executor
+                        .approve_token(tx.data.sender, *mint, *delegate, *amount);
                 (token_result.status, token_result.events)
             }
             TransactionKind::RevokeMintAuthority { mint } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let token_result =
-                    self.token_executor
-                        .revoke_mint_authority(tx.data.sender, *mint);
+                let token_result = self
+                    .token_executor
+                    .revoke_mint_authority(tx.data.sender, *mint);
                 (token_result.status, token_result.events)
             }
             TransactionKind::FreezeTokenAccount { mint, target } => {
@@ -1955,12 +2067,11 @@ impl TransactionExecutor {
             }
 
             // --- DEX/AMM ---
-
             TransactionKind::CreatePool { mint_a, mint_b } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let dex_result =
-                    self.dex_executor
-                        .create_pool(tx.data.sender, *mint_a, *mint_b);
+                let dex_result = self
+                    .dex_executor
+                    .create_pool(tx.data.sender, *mint_a, *mint_b);
                 (dex_result.status, dex_result.events)
             }
             TransactionKind::AddLiquidity {
@@ -2017,7 +2128,6 @@ impl TransactionExecutor {
             }
 
             // --- Launchpad ---
-
             TransactionKind::CreateLaunch {
                 mint,
                 launch_type,
@@ -2035,15 +2145,19 @@ impl TransactionExecutor {
                 match mint_check {
                     None => {
                         state_changes.insert(tx.data.sender, sender.clone());
-                        (TransactionStatus::Reverted(
-                            "token mint does not exist".to_string()
-                        ), vec![])
+                        (
+                            TransactionStatus::Reverted("token mint does not exist".to_string()),
+                            vec![],
+                        )
                     }
                     Some(token_mint) if token_mint.mint_authority != Some(tx.data.sender) => {
                         state_changes.insert(tx.data.sender, sender.clone());
-                        (TransactionStatus::Reverted(
-                            "sender does not have mint authority for this token".to_string()
-                        ), vec![])
+                        (
+                            TransactionStatus::Reverted(
+                                "sender does not have mint authority for this token".to_string(),
+                            ),
+                            vec![],
+                        )
                     }
                     Some(token_mint) => {
                         state_changes.insert(tx.data.sender, sender.clone());
@@ -2092,7 +2206,10 @@ impl TransactionExecutor {
                                     // but the tokens couldn't be minted, so the launch must be reverted.
                                     let actual_cost = pi_amount.saturating_sub(result.refund);
                                     self.launchpad_executor.rollback_participation(
-                                        mint, &tx.data.sender, tokens_received, actual_cost,
+                                        mint,
+                                        &tx.data.sender,
+                                        tokens_received,
+                                        actual_cost,
                                     );
                                     sender.balance = sender.balance.saturating_add(*pi_amount);
                                     state_changes.insert(tx.data.sender, sender.clone());
@@ -2100,9 +2217,9 @@ impl TransactionExecutor {
                                         tx_hash,
                                         effect: TransactionEffect {
                                             tx_hash,
-                                            status: TransactionStatus::Reverted(
-                                                format!("failed to mint launch tokens: {e}")
-                                            ),
+                                            status: TransactionStatus::Reverted(format!(
+                                                "failed to mint launch tokens: {e}"
+                                            )),
                                             gas_used,
                                             base_fee,
                                             created_objects: vec![],
@@ -2113,8 +2230,10 @@ impl TransactionExecutor {
                                         state_changes,
                                         pi_burned,
                                         pi_minted: 0,
-                                        proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                            miner_fee: fee_split.miners,
+                                        proposer_reward: fee_split
+                                            .proposer
+                                            .saturating_add(fee_split.stakers),
+                                        miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2124,21 +2243,32 @@ impl TransactionExecutor {
                                 // SECURITY: Validate max_supply BEFORE incrementing to prevent
                                 // launchpad from issuing tokens beyond the mint's declared maximum.
                                 if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                                    let new_supply = mint_ref.total_supply.checked_add(tokens_received);
+                                    let new_supply =
+                                        mint_ref.total_supply.checked_add(tokens_received);
                                     match new_supply {
-                                        Some(supply) if mint_ref.max_supply == 0 || supply <= mint_ref.max_supply => {
+                                        Some(supply)
+                                            if mint_ref.max_supply == 0
+                                                || supply <= mint_ref.max_supply =>
+                                        {
                                             mint_ref.total_supply = supply;
                                         }
                                         _ => {
                                             // Would exceed max_supply — rollback everything
                                             let _ = self.token_executor.apply_delta(
-                                                tx.data.sender, *mint, -(tokens_received as i128),
+                                                tx.data.sender,
+                                                *mint,
+                                                -(tokens_received as i128),
                                             );
-                                            let actual_cost = pi_amount.saturating_sub(result.refund);
+                                            let actual_cost =
+                                                pi_amount.saturating_sub(result.refund);
                                             self.launchpad_executor.rollback_participation(
-                                                mint, &tx.data.sender, tokens_received, actual_cost,
+                                                mint,
+                                                &tx.data.sender,
+                                                tokens_received,
+                                                actual_cost,
                                             );
-                                            sender.balance = sender.balance.saturating_add(*pi_amount);
+                                            sender.balance =
+                                                sender.balance.saturating_add(*pi_amount);
                                             state_changes.insert(tx.data.sender, sender.clone());
                                             return ExecutionResult {
                                                 tx_hash,
@@ -2168,11 +2298,16 @@ impl TransactionExecutor {
                                     // R32-FIX: Mint not found after successful participate() —
                                     // rollback participation to prevent orphaned tokens.
                                     let _ = self.token_executor.apply_delta(
-                                        tx.data.sender, *mint, -(tokens_received as i128),
+                                        tx.data.sender,
+                                        *mint,
+                                        -(tokens_received as i128),
                                     );
                                     let actual_cost = pi_amount.saturating_sub(result.refund);
                                     self.launchpad_executor.rollback_participation(
-                                        mint, &tx.data.sender, tokens_received, actual_cost,
+                                        mint,
+                                        &tx.data.sender,
+                                        tokens_received,
+                                        actual_cost,
                                     );
                                     sender.balance = sender.balance.saturating_add(*pi_amount);
                                     state_changes.insert(tx.data.sender, sender.clone());
@@ -2181,7 +2316,8 @@ impl TransactionExecutor {
                                         effect: TransactionEffect {
                                             tx_hash,
                                             status: TransactionStatus::Reverted(
-                                                "launch mint not found after participation".to_string()
+                                                "launch mint not found after participation"
+                                                    .to_string(),
                                             ),
                                             gas_used,
                                             base_fee,
@@ -2193,8 +2329,10 @@ impl TransactionExecutor {
                                         state_changes,
                                         pi_burned,
                                         pi_minted: 0,
-                                        proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
-                            miner_fee: fee_split.miners,
+                                        proposer_reward: fee_split
+                                            .proposer
+                                            .saturating_add(fee_split.stakers),
+                                        miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2209,11 +2347,15 @@ impl TransactionExecutor {
                             if let Some(seed) = &result.finalization {
                                 if seed.pi_amount > 0 && seed.token_amount > 0 {
                                     if let Err(e) = self.seed_dex_pool_from_launch(
-                                        tx.data.sender, mint, seed, &mut state_changes,
+                                        tx.data.sender,
+                                        mint,
+                                        seed,
+                                        &mut state_changes,
                                     ) {
                                         // Pool seeding failed — rollback to TargetReached so a
                                         // manual FinalizeLaunch tx can retry pool creation.
-                                        let launch_id = pichain_types::launchpad::LaunchId::from_mint(mint);
+                                        let launch_id =
+                                            pichain_types::launchpad::LaunchId::from_mint(mint);
                                         self.launchpad_executor.rollback_finalization(&launch_id);
                                         tracing::warn!(
                                             error = %e,
@@ -2228,7 +2370,9 @@ impl TransactionExecutor {
                     None => {
                         state_changes.insert(tx.data.sender, sender.clone());
                         (
-                            TransactionStatus::Reverted("insufficient balance for launch participation".into()),
+                            TransactionStatus::Reverted(
+                                "insufficient balance for launch participation".into(),
+                            ),
                             vec![],
                         )
                     }
@@ -2241,21 +2385,31 @@ impl TransactionExecutor {
                     if let Some(seed) = &result.finalization {
                         if seed.pi_amount > 0 && seed.token_amount > 0 {
                             match self.seed_dex_pool_from_launch(
-                                tx.data.sender, mint, seed, &mut state_changes,
+                                tx.data.sender,
+                                mint,
+                                seed,
+                                &mut state_changes,
                             ) {
                                 Ok(()) => (result.status, result.events),
                                 Err(e) => (
-                                    TransactionStatus::Reverted(format!("finalization failed: {e}")),
+                                    TransactionStatus::Reverted(format!(
+                                        "finalization failed: {e}"
+                                    )),
                                     vec![],
                                 ),
                             }
                         } else {
                             // No pool seeding needed — just credit creator PI
                             if seed.creator_pi > 0 {
-                                let creator_state = state_changes.entry(seed.creator).or_insert_with(|| {
-                                    self.state_cache.get(&seed.creator).map(|v| v.clone()).unwrap_or_default()
-                                });
-                                creator_state.balance = creator_state.balance.saturating_add(seed.creator_pi);
+                                let creator_state =
+                                    state_changes.entry(seed.creator).or_insert_with(|| {
+                                        self.state_cache
+                                            .get(&seed.creator)
+                                            .map(|v| v.clone())
+                                            .unwrap_or_default()
+                                    });
+                                creator_state.balance =
+                                    creator_state.balance.saturating_add(seed.creator_pi);
                             }
                             (result.status, result.events)
                         }
@@ -2269,7 +2423,8 @@ impl TransactionExecutor {
 
             TransactionKind::SellFromLaunch { mint, token_amount } => {
                 // Verify sender has enough tokens to sell
-                let token_balance = self.token_executor
+                let token_balance = self
+                    .token_executor
                     .get_token_account(&tx.data.sender, mint)
                     .map(|a| a.balance)
                     .unwrap_or(0);
@@ -2284,7 +2439,9 @@ impl TransactionExecutor {
                     )
                 } else {
                     state_changes.insert(tx.data.sender, sender.clone());
-                    let result = self.launchpad_executor.sell(tx.data.sender, *mint, *token_amount);
+                    let result = self
+                        .launchpad_executor
+                        .sell(tx.data.sender, *mint, *token_amount);
                     if matches!(result.status, TransactionStatus::Reverted(_)) {
                         (result.status, result.events)
                     } else {
@@ -2292,19 +2449,24 @@ impl TransactionExecutor {
 
                         // Burn tokens from seller
                         if let Err(e) = self.token_executor.apply_delta(
-                            tx.data.sender, *mint, -(*token_amount as i128),
+                            tx.data.sender,
+                            *mint,
+                            -(*token_amount as i128),
                         ) {
                             // Rollback launch state
                             self.launchpad_executor.rollback_sell(
-                                mint, &tx.data.sender, *token_amount, pi_return,
+                                mint,
+                                &tx.data.sender,
+                                *token_amount,
+                                pi_return,
                             );
                             return ExecutionResult {
                                 tx_hash,
                                 effect: TransactionEffect {
                                     tx_hash,
-                                    status: TransactionStatus::Reverted(
-                                        format!("failed to burn sold tokens: {e}")
-                                    ),
+                                    status: TransactionStatus::Reverted(format!(
+                                        "failed to burn sold tokens: {e}"
+                                    )),
                                     gas_used,
                                     base_fee,
                                     created_objects: vec![],
@@ -2315,7 +2477,9 @@ impl TransactionExecutor {
                                 state_changes,
                                 pi_burned,
                                 pi_minted: 0,
-                                proposer_reward: fee_split.proposer.saturating_add(fee_split.stakers),
+                                proposer_reward: fee_split
+                                    .proposer
+                                    .saturating_add(fee_split.stakers),
                                 miner_fee: fee_split.miners,
                                 state_reads: vec![],
                             };
@@ -2323,7 +2487,8 @@ impl TransactionExecutor {
 
                         // Update mint total_supply (decrease)
                         if let Some(mut mint_ref) = self.token_executor.get_mint_mut(mint) {
-                            mint_ref.total_supply = mint_ref.total_supply.saturating_sub(*token_amount);
+                            mint_ref.total_supply =
+                                mint_ref.total_supply.saturating_sub(*token_amount);
                         }
 
                         // Credit PI to seller
@@ -2338,7 +2503,6 @@ impl TransactionExecutor {
             }
 
             // --- NFTs ---
-
             TransactionKind::CreateNftCollection {
                 name,
                 symbol,
@@ -2350,16 +2514,23 @@ impl TransactionExecutor {
                 let current_coll_nonce = self.nft_executor.get_collection_nonce(&tx.data.sender);
                 if current_coll_nonce >= MAX_COLLECTIONS_PER_ADDRESS {
                     state_changes.insert(tx.data.sender, sender.clone());
-                    (TransactionStatus::Reverted(format!(
-                        "collection creation limit reached: {} collections per address",
-                        MAX_COLLECTIONS_PER_ADDRESS
-                    )), vec![])
+                    (
+                        TransactionStatus::Reverted(format!(
+                            "collection creation limit reached: {} collections per address",
+                            MAX_COLLECTIONS_PER_ADDRESS
+                        )),
+                        vec![],
+                    )
                 }
                 // Validate string fields
                 else if let Err(e) = validate_string_field(name, "name", MAX_TOKEN_NAME_LEN)
                     .and_then(|_| validate_string_field(symbol, "symbol", MAX_TOKEN_SYMBOL_LEN))
-                    .and_then(|_| if base_uri.is_empty() { Ok(()) } else {
-                        validate_string_field(base_uri, "base_uri", MAX_METADATA_URI_LEN)
+                    .and_then(|_| {
+                        if base_uri.is_empty() {
+                            Ok(())
+                        } else {
+                            validate_string_field(base_uri, "base_uri", MAX_METADATA_URI_LEN)
+                        }
                     })
                 {
                     state_changes.insert(tx.data.sender, sender.clone());
@@ -2385,10 +2556,20 @@ impl TransactionExecutor {
                 attributes,
             } => {
                 // Validate string fields (metadata_uri uses length-only check — it's structured JSON)
-                if let Err(e) = validate_string_field(name, "name", MAX_TOKEN_NAME_LEN)
-                    .and_then(|_| if metadata_uri.is_empty() { Ok(()) } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
-                        Err(format!("metadata_uri too long: {} bytes (max {})", metadata_uri.len(), MAX_METADATA_URI_LEN))
-                    } else { Ok(()) })
+                if let Err(e) =
+                    validate_string_field(name, "name", MAX_TOKEN_NAME_LEN).and_then(|_| {
+                        if metadata_uri.is_empty() {
+                            Ok(())
+                        } else if metadata_uri.len() > MAX_METADATA_URI_LEN {
+                            Err(format!(
+                                "metadata_uri too long: {} bytes (max {})",
+                                metadata_uri.len(),
+                                MAX_METADATA_URI_LEN
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    })
                 {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (TransactionStatus::Reverted(e), vec![])
@@ -2407,16 +2588,14 @@ impl TransactionExecutor {
             }
             TransactionKind::TransferNft { nft_id, recipient } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let result =
-                    self.nft_executor
-                        .transfer_nft(tx.data.sender, *nft_id, *recipient);
+                let result = self
+                    .nft_executor
+                    .transfer_nft(tx.data.sender, *nft_id, *recipient);
                 (result.status, result.events)
             }
             TransactionKind::ListNft { nft_id, price } => {
                 state_changes.insert(tx.data.sender, sender.clone());
-                let result =
-                    self.nft_executor
-                        .list_nft(tx.data.sender, *nft_id, *price);
+                let result = self.nft_executor.list_nft(tx.data.sender, *nft_id, *price);
                 (result.status, result.events)
             }
             TransactionKind::BuyNft { nft_id } => {
@@ -2507,15 +2686,12 @@ impl TransactionExecutor {
                         // Credit to recipient (seller / royalty recipient)
                         // R29-FIX: Use checked_add instead of saturating_add to detect
                         // overflow and revert rather than silently losing PI.
-                        let mut to_state = state_changes
-                            .get(to)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                self.state_cache
-                                    .get(to)
-                                    .map(|v| v.clone())
-                                    .unwrap_or_default()
-                            });
+                        let mut to_state = state_changes.get(to).cloned().unwrap_or_else(|| {
+                            self.state_cache
+                                .get(to)
+                                .map(|v| v.clone())
+                                .unwrap_or_default()
+                        });
                         match to_state.balance.checked_add(*amount) {
                             Some(new_balance) => {
                                 to_state.balance = new_balance;
@@ -2614,7 +2790,9 @@ impl TransactionExecutor {
                 } else if signatures.len() > 20 {
                     // Cap to prevent DoS via signature verification
                     (
-                        TransactionStatus::Reverted("multisig: too many signatures (max 20)".to_string()),
+                        TransactionStatus::Reverted(
+                            "multisig: too many signatures (max 20)".to_string(),
+                        ),
                         vec![],
                     )
                 } else {
@@ -2651,7 +2829,9 @@ impl TransactionExecutor {
                     }
                     if valid_count == 0 {
                         (
-                            TransactionStatus::Reverted("multisig: no valid signatures".to_string()),
+                            TransactionStatus::Reverted(
+                                "multisig: no valid signatures".to_string(),
+                            ),
                             vec![],
                         )
                     } else {
@@ -2681,7 +2861,9 @@ impl TransactionExecutor {
                 // Without this, users can request unlimited bridge withdrawals without losing funds.
                 if *amount == 0 {
                     (
-                        TransactionStatus::Reverted("bridge withdrawal amount must be > 0".to_string()),
+                        TransactionStatus::Reverted(
+                            "bridge withdrawal amount must be > 0".to_string(),
+                        ),
                         vec![],
                     )
                 } else if mint.is_native_pi() {
@@ -2718,9 +2900,14 @@ impl TransactionExecutor {
                 } else {
                     // Token withdrawal: debit from token account
                     let delta = -(*amount as i128);
-                    if let Err(e) = self.token_executor.apply_delta(tx.data.sender, *mint, delta) {
+                    if let Err(e) = self
+                        .token_executor
+                        .apply_delta(tx.data.sender, *mint, delta)
+                    {
                         (
-                            TransactionStatus::Reverted(format!("bridge token withdrawal failed: {e}")),
+                            TransactionStatus::Reverted(format!(
+                                "bridge token withdrawal failed: {e}"
+                            )),
                             vec![],
                         )
                     } else {
@@ -2744,7 +2931,6 @@ impl TransactionExecutor {
             }
 
             // --- Betting / Gaming ---
-
             TransactionKind::CreateMatch {
                 game_category,
                 game_id,
@@ -2753,7 +2939,12 @@ impl TransactionExecutor {
                 server_seed_hash,
             } => {
                 let result = self.betting_executor.create_match(
-                    tx.data.sender, *game_category, game_id, *wager, *max_players, *server_seed_hash,
+                    tx.data.sender,
+                    *game_category,
+                    game_id,
+                    *wager,
+                    *max_players,
+                    *server_seed_hash,
                 );
                 if matches!(result.status, TransactionStatus::Reverted(_)) {
                     state_changes.insert(tx.data.sender, sender.clone());
@@ -2762,10 +2953,13 @@ impl TransactionExecutor {
                     // Debit wager from sender (escrow)
                     if sender.balance < result.debit_sender {
                         state_changes.insert(tx.data.sender, sender.clone());
-                        (TransactionStatus::Reverted(format!(
-                            "insufficient balance for wager: have {}, need {}",
-                            sender.balance, result.debit_sender
-                        )), vec![])
+                        (
+                            TransactionStatus::Reverted(format!(
+                                "insufficient balance for wager: have {}, need {}",
+                                sender.balance, result.debit_sender
+                            )),
+                            vec![],
+                        )
                     } else {
                         sender.balance = sender.balance.saturating_sub(result.debit_sender);
                         state_changes.insert(tx.data.sender, sender.clone());
@@ -2774,9 +2968,14 @@ impl TransactionExecutor {
                 }
             }
 
-            TransactionKind::JoinMatch { match_id, client_seed } => {
+            TransactionKind::JoinMatch {
+                match_id,
+                client_seed,
+            } => {
                 let mid = MatchId(*match_id);
-                let result = self.betting_executor.join_match(tx.data.sender, mid, *client_seed);
+                let result = self
+                    .betting_executor
+                    .join_match(tx.data.sender, mid, *client_seed);
                 if matches!(result.status, TransactionStatus::Reverted(_)) {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (result.status, result.events)
@@ -2784,10 +2983,13 @@ impl TransactionExecutor {
                     // Debit wager from joiner (escrow)
                     if sender.balance < result.debit_sender {
                         state_changes.insert(tx.data.sender, sender.clone());
-                        (TransactionStatus::Reverted(format!(
-                            "insufficient balance for wager: have {}, need {}",
-                            sender.balance, result.debit_sender
-                        )), vec![])
+                        (
+                            TransactionStatus::Reverted(format!(
+                                "insufficient balance for wager: have {}, need {}",
+                                sender.balance, result.debit_sender
+                            )),
+                            vec![],
+                        )
                     } else {
                         sender.balance = sender.balance.saturating_sub(result.debit_sender);
                         state_changes.insert(tx.data.sender, sender.clone());
@@ -2800,25 +3002,35 @@ impl TransactionExecutor {
                 let mid = MatchId(*match_id);
                 // Use tx_hash bytes as entropy for provably fair randomness
                 let entropy = *tx_hash.as_bytes();
-                let result = self.betting_executor.start_match(tx.data.sender, mid, entropy);
+                let result = self
+                    .betting_executor
+                    .start_match(tx.data.sender, mid, entropy);
                 state_changes.insert(tx.data.sender, sender.clone());
                 (result.status, result.events)
             }
 
-            TransactionKind::ResolveMatch { match_id, winners, server_seed } => {
+            TransactionKind::ResolveMatch {
+                match_id,
+                winners,
+                server_seed,
+            } => {
                 let mid = MatchId(*match_id);
-                let result = self.betting_executor.resolve_match(
-                    tx.data.sender, mid, winners, server_seed,
-                );
+                let result =
+                    self.betting_executor
+                        .resolve_match(tx.data.sender, mid, winners, server_seed);
                 if matches!(result.status, TransactionStatus::Reverted(_)) {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (result.status, result.events)
                 } else {
                     // Credit winners
                     for (addr, amount) in &result.credits {
-                        let mut winner_state = state_changes.get(addr).cloned().unwrap_or_else(|| {
-                            self.state_cache.get(addr).map(|v| v.clone()).unwrap_or_default()
-                        });
+                        let mut winner_state =
+                            state_changes.get(addr).cloned().unwrap_or_else(|| {
+                                self.state_cache
+                                    .get(addr)
+                                    .map(|v| v.clone())
+                                    .unwrap_or_default()
+                            });
                         winner_state.balance = winner_state.balance.saturating_add(*amount);
                         state_changes.insert(*addr, winner_state);
                     }
@@ -2838,9 +3050,13 @@ impl TransactionExecutor {
                 } else {
                     // Refund all participants
                     for (addr, amount) in &result.credits {
-                        let mut refund_state = state_changes.get(addr).cloned().unwrap_or_else(|| {
-                            self.state_cache.get(addr).map(|v| v.clone()).unwrap_or_default()
-                        });
+                        let mut refund_state =
+                            state_changes.get(addr).cloned().unwrap_or_else(|| {
+                                self.state_cache
+                                    .get(addr)
+                                    .map(|v| v.clone())
+                                    .unwrap_or_default()
+                            });
                         refund_state.balance = refund_state.balance.saturating_add(*amount);
                         state_changes.insert(*addr, refund_state);
                     }
@@ -2849,18 +3065,27 @@ impl TransactionExecutor {
                 }
             }
 
-            TransactionKind::RemoveParticipant { match_id, participant } => {
+            TransactionKind::RemoveParticipant {
+                match_id,
+                participant,
+            } => {
                 let mid = MatchId(*match_id);
-                let result = self.betting_executor.remove_participant(tx.data.sender, mid, *participant);
+                let result =
+                    self.betting_executor
+                        .remove_participant(tx.data.sender, mid, *participant);
                 if matches!(result.status, TransactionStatus::Reverted(_)) {
                     state_changes.insert(tx.data.sender, sender.clone());
                     (result.status, result.events)
                 } else {
                     // Refund removed participant (and possibly remaining if auto-cancelled)
                     for (addr, amount) in &result.credits {
-                        let mut refund_state = state_changes.get(addr).cloned().unwrap_or_else(|| {
-                            self.state_cache.get(addr).map(|v| v.clone()).unwrap_or_default()
-                        });
+                        let mut refund_state =
+                            state_changes.get(addr).cloned().unwrap_or_else(|| {
+                                self.state_cache
+                                    .get(addr)
+                                    .map(|v| v.clone())
+                                    .unwrap_or_default()
+                            });
                         refund_state.balance = refund_state.balance.saturating_add(*amount);
                         state_changes.insert(*addr, refund_state);
                     }
@@ -2891,7 +3116,9 @@ impl TransactionExecutor {
             } else {
                 actual_base_u128 as u64
             };
-            let actual_split = self.fee_calc.split_fee(actual_total_fee, actual_base_portion);
+            let actual_split = self
+                .fee_calc
+                .split_fee(actual_total_fee, actual_base_portion);
             (actual_split.burned, actual_split)
         } else {
             (pi_burned, fee_split)
@@ -3119,8 +3346,13 @@ mod tests {
         let anchor = [0u8; 32];
         let target = pichain_mining::difficulty::INITIAL_DIFFICULTY;
         let pow_nonce = pichain_mining::find_nonce_parallel(
-            &digits, &anchor, &target, 1_000_000, &miner_kp.address().0,
-        ).expect("should find nonce with easy difficulty");
+            &digits,
+            &anchor,
+            &target,
+            1_000_000,
+            &miner_kp.address().0,
+        )
+        .expect("should find nonce with easy difficulty");
 
         let tx_data = pichain_types::transaction::TransactionData {
             sender: miner_kp.address(),
@@ -3141,7 +3373,10 @@ mod tests {
         let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &miner_kp);
 
         // R29-FIX: Set genesis timestamp so mining processor accepts proofs
-        executor.mining_processor().lock().set_genesis_timestamp(1_000);
+        executor
+            .mining_processor()
+            .lock()
+            .set_genesis_timestamp(1_000);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
@@ -3382,19 +3617,22 @@ mod tests {
         let too_small_balance = estimated_precharge as u64 + 1_000_000; // enough for estimated, not gas_limit
         executor.set_account(kp.address(), AccountState::with_balance(too_small_balance));
 
-        let signed2 = Transaction::sign_ed25519_for_tests_only(pichain_types::transaction::TransactionData {
-            sender: kp.address(),
-            nonce: 0,
-            kind: TransactionKind::ContractCall {
-                contract: Address([42u8; 20]),
-                function: "transfer".to_string(),
-                args: vec![],
+        let signed2 = Transaction::sign_ed25519_for_tests_only(
+            pichain_types::transaction::TransactionData {
+                sender: kp.address(),
+                nonce: 0,
+                kind: TransactionKind::ContractCall {
+                    contract: Address([42u8; 20]),
+                    function: "transfer".to_string(),
+                    args: vec![],
+                },
+                gas_limit,
+                max_base_fee: base_fee,
+                max_priority_fee: priority_fee,
+                chain_id: 1,
             },
-            gas_limit,
-            max_base_fee: base_fee,
-            max_priority_fee: priority_fee,
-            chain_id: 1,
-        }, &kp);
+            &kp,
+        );
 
         let results = executor.execute_block(&[signed2], base_fee);
         // Should revert with insufficient balance because pre-charge is gas_limit * fee_per_gas
@@ -3405,20 +3643,26 @@ mod tests {
 
         // Now give enough balance for gas_limit-based precharge and verify it works
         // (will still revert because contract doesn't exist, but balance check should pass)
-        executor.set_account(kp.address(), AccountState::with_balance(max_precharge as u64 + 1_000_000));
-        let signed3 = Transaction::sign_ed25519_for_tests_only(pichain_types::transaction::TransactionData {
-            sender: kp.address(),
-            nonce: 0,
-            kind: TransactionKind::ContractCall {
-                contract: Address([42u8; 20]),
-                function: "transfer".to_string(),
-                args: vec![],
+        executor.set_account(
+            kp.address(),
+            AccountState::with_balance(max_precharge as u64 + 1_000_000),
+        );
+        let signed3 = Transaction::sign_ed25519_for_tests_only(
+            pichain_types::transaction::TransactionData {
+                sender: kp.address(),
+                nonce: 0,
+                kind: TransactionKind::ContractCall {
+                    contract: Address([42u8; 20]),
+                    function: "transfer".to_string(),
+                    args: vec![],
+                },
+                gas_limit,
+                max_base_fee: base_fee,
+                max_priority_fee: priority_fee,
+                chain_id: 1,
             },
-            gas_limit,
-            max_base_fee: base_fee,
-            max_priority_fee: priority_fee,
-            chain_id: 1,
-        }, &kp);
+            &kp,
+        );
 
         let results = executor.execute_block(&[signed3], base_fee);
         // Should revert because contract not found, NOT because of insufficient balance
@@ -3485,7 +3729,9 @@ mod tests {
         let tx_data = pichain_types::transaction::TransactionData {
             sender: buyer_kp.address(),
             nonce: 0,
-            kind: TransactionKind::BuyNft { nft_id: fake_nft_id },
+            kind: TransactionKind::BuyNft {
+                nft_id: fake_nft_id,
+            },
             gas_limit: 100_000,
             max_base_fee: 1_000,
             max_priority_fee: 100,
@@ -3519,26 +3765,30 @@ mod tests {
 
         // Create a token first
         let mint = pichain_types::token::MintId::derive(&creator_kp.address(), 0);
-        executor.token_executor().load_mint(pichain_types::token::TokenMint {
-            id: mint,
-            name: "TestToken".to_string(),
-            symbol: "TT".to_string(),
-            decimals: 9,
-            total_supply: 1_000_000,
-            max_supply: 10_000_000,
-            creator: creator_kp.address(),
-            mint_authority: Some(creator_kp.address()),
-            freeze_authority: None,
-            active: true,
-            created_at_ms: 0,
-            metadata_uri: String::new(),
-        });
+        executor
+            .token_executor()
+            .load_mint(pichain_types::token::TokenMint {
+                id: mint,
+                name: "TestToken".to_string(),
+                symbol: "TT".to_string(),
+                decimals: 9,
+                total_supply: 1_000_000,
+                max_supply: 10_000_000,
+                creator: creator_kp.address(),
+                mint_authority: Some(creator_kp.address()),
+                freeze_authority: None,
+                active: true,
+                created_at_ms: 0,
+                metadata_uri: String::new(),
+            });
 
         // Create a fair launch
         let result = executor.launchpad_executor().create_launch(
             creator_kp.address(),
             mint,
-            pichain_types::launchpad::LaunchType::FairLaunch { price_per_token: 1_000 },
+            pichain_types::launchpad::LaunchType::FairLaunch {
+                price_per_token: 1_000,
+            },
             1_000_000,
             1_000_000_000,
             u64::MAX,
@@ -3548,19 +3798,26 @@ mod tests {
         assert_eq!(result.status, TransactionStatus::Success);
 
         // Participate directly via the launchpad executor to verify direct fields
-        let lp_result = executor.launchpad_executor().participate(
-            buyer_kp.address(),
-            mint,
-            100_000,
-        );
+        let lp_result =
+            executor
+                .launchpad_executor()
+                .participate(buyer_kp.address(), mint, 100_000);
         assert_eq!(lp_result.status, TransactionStatus::Success);
         // The LaunchpadResult should have direct fields (tokens_received, refund)
-        assert!(lp_result.tokens_received > 0, "tokens_received should be set directly");
+        assert!(
+            lp_result.tokens_received > 0,
+            "tokens_received should be set directly"
+        );
     }
 
     // ── Anti-concentration staking tests ──────────────────────────────────────
 
-    fn make_stake_tx(sender: &Keypair, nonce: u64, validator: Address, amount: u64) -> SignedTransaction {
+    fn make_stake_tx(
+        sender: &Keypair,
+        nonce: u64,
+        validator: Address,
+        amount: u64,
+    ) -> SignedTransaction {
         let tx_data = pichain_types::transaction::TransactionData {
             sender: sender.address(),
             nonce,
@@ -3609,11 +3866,17 @@ mod tests {
         // 50,000 PI across 5 validators (10,000 each = 20%). New staker tries to stake
         // 20,000 PI to validator 0: would make it 30,000/70,000 = 42.8% > 33.33%
         let attacker = Keypair::generate();
-        executor.set_account(attacker.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            attacker.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         let tx = make_stake_tx(&attacker, 0, validators[0], 20_000 * 1_000_000_000);
         let results = executor.execute_block(&[tx], 1_000);
-        assert!(matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("validator concentration cap")),
-            "should reject stake exceeding 33.33% validator cap, got: {:?}", results[0].effect.status);
+        assert!(
+            matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("validator concentration cap")),
+            "should reject stake exceeding 33.33% validator cap, got: {:?}",
+            results[0].effect.status
+        );
     }
 
     #[test]
@@ -3623,11 +3886,17 @@ mod tests {
         // 50,000 PI total. New staker tries to stake 6,000 PI to a new validator:
         // address share = 6,000/56,000 = 10.7% > 10%
         let attacker = Keypair::generate();
-        executor.set_account(attacker.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            attacker.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         let tx = make_stake_tx(&attacker, 0, make_validator_addr(6), 6_000 * 1_000_000_000);
         let results = executor.execute_block(&[tx], 1_000);
-        assert!(matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("address concentration cap")),
-            "should reject stake exceeding 10% address cap, got: {:?}", results[0].effect.status);
+        assert!(
+            matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("address concentration cap")),
+            "should reject stake exceeding 10% address cap, got: {:?}",
+            results[0].effect.status
+        );
     }
 
     #[test]
@@ -3637,11 +3906,17 @@ mod tests {
         // 50,000 PI total. New staker stakes 500 PI to a new validator:
         // validator share = 500/50,500 = 0.99%, address share = 500/50,500 = 0.99% — both under cap
         let new_staker = Keypair::generate();
-        executor.set_account(new_staker.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            new_staker.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         let tx = make_stake_tx(&new_staker, 0, make_validator_addr(5), 500 * 1_000_000_000);
         let results = executor.execute_block(&[tx], 1_000);
-        assert_eq!(results[0].effect.status, TransactionStatus::Success,
-            "small stake within caps should succeed");
+        assert_eq!(
+            results[0].effect.status,
+            TransactionStatus::Success,
+            "small stake within caps should succeed"
+        );
     }
 
     #[test]
@@ -3653,9 +3928,18 @@ mod tests {
         let staker1 = Keypair::generate();
         let staker2 = Keypair::generate();
         let staker3 = Keypair::generate();
-        executor.set_account(staker1.address(), AccountState::with_balance(200_000 * 1_000_000_000));
-        executor.set_account(staker2.address(), AccountState::with_balance(200_000 * 1_000_000_000));
-        executor.set_account(staker3.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            staker1.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
+        executor.set_account(
+            staker2.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
+        executor.set_account(
+            staker3.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         // Each stakes to a different validator — 33.3% each, under 41.3% bootstrap cap
         let tx1 = make_stake_tx(&staker1, 0, make_validator_addr(0), stake);
         let tx2 = make_stake_tx(&staker2, 0, make_validator_addr(1), stake);
@@ -3668,9 +3952,12 @@ mod tests {
         // Now try to push validator 0 above 41.3%. Add 10,000 PI more → 20,000/40,000 = 50% > 41.3%
         let tx_over = make_stake_tx(&staker1, 1, make_validator_addr(0), stake);
         let results = executor.execute_block(&[tx_over], 1_000);
-        assert!(matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg)
+        assert!(
+            matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg)
             if msg.contains("concentration cap")),
-            "bootstrap 41.3% cap should block: {:?}", results[0].effect.status);
+            "bootstrap 41.3% cap should block: {:?}",
+            results[0].effect.status
+        );
     }
 
     #[test]
@@ -3681,7 +3968,10 @@ mod tests {
         let unstake_tx_data = pichain_types::transaction::TransactionData {
             sender: stakers[0].address(),
             nonce: 0, // accounts were pre-populated, not transacted, so nonce is 0
-            kind: TransactionKind::Unstake { validator: validators[0], amount: 500 * 1_000_000_000 },
+            kind: TransactionKind::Unstake {
+                validator: validators[0],
+                amount: 500 * 1_000_000_000,
+            },
             gas_limit: 100_000,
             max_base_fee: 1_000,
             max_priority_fee: 0,
@@ -3692,8 +3982,11 @@ mod tests {
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
         // Verify tracker was updated
         let tracker = executor.stake_tracker.lock();
-        assert_eq!(tracker.total_staked, 49_500 * 1_000_000_000,
-            "total staked should decrease by 500 PI after unstake");
+        assert_eq!(
+            tracker.total_staked,
+            49_500 * 1_000_000_000,
+            "total staked should decrease by 500 PI after unstake"
+        );
     }
 
     #[test]
@@ -3705,11 +3998,17 @@ mod tests {
         // Try to add 5,500 PI → 15,500/10,000 = 55% growth > 50% → velocity rejected
         // Address check: 5,500/55,500 = 9.9% < 10% ✓  Validator: 15,500/55,500 = 27.9% < 33.33% ✓
         let attacker = Keypair::generate();
-        executor.set_account(attacker.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            attacker.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         let tx = make_stake_tx(&attacker, 0, validators[0], 5_500 * 1_000_000_000);
         let results = executor.execute_block(&[tx], 1_000);
-        assert!(matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("velocity cap")),
-            "should reject stake exceeding 50% velocity cap, got: {:?}", results[0].effect.status);
+        assert!(
+            matches!(results[0].effect.status, TransactionStatus::Reverted(ref msg) if msg.contains("velocity cap")),
+            "should reject stake exceeding 50% velocity cap, got: {:?}",
+            results[0].effect.status
+        );
     }
 
     #[test]
@@ -3720,10 +4019,16 @@ mod tests {
         // Adding 4,000 PI to validator 6: address share = 4,000/54,000 = 7.4% < 10% ✓
         // Validator share = 4,000/54,000 = 7.4% < 33.33% ✓. No velocity limit for new entry.
         let staker = Keypair::generate();
-        executor.set_account(staker.address(), AccountState::with_balance(200_000 * 1_000_000_000));
+        executor.set_account(
+            staker.address(),
+            AccountState::with_balance(200_000 * 1_000_000_000),
+        );
         let tx = make_stake_tx(&staker, 0, make_validator_addr(6), 4_000 * 1_000_000_000);
         let results = executor.execute_block(&[tx], 1_000);
-        assert_eq!(results[0].effect.status, TransactionStatus::Success,
-            "new validator should not be velocity-limited");
+        assert_eq!(
+            results[0].effect.status,
+            TransactionStatus::Success,
+            "new validator should not be velocity-limited"
+        );
     }
 }

@@ -154,7 +154,9 @@ impl BlockSTM {
         Self {
             mv_map: MVHashMap::new(),
             base_state: DashMap::new(),
-            statuses: (0..tx_count).map(|_| Mutex::new(TxStatus::Pending)).collect(),
+            statuses: (0..tx_count)
+                .map(|_| Mutex::new(TxStatus::Pending))
+                .collect(),
             validation_index: AtomicU32::new(0),
             execution_index: AtomicU32::new(0),
         }
@@ -175,7 +177,11 @@ impl BlockSTM {
         }
 
         // Fall back to base state
-        let state = self.base_state.get(key).map(|v| v.clone()).unwrap_or_default();
+        let state = self
+            .base_state
+            .get(key)
+            .map(|v| v.clone())
+            .unwrap_or_default();
         (state, None)
     }
 
@@ -207,11 +213,7 @@ impl BlockSTM {
     /// Execute the block using the Block-STM algorithm.
     /// Returns the final execution results for each transaction in order.
     #[allow(clippy::needless_range_loop)]
-    pub fn execute_block<F>(
-        &self,
-        tx_count: usize,
-        execute_fn: F,
-    ) -> Vec<TxExecution>
+    pub fn execute_block<F>(&self, tx_count: usize, execute_fn: F) -> Vec<TxExecution>
     where
         F: Fn(usize, &BlockSTM) -> TxExecution + Send + Sync,
     {
@@ -294,9 +296,13 @@ impl BlockSTM {
                         let other_status = *self.statuses[other_idx].lock();
                         if other_status == TxStatus::Validated {
                             if let Some(other_exec) = results[other_idx].lock().as_ref() {
-                                let depends_on_aborted = other_exec.reads.iter().any(|r| r.read_version == Some(tx_idx));
+                                let depends_on_aborted = other_exec
+                                    .reads
+                                    .iter()
+                                    .any(|r| r.read_version == Some(tx_idx));
                                 if depends_on_aborted {
-                                    *self.statuses[other_idx].lock() = TxStatus::Executed; // Force re-validation
+                                    *self.statuses[other_idx].lock() = TxStatus::Executed;
+                                    // Force re-validation
                                 }
                             }
                         }
@@ -336,7 +342,10 @@ impl BlockSTM {
             .enumerate()
             .map(|(i, r)| {
                 r.into_inner().unwrap_or_else(|| {
-                    warn!(tx_index = i, "Block-STM: transaction not executed after convergence");
+                    warn!(
+                        tx_index = i,
+                        "Block-STM: transaction not executed after convergence"
+                    );
                     TxExecution {
                         tx_index: i,
                         reads: vec![],

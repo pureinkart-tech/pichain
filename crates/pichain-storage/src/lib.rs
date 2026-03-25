@@ -4,9 +4,11 @@
 //! column family separation, and efficient state pruning.
 
 pub mod betting_store;
+pub mod comment_store;
 pub mod contract_store;
 pub mod db;
 pub mod dex_store;
+pub mod dividend_store;
 pub mod evm_store;
 pub mod jmt;
 pub mod jmt_db;
@@ -17,11 +19,13 @@ pub mod state;
 pub mod token_store;
 
 pub use betting_store::BettingStore;
+pub use comment_store::{Comment, CommentStore};
 pub use contract_store::ContractStorageStore;
 pub use db::PiChainDB;
-pub use evm_store::EvmStore;
 pub use dex_store::{DexStore, TradeRecord};
-pub use jmt::{JellyfishMerkleTree, StateProof, ProofSibling};
+pub use dividend_store::{DividendPool, DividendStore};
+pub use evm_store::EvmStore;
+pub use jmt::{JellyfishMerkleTree, ProofSibling, StateProof};
 pub use jmt_db::DbJellyfishMerkleTree;
 pub use launchpad_store::LaunchpadStore;
 pub use nft_store::NftStore;

@@ -134,7 +134,11 @@ impl ProofVerifier {
     /// the miner controls `commitment`, `nonce`, and `start_position` — all inputs
     /// to the seed — allowing ~2^16 attempts to find a nonce where all checks land
     /// on honestly-computed positions while the rest are fabricated.
-    pub fn verify(&self, proof: &MiningProof, anchor_block_hash: &[u8; 32]) -> Result<(), MiningError> {
+    pub fn verify(
+        &self,
+        proof: &MiningProof,
+        anchor_block_hash: &[u8; 32],
+    ) -> Result<(), MiningError> {
         // Verify commitment
         let expected_commitment = pichain_crypto::hash(&proof.digits);
         if expected_commitment != proof.commitment {
@@ -171,17 +175,19 @@ impl ProofVerifier {
         ]);
 
         // Pre-compute all check positions and expected offsets
-        let checks: Vec<(u64, usize)> = (0..check_count).map(|i| {
-            // R30-FIX: Include check index in ALL position seeds to prevent targeted forgery.
-            let position_seed = pichain_crypto::hash_concat(&[
-                check_seed.as_bytes(),
-                &(i as u64).to_le_bytes(),
-            ]);
-            let offset_bytes: [u8; 8] = position_seed.as_bytes()[0..8].try_into().unwrap();
-            let offset = u64::from_le_bytes(offset_bytes) % (proof.digit_count.max(1) as u64);
-            let position = proof.start_position.saturating_add(offset);
-            (position, offset as usize)
-        }).collect();
+        let checks: Vec<(u64, usize)> = (0..check_count)
+            .map(|i| {
+                // R30-FIX: Include check index in ALL position seeds to prevent targeted forgery.
+                let position_seed = pichain_crypto::hash_concat(&[
+                    check_seed.as_bytes(),
+                    &(i as u64).to_le_bytes(),
+                ]);
+                let offset_bytes: [u8; 8] = position_seed.as_bytes()[0..8].try_into().unwrap();
+                let offset = u64::from_le_bytes(offset_bytes) % (proof.digit_count.max(1) as u64);
+                let position = proof.start_position.saturating_add(offset);
+                (position, offset as usize)
+            })
+            .collect();
 
         // Overflow check
         for &(position, _) in &checks {

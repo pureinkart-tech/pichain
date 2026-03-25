@@ -109,7 +109,8 @@ pub trait StarkProver: Send + Sync {
     fn prove(&self, input: &AggregationCircuitInput) -> Result<Vec<u8>, String>;
 
     /// Verify a previously generated STARK proof.
-    fn verify(&self, proof: &[u8], tx_commitment: &[u8; 32], tx_count: u32) -> Result<bool, String>;
+    fn verify(&self, proof: &[u8], tx_commitment: &[u8; 32], tx_count: u32)
+        -> Result<bool, String>;
 
     /// Name of this proof system.
     fn system(&self) -> ProofSystem;
@@ -127,7 +128,12 @@ impl StarkProver for PlaceholderProver {
         Err("STARK prover not configured — signatures will be retained".into())
     }
 
-    fn verify(&self, _proof: &[u8], _tx_commitment: &[u8; 32], _tx_count: u32) -> Result<bool, String> {
+    fn verify(
+        &self,
+        _proof: &[u8],
+        _tx_commitment: &[u8; 32],
+        _tx_count: u32,
+    ) -> Result<bool, String> {
         Err("STARK verifier not configured".into())
     }
 

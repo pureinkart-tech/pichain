@@ -137,11 +137,11 @@ impl WsBroadcaster {
 
     /// Decrement subscriber count (called when a WebSocket disconnects).
     pub fn on_disconnect(&self, ip: IpAddr) {
-        let _ = self.subscriber_count.fetch_update(
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-            |c| Some(c.saturating_sub(1)),
-        );
+        let _ = self
+            .subscriber_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| {
+                Some(c.saturating_sub(1))
+            });
         // AUDIT-FIX RPC-M1: Decrement per-IP count atomically.
         // Use remove_if to avoid TOCTOU race between get_mut/drop/remove.
         if let Some(mut count) = self.per_ip_counts.get_mut(&ip) {
@@ -178,7 +178,8 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
     // Spawn a task to read incoming messages (subscription filters)
     // SECURITY: Limit incoming message size to prevent memory exhaustion DoS.
     const MAX_WS_MESSAGE_SIZE: usize = 1024; // Subscription requests are tiny
-    let (filter_tx, mut filter_rx) = tokio::sync::mpsc::channel::<(bool, bool, bool, bool, bool)>(4);
+    let (filter_tx, mut filter_rx) =
+        tokio::sync::mpsc::channel::<(bool, bool, bool, bool, bool)>(4);
 
     // Use an AbortHandle to ensure the receiver task is cleaned up when
     // the sender loop exits (Fix 196: prevents zombie tasks).
@@ -201,7 +202,11 @@ pub async fn handle_ws(socket: WebSocket, broadcaster: Arc<WsBroadcaster>, clien
                     let swaps = req.subscribe.iter().any(|s| s == "swapExecuted");
                     let betting = req.subscribe.iter().any(|s| s == "matchUpdate");
                     // If the send fails, the main loop has exited — break.
-                    if filter_tx.send((blocks, txs, mining, swaps, betting)).await.is_err() {
+                    if filter_tx
+                        .send((blocks, txs, mining, swaps, betting))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -345,7 +350,9 @@ mod tests {
 
         let received = rx.recv().await.unwrap();
         match received {
-            WsEvent::NewBlock { height, tx_count, .. } => {
+            WsEvent::NewBlock {
+                height, tx_count, ..
+            } => {
                 assert_eq!(height, 42);
                 assert_eq!(tx_count, 5);
             }

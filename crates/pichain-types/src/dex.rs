@@ -68,6 +68,19 @@ pub struct LiquidityPool {
     pub cumulative_volume_a: u128,
     /// Cumulative volume of token B traded through this pool.
     pub cumulative_volume_b: u128,
+    /// Optional creator fee recipient — earns a share of swap fees.
+    /// Set when a token graduates from the launchpad to the DEX.
+    #[serde(default)]
+    pub creator_fee_recipient: Option<Address>,
+    /// Creator fee in basis points (portion of the pool fee routed to creator).
+    /// E.g., 3333 bps = 33.3% of the 0.30% fee → ~0.10% to creator.
+    #[serde(default)]
+    pub creator_fee_bps: u16,
+    /// Block height at which the pool was created. Used for anti-snipe cooldown
+    /// on graduated pools — swaps in the first SNIPE_COOLDOWN_BLOCKS blocks are
+    /// limited to MAX_SNIPE_SWAP_BPS of the pool's reserves per swap.
+    #[serde(default)]
+    pub created_at_height: u64,
 }
 
 impl LiquidityPool {
@@ -101,18 +114,43 @@ impl LiquidityPool {
             created_at_ms,
             cumulative_volume_a: 0,
             cumulative_volume_b: 0,
+            creator_fee_recipient: None,
+            creator_fee_bps: 0,
+            created_at_height: 0,
         }
+    }
+
+    /// Create a pool with creator fee (used when graduating from launchpad).
+    /// Creator receives `creator_fee_bps` of each swap's fee.
+    pub fn new_with_creator_fee(
+        mint_a: MintId,
+        mint_b: MintId,
+        creator: Address,
+        created_at_ms: u64,
+        creator_fee_recipient: Address,
+        creator_fee_bps: u16,
+    ) -> Self {
+        let mut pool = Self::new(mint_a, mint_b, creator, created_at_ms);
+        pool.creator_fee_recipient = Some(creator_fee_recipient);
+        pool.creator_fee_bps = creator_fee_bps;
+        pool
+    }
+
+    /// Calculate the creator's share of a swap fee.
+    /// Returns (creator_fee, remaining_pool_fee).
+    pub fn split_creator_fee(&self, total_fee: u64) -> (u64, u64) {
+        if self.creator_fee_recipient.is_none() || self.creator_fee_bps == 0 || total_fee == 0 {
+            return (0, total_fee);
+        }
+        let creator_fee = (total_fee as u128 * self.creator_fee_bps as u128 / 10_000) as u64;
+        (creator_fee, total_fee.saturating_sub(creator_fee))
     }
 
     /// Calculate the output amount for a swap using constant-product formula.
     /// Returns (amount_out, fee_amount).
     ///
     /// Formula: amount_out = (reserve_out * amount_in_after_fee) / (reserve_in + amount_in_after_fee)
-    pub fn calculate_swap_output(
-        &self,
-        amount_in: u64,
-        is_a_to_b: bool,
-    ) -> Option<(u64, u64)> {
+    pub fn calculate_swap_output(&self, amount_in: u64, is_a_to_b: bool) -> Option<(u64, u64)> {
         if amount_in == 0 {
             return None;
         }
@@ -211,11 +249,7 @@ impl LiquidityPool {
 
     /// Calculate LP tokens to mint when adding liquidity.
     /// Returns (lp_tokens, actual_amount_a, actual_amount_b).
-    pub fn calculate_add_liquidity(
-        &self,
-        amount_a: u64,
-        amount_b: u64,
-    ) -> Option<(u64, u64, u64)> {
+    pub fn calculate_add_liquidity(&self, amount_a: u64, amount_b: u64) -> Option<(u64, u64, u64)> {
         if amount_a == 0 || amount_b == 0 {
             return None;
         }
@@ -330,7 +364,12 @@ mod tests {
 
     #[test]
     fn swap_calculation() {
-        let mut pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let mut pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         pool.reserve_a = 1_000_000;
         pool.reserve_b = 1_000_000;
         pool.lp_supply = 1_000_000;
@@ -353,13 +392,23 @@ mod tests {
 
     #[test]
     fn swap_empty_pool_fails() {
-        let pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         assert!(pool.calculate_swap_output(1000, true).is_none());
     }
 
     #[test]
     fn swap_zero_amount_fails() {
-        let mut pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let mut pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         pool.reserve_a = 1_000_000;
         pool.reserve_b = 1_000_000;
         assert!(pool.calculate_swap_output(0, true).is_none());
@@ -367,9 +416,15 @@ mod tests {
 
     #[test]
     fn first_liquidity_provision() {
-        let pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
 
-        let (lp_tokens, actual_a, actual_b) = pool.calculate_add_liquidity(1_000_000, 1_000_000).unwrap();
+        let (lp_tokens, actual_a, actual_b) =
+            pool.calculate_add_liquidity(1_000_000, 1_000_000).unwrap();
 
         // LP tokens = sqrt(1M * 1M) - MINIMUM_LIQUIDITY = 1M - 1000
         assert_eq!(actual_a, 1_000_000);
@@ -379,13 +434,19 @@ mod tests {
 
     #[test]
     fn subsequent_liquidity_maintains_ratio() {
-        let mut pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let mut pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         pool.reserve_a = 1_000_000;
         pool.reserve_b = 2_000_000;
         pool.lp_supply = 1_000_000;
 
         // Add liquidity with correct ratio (1:2)
-        let (lp_tokens, actual_a, actual_b) = pool.calculate_add_liquidity(100_000, 200_000).unwrap();
+        let (lp_tokens, actual_a, actual_b) =
+            pool.calculate_add_liquidity(100_000, 200_000).unwrap();
 
         assert_eq!(actual_a, 100_000);
         assert_eq!(actual_b, 200_000);
@@ -394,7 +455,12 @@ mod tests {
 
     #[test]
     fn remove_liquidity() {
-        let mut pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let mut pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         pool.reserve_a = 1_000_000;
         pool.reserve_b = 2_000_000;
         pool.lp_supply = 1_000_000;
@@ -409,7 +475,12 @@ mod tests {
 
     #[test]
     fn price_impact_increases_with_size() {
-        let mut pool = LiquidityPool::new(MintId::ZERO, MintId::derive(&Address([1u8; 20]), 0), Address([1u8; 20]), 0);
+        let mut pool = LiquidityPool::new(
+            MintId::ZERO,
+            MintId::derive(&Address([1u8; 20]), 0),
+            Address([1u8; 20]),
+            0,
+        );
         pool.reserve_a = 1_000_000;
         pool.reserve_b = 1_000_000;
 

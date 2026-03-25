@@ -8,6 +8,7 @@
 //! `tokio::sync::RwLock` since they are only accessed from async block
 //! processing.
 
+use parking_lot::RwLock;
 use pichain_consensus::StakingManager;
 use pichain_crypto::ed25519::Address;
 use pichain_crypto::Hash;
@@ -17,7 +18,6 @@ use pichain_storage::StateStore;
 use pichain_types::account::Account;
 use pichain_types::genesis::GenesisConfig;
 use pichain_types::{Block, PiAmount, SignedTransaction};
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -122,7 +122,9 @@ impl NodeState {
                     let mut replayed = 0u32;
                     let mut failed = 0u32;
                     for line in contents.lines() {
-                        if line.is_empty() { continue; }
+                        if line.is_empty() {
+                            continue;
+                        }
                         match serde_json::from_str::<SignedTransaction>(line) {
                             Ok(tx) => {
                                 let sender = tx.data.sender;
@@ -146,7 +148,10 @@ impl NodeState {
                         }
                     }
                     if replayed > 0 || failed > 0 {
-                        info!(replayed, failed, "mempool WAL: replayed pending transactions");
+                        info!(
+                            replayed,
+                            failed, "mempool WAL: replayed pending transactions"
+                        );
                     }
                 }
                 Err(e) => warn!(error = %e, "failed to read mempool WAL"),
@@ -162,7 +167,11 @@ impl NodeState {
         if let Some(path) = &self.mempool_wal_path {
             if let Ok(json) = serde_json::to_string(tx) {
                 use std::io::Write;
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
                     let _ = writeln!(f, "{}", json);
                 }
             }
@@ -196,13 +205,16 @@ impl NodeState {
             // Genesis block exists but height is 0 — reload allocations into executor cache
             info!("Genesis block exists, reloading allocations into executor cache");
             for alloc in &genesis.allocations {
-                if alloc.virtual_pool { continue; } // skip virtual pools
+                if alloc.virtual_pool {
+                    continue;
+                } // skip virtual pools
                 if let Some(account) = store.get_account(&alloc.address)? {
                     self.executor.set_account(alloc.address, account.state);
                 } else {
                     // Account not in storage yet — apply it
                     let account = Account::with_balance(alloc.address, alloc.amount);
-                    self.executor.set_account(alloc.address, account.state.clone());
+                    self.executor
+                        .set_account(alloc.address, account.state.clone());
                     store.put_account(&account)?;
                 }
             }
@@ -214,7 +226,9 @@ impl NodeState {
             // Still load genesis allocation accounts into executor cache so the
             // faucet, community pool, etc. are available for block execution.
             for alloc in &genesis.allocations {
-                if alloc.virtual_pool { continue; } // skip virtual pools
+                if alloc.virtual_pool {
+                    continue;
+                } // skip virtual pools
                 if let Some(account) = store.get_account(&alloc.address)? {
                     self.executor.set_account(alloc.address, account.state);
                 }
@@ -245,7 +259,8 @@ impl NodeState {
             let account = Account::with_balance(alloc.address, alloc.amount);
 
             // Load into executor's in-memory cache for Block-STM
-            self.executor.set_account(alloc.address, account.state.clone());
+            self.executor
+                .set_account(alloc.address, account.state.clone());
 
             // Persist to RocksDB + JMT
             store.put_account(&account)?;
@@ -282,21 +297,59 @@ impl NodeState {
 
     /// Resume from the last persisted block — reload height, hash, base fee.
     pub fn resume_from_storage(&self) -> anyhow::Result<()> {
-        let height;
+        let mut height;
         {
             let mut store = self.store.write();
 
             height = store.latest_height()?;
             if height == 0 {
-                if store.get_block(0)?.is_some() {
-                    // Even at genesis, rebuild JMT so state root is correct
-                    let jmt_count = store.rebuild_jmt()?;
-                    if jmt_count > 0 {
-                        info!(accounts = jmt_count, "JMT rebuilt from genesis state");
+                // Check if blocks actually exist beyond genesis (metadata corruption recovery).
+                // If block 1 exists but latest_height is 0, the metadata was lost (e.g., WAL TTL).
+                // Binary-search for the actual latest height.
+                if store.get_block(1)?.is_some() {
+                    let recovered = Self::recover_latest_height(&store);
+                    if recovered > 0 {
+                        warn!(
+                            recovered_height = recovered,
+                            "latest_height metadata was 0 but blocks exist — recovered via scan"
+                        );
+                        store.set_latest_height(recovered)?;
+                        // Fall through to normal resume path below
+                        // (height variable is reassigned)
                     }
-                    info!("Chain at genesis, nothing to resume");
                 }
-                return Ok(());
+
+                // Re-read after potential recovery
+                let h = store.latest_height()?;
+                if h == 0 {
+                    if store.get_block(0)?.is_some() {
+                        let jmt_count = store.rebuild_jmt()?;
+                        if jmt_count > 0 {
+                            info!(accounts = jmt_count, "JMT rebuilt from genesis state");
+                        }
+                        info!("Chain at genesis, nothing to resume");
+                    }
+                    return Ok(());
+                }
+                // Use recovered height
+                height = h;
+            }
+
+            // Forward-scan: check if blocks exist beyond latest_height (can happen
+            // when the block was committed but metadata update didn't persist).
+            let mut scan_h = height + 1;
+            while store.get_block(scan_h)?.is_some() {
+                scan_h += 1;
+            }
+            if scan_h - 1 > height {
+                let old = height;
+                height = scan_h - 1;
+                store.set_latest_height(height)?;
+                warn!(
+                    old_height = old,
+                    actual_height = height,
+                    "found blocks beyond latest_height — corrected metadata"
+                );
             }
 
             // Rebuild the in-memory JMT from persisted account state FIRST
@@ -305,7 +358,9 @@ impl NodeState {
 
             // Load the latest block to get parent hash and base fee
             let last_block = store.get_block(height)?.ok_or_else(|| {
-                anyhow::anyhow!("block at height {height} not found but latest_height says {height}")
+                anyhow::anyhow!(
+                    "block at height {height} not found but latest_height says {height}"
+                )
             })?;
 
             let block_hash = last_block.hash();
@@ -318,7 +373,8 @@ impl NodeState {
             self.base_fee.store(base_fee, Ordering::SeqCst);
             // R37-FIX: Persist last block timestamp so block producer can enforce
             // monotonicity on restart instead of starting from 0.
-            self.last_block_timestamp_ms.store(last_ts, Ordering::SeqCst);
+            self.last_block_timestamp_ms
+                .store(last_ts, Ordering::SeqCst);
 
             // Reload cumulative total_burned and total_minted
             let db = store.db();
@@ -365,13 +421,41 @@ impl NodeState {
                 self.executor.set_account(account.address, account.state);
             }
             if count > 0 {
-                info!(staked_accounts = count, "pre-loaded staked accounts for anti-concentration tracking");
+                info!(
+                    staked_accounts = count,
+                    "pre-loaded staked accounts for anti-concentration tracking"
+                );
             }
         }
         // Rebuild staking concentration totals from loaded account state.
         self.executor.rebuild_staking_totals();
 
         Ok(())
+    }
+
+    /// Binary search for the actual latest block height when metadata is lost.
+    /// Assumes block 1 exists. Exponentially probes upward then binary-searches.
+    fn recover_latest_height(store: &pichain_storage::StateStore) -> u64 {
+        // Exponential probe to find an upper bound
+        let mut upper = 1u64;
+        while store.get_block(upper).ok().flatten().is_some() {
+            if upper > u64::MAX / 2 {
+                break;
+            }
+            upper *= 2;
+        }
+        // Binary search between upper/2 and upper
+        let mut lo = upper / 2;
+        let mut hi = upper;
+        while lo < hi {
+            let mid = lo + (hi - lo + 1) / 2;
+            if store.get_block(mid).ok().flatten().is_some() {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
     }
 
     /// Reload all sub-executor state from storage into the in-memory DashMap caches.
@@ -407,7 +491,9 @@ impl NodeState {
         let lp_balances = dex_store.scan_all_lp_balances()?;
         let lp_count = lp_balances.len();
         for (pool_id, owner, balance) in lp_balances {
-            self.executor.dex_executor().load_lp_balance(pool_id, owner, balance);
+            self.executor
+                .dex_executor()
+                .load_lp_balance(pool_id, owner, balance);
         }
 
         // NFT collections
@@ -469,12 +555,20 @@ impl NodeState {
                 addr_bytes.copy_from_slice(key_suffix);
                 let addr = pichain_crypto::ed25519::Address(addr_bytes);
                 let nonce = u64::from_le_bytes(value[..8].try_into().unwrap());
-                self.executor.nft_executor().load_collection_nonce(addr, nonce);
+                self.executor
+                    .nft_executor()
+                    .load_collection_nonce(addr, nonce);
             }
         }
 
-        if mint_count > 0 || account_count > 0 || pool_count > 0 || collection_count > 0
-            || nft_count > 0 || launch_count > 0 || contract_count > 0 || match_count > 0
+        if mint_count > 0
+            || account_count > 0
+            || pool_count > 0
+            || collection_count > 0
+            || nft_count > 0
+            || launch_count > 0
+            || contract_count > 0
+            || match_count > 0
         {
             info!(
                 mints = mint_count,
@@ -500,8 +594,8 @@ impl NodeState {
     /// then creates PI/wXXX pools seeded with initial liquidity from the 5% reserve.
     /// Idempotent: skips if the first wrapped mint already exists.
     pub fn bootstrap_bridge_tokens(&self) -> anyhow::Result<()> {
-        use pichain_types::token::{TokenMint, TokenAccount, MintId, token_account_key};
-        use pichain_types::dex::{LiquidityPool, PoolId, isqrt};
+        use pichain_types::dex::{isqrt, LiquidityPool, PoolId};
+        use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};
 
         let bridge_operator = GenesisConfig::devnet_bridge_operator_address();
         let liquidity_addr = GenesisConfig::devnet_liquidity_address();
@@ -513,7 +607,12 @@ impl NodeState {
         let wusdt_mint_id = MintId::derive(&bridge_operator, 3);
 
         // Check if already bootstrapped (idempotent)
-        if self.executor.token_executor().get_mint(&weth_mint_id).is_some() {
+        if self
+            .executor
+            .token_executor()
+            .get_mint(&weth_mint_id)
+            .is_some()
+        {
             info!("bridge tokens already bootstrapped, skipping");
             return Ok(());
         }
@@ -538,10 +637,10 @@ impl NodeState {
         let base = 1_000_000_000u64; // 1 PI in base units
         let pi_per_pool: u64 = 25_000_000 * base; // 25M PI per pool
         let pool_configs: [(MintId, u64, u64); 4] = [
-            (weth_mint_id,  pi_per_pool, 12_500 * base),      // wETH
-            (wsol_mint_id,  pi_per_pool, 250_000 * base),     // wSOL
-            (wbtc_mint_id,  pi_per_pool, 250 * base),         // wBTC
-            (wusdt_mint_id, pi_per_pool, 25_000_000 * base),  // wUSDT
+            (weth_mint_id, pi_per_pool, 12_500 * base),      // wETH
+            (wsol_mint_id, pi_per_pool, 250_000 * base),     // wSOL
+            (wbtc_mint_id, pi_per_pool, 250 * base),         // wBTC
+            (wusdt_mint_id, pi_per_pool, 25_000_000 * base), // wUSDT
         ];
         let total_pi_needed: u64 = pi_per_pool * 4; // 100M PI
 
@@ -551,11 +650,17 @@ impl NodeState {
         //    (handles live chains initialized before liquidity reserve was added)
         if let Some(liq_state) = self.executor.get_account(&liquidity_addr) {
             if liq_state.balance >= total_pi_needed {
-                let mut liq_acct = Account { address: liquidity_addr, state: liq_state };
+                let mut liq_acct = Account {
+                    address: liquidity_addr,
+                    state: liq_state,
+                };
                 liq_acct.state.balance -= total_pi_needed;
                 store.put_account(&liq_acct)?;
                 self.executor.set_account(liquidity_addr, liq_acct.state);
-                info!(pi_debited = total_pi_needed / base, "debited PI from liquidity reserve for bridge pools");
+                info!(
+                    pi_debited = total_pi_needed / base,
+                    "debited PI from liquidity reserve for bridge pools"
+                );
             } else {
                 info!("liquidity reserve insufficient, minting PI for bridge pool seeding");
             }
@@ -565,13 +670,22 @@ impl NodeState {
 
         // 2. Fund bridge operator with gas PI (10 PI for tx fees)
         let gas_amount: u64 = 10 * base;
-        let bridge_state = self.executor.get_account(&bridge_operator)
+        let bridge_state = self
+            .executor
+            .get_account(&bridge_operator)
             .unwrap_or_default();
-        let mut bridge_acct = Account { address: bridge_operator, state: bridge_state };
-        bridge_acct.state.balance = bridge_acct.state.balance.checked_add(gas_amount)
+        let mut bridge_acct = Account {
+            address: bridge_operator,
+            state: bridge_state,
+        };
+        bridge_acct.state.balance = bridge_acct
+            .state
+            .balance
+            .checked_add(gas_amount)
             .ok_or_else(|| anyhow::anyhow!("bridge operator balance overflow"))?;
         store.put_account(&bridge_acct)?;
-        self.executor.set_account(bridge_operator, bridge_acct.state);
+        self.executor
+            .set_account(bridge_operator, bridge_acct.state);
 
         // Now borrow db for token/pool writes
         let db = store.db();
@@ -626,9 +740,14 @@ impl NodeState {
             let lp_minted = (lp_total - LiquidityPool::MINIMUM_LIQUIDITY as u128) as u64;
 
             // Mint the wrapped token supply for this pool
-            let mut mint = self.executor.token_executor().get_mint(&wrapped_mint)
+            let mut mint = self
+                .executor
+                .token_executor()
+                .get_mint(&wrapped_mint)
                 .ok_or_else(|| anyhow::anyhow!("mint not found after creation"))?;
-            mint.total_supply = mint.total_supply.checked_add(token_amount)
+            mint.total_supply = mint
+                .total_supply
+                .checked_add(token_amount)
                 .ok_or_else(|| anyhow::anyhow!("token supply overflow"))?;
             token_store.put_mint(&mint)?;
             self.executor.token_executor().load_mint(mint);
@@ -645,7 +764,9 @@ impl NodeState {
                 frozen: false,
             };
             token_store.put_token_account(&pool_token_acct)?;
-            self.executor.token_executor().load_token_account(pool_token_acct);
+            self.executor
+                .token_executor()
+                .load_token_account(pool_token_acct);
 
             // Create the pool with seeded reserves
             let pool = LiquidityPool {
@@ -661,13 +782,18 @@ impl NodeState {
                 created_at_ms: now_ms,
                 cumulative_volume_a: 0,
                 cumulative_volume_b: 0,
+                creator_fee_recipient: None,
+                creator_fee_bps: 0,
+                created_at_height: 0, // Genesis pools have no cooldown
             };
             dex_store.put_pool(&pool)?;
             self.executor.dex_executor().load_pool(pool);
 
             // Assign LP tokens to liquidity address
             dex_store.put_lp_balance(&pool_id, &liquidity_addr, lp_minted)?;
-            self.executor.dex_executor().load_lp_balance(pool_id, liquidity_addr, lp_minted);
+            self.executor
+                .dex_executor()
+                .load_lp_balance(pool_id, liquidity_addr, lp_minted);
 
             info!(
                 pool_id = %pool_id,
@@ -702,7 +828,10 @@ impl NodeState {
             let genesis_ts = genesis_block.header.timestamp_ms;
             if genesis_ts > 0 {
                 processor.set_genesis_timestamp(genesis_ts);
-                debug!(genesis_timestamp_ms = genesis_ts, "set genesis timestamp for mining replay");
+                debug!(
+                    genesis_timestamp_ms = genesis_ts,
+                    "set genesis timestamp for mining replay"
+                );
             } else {
                 tracing::warn!("genesis block has timestamp 0 — emission year calculation will default to year 1");
             }
@@ -774,7 +903,10 @@ impl NodeState {
     /// and sub-executor state (tokens, DEX, NFTs, launchpad, contract storage).
     /// Uses atomic WriteBatch with WAL sync to prevent partial writes on crash.
     /// Returns the computed state root from local execution.
-    pub async fn persist_block(&self, produced: &ProducedBlock) -> anyhow::Result<pichain_crypto::poseidon::PoseidonHash> {
+    pub async fn persist_block(
+        &self,
+        produced: &ProducedBlock,
+    ) -> anyhow::Result<pichain_crypto::poseidon::PoseidonHash> {
         let state_root = {
             let mut store = self.store.write();
             let block = &produced.block;
@@ -800,10 +932,12 @@ impl NodeState {
             let (mut batch, computed_state_root, pending_jmt_updates) = store.prepare_block_batch(
                 height,
                 block,
-                &txs_and_receipts.iter()
+                &txs_and_receipts
+                    .iter()
                     .map(|(h, tx, r)| (*h, *tx, r.as_ref().map(|x| *x)))
                     .collect::<Vec<_>>(),
-                &state_changes.iter()
+                &state_changes
+                    .iter()
                     .map(|(a, s)| (*a, *s))
                     .collect::<Vec<_>>(),
                 &[], // H6: object changes (currently added in Phase 2 via sub-executor batch_put_*)
@@ -829,6 +963,45 @@ impl NodeState {
             }
             for ((pool_id, address), balance) in &sub_state.lp_balances {
                 dex_store.batch_put_lp_balance(&mut batch, pool_id, address, *balance)?;
+            }
+
+            // Accumulate holder dividend fees from swaps
+            {
+                let dividend_fees = self.executor.dex_executor().drain_dividend_fees();
+                if !dividend_fees.is_empty() {
+                    let div_store = pichain_storage::DividendStore::new(db);
+                    for (mint_id, fee_amount) in &dividend_fees {
+                        let mut pool = div_store.get_pool(mint_id).unwrap_or(None).unwrap_or(
+                            pichain_storage::DividendPool {
+                                mint_id: *mint_id,
+                                total_accumulated: 0,
+                                total_claimed: 0,
+                                reward_per_share_x1e12: 0,
+                                total_supply: 0,
+                            },
+                        );
+                        // Get current total supply for the token
+                        let total_supply = self
+                            .executor
+                            .token_executor()
+                            .get_mint(mint_id)
+                            .map(|m| m.total_supply)
+                            .unwrap_or(0);
+                        if total_supply > 0 && *fee_amount > 0 {
+                            pool.total_accumulated =
+                                pool.total_accumulated.saturating_add(*fee_amount);
+                            pool.total_supply = total_supply;
+                            // reward_per_share += fee * 1e12 / total_supply
+                            let increment = (*fee_amount as u128)
+                                .checked_mul(1_000_000_000_000)
+                                .unwrap_or(0)
+                                / (total_supply as u128);
+                            pool.reward_per_share_x1e12 =
+                                pool.reward_per_share_x1e12.saturating_add(increment);
+                            div_store.put_pool(&pool).ok();
+                        }
+                    }
+                }
             }
 
             // NFT collections + NFTs
@@ -887,9 +1060,13 @@ impl NodeState {
             }
 
             // Persist cumulative total_burned and total_minted in the same batch
-            let new_total_burned = self.total_burned.load(Ordering::SeqCst)
+            let new_total_burned = self
+                .total_burned
+                .load(Ordering::SeqCst)
                 .saturating_add(produced.total_burned);
-            let new_total_minted = self.total_minted.load(Ordering::SeqCst)
+            let new_total_minted = self
+                .total_minted
+                .load(Ordering::SeqCst)
                 .saturating_add(produced.total_minted);
 
             // R26-FIX: Supply invariant check BEFORE commit. If total minted would
@@ -905,7 +1082,9 @@ impl NodeState {
                     "SUPPLY INVARIANT VIOLATION: block would exceed mining pool — rejecting"
                 );
                 return Err(anyhow::anyhow!(
-                    "supply invariant violation: total_minted {} > mining_pool {}", new_total_minted, mining_pool_base
+                    "supply invariant violation: total_minted {} > mining_pool {}",
+                    new_total_minted,
+                    mining_pool_base
                 ));
             }
 
@@ -919,12 +1098,24 @@ impl NodeState {
                 let sender_bytes = tx.data.sender.0;
 
                 // Index for sender
-                db.batch_index_tx_for_address(&mut batch, &sender_bytes, height, tx_idx, tx_hash.as_bytes());
+                db.batch_index_tx_for_address(
+                    &mut batch,
+                    &sender_bytes,
+                    height,
+                    tx_idx,
+                    tx_hash.as_bytes(),
+                );
 
                 // Index for recipient (if applicable)
                 if let Some(recipient) = tx.data.kind.recipient_address() {
                     if recipient != tx.data.sender {
-                        db.batch_index_tx_for_address(&mut batch, &recipient.0, height, tx_idx, tx_hash.as_bytes());
+                        db.batch_index_tx_for_address(
+                            &mut batch,
+                            &recipient.0,
+                            height,
+                            tx_idx,
+                            tx_hash.as_bytes(),
+                        );
                     }
                 }
 
@@ -933,13 +1124,34 @@ impl NodeState {
                     for (evt_idx, event) in result.effect.events.iter().enumerate() {
                         let global_idx = (i * 256 + evt_idx) as u16;
                         let topic = pichain_crypto::hash(event.event_type.as_bytes());
-                        db.batch_index_event_topic(&mut batch, topic.as_bytes(), height, global_idx, tx_hash.as_bytes());
-                        db.batch_index_event_address(&mut batch, &sender_bytes, height, global_idx, tx_hash.as_bytes());
+                        db.batch_index_event_topic(
+                            &mut batch,
+                            topic.as_bytes(),
+                            height,
+                            global_idx,
+                            tx_hash.as_bytes(),
+                        );
+                        db.batch_index_event_address(
+                            &mut batch,
+                            &sender_bytes,
+                            height,
+                            global_idx,
+                            tx_hash.as_bytes(),
+                        );
 
                         // Record swap trades for DEX analytics
                         if event.event_type == "Swap" {
-                            if let Ok(swap_data) = serde_json::from_slice::<serde_json::Value>(&event.data) {
-                                if let (Some(pool_hex), Some(mint_in_hex), Some(mint_out_hex), Some(amount_in), Some(amount_out), Some(fee)) = (
+                            if let Ok(swap_data) =
+                                serde_json::from_slice::<serde_json::Value>(&event.data)
+                            {
+                                if let (
+                                    Some(pool_hex),
+                                    Some(mint_in_hex),
+                                    Some(mint_out_hex),
+                                    Some(amount_in),
+                                    Some(amount_out),
+                                    Some(fee),
+                                ) = (
                                     swap_data["pool"].as_str(),
                                     swap_data["mint_in"].as_str(),
                                     swap_data["mint_out"].as_str(),
@@ -952,7 +1164,10 @@ impl NodeState {
                                         hex::decode(mint_in_hex),
                                         hex::decode(mint_out_hex),
                                     ) {
-                                        if pool_bytes.len() == 32 && mint_in_bytes.len() == 32 && mint_out_bytes.len() == 32 {
+                                        if pool_bytes.len() == 32
+                                            && mint_in_bytes.len() == 32
+                                            && mint_out_bytes.len() == 32
+                                        {
                                             let mut pool_arr = [0u8; 32];
                                             pool_arr.copy_from_slice(&pool_bytes);
                                             let mut min_arr = [0u8; 32];
@@ -971,7 +1186,8 @@ impl NodeState {
                                                 block_height: height,
                                                 tx_hash: *tx_hash.as_bytes(),
                                             };
-                                            let _ = dex_store.batch_record_trade(&mut batch, &trade, global_idx);
+                                            let _ = dex_store
+                                                .batch_record_trade(&mut batch, &trade, global_idx);
                                         }
                                     }
                                 }
@@ -1001,6 +1217,24 @@ impl NodeState {
                 "block persisted (atomic + sub-executor state)"
             );
 
+            // Update mempool sender nonces from committed block so that
+            // subsequent transactions at the next nonce are considered "ready".
+            // claim_ready_transactions already advances next_nonce for the
+            // current batch, but this ensures the mempool stays consistent
+            // with persisted state (e.g., after restart or WAL replay).
+            if block.header.tx_count > 0 {
+                let committed_hashes: Vec<pichain_crypto::Hash> =
+                    block.transactions.iter().map(|tx| tx.hash()).collect();
+                let mut sender_nonces = std::collections::HashMap::new();
+                for result in &produced.execution_results {
+                    for (addr, state) in &result.state_changes {
+                        sender_nonces.insert(*addr, state.nonce);
+                    }
+                }
+                self.mempool
+                    .remove_committed(&committed_hashes, &sender_nonces);
+            }
+
             // Compact mempool WAL — remove confirmed transactions
             if block.header.tx_count > 0 {
                 self.wal_compact();
@@ -1011,12 +1245,18 @@ impl NodeState {
 
         // Distribute staking rewards (65% of fees go to stakers)
         let fee_calculator = pichain_execution::FeeCalculator::new();
-        let total_fees: u64 = produced.execution_results.iter().map(|r| {
-            fee_calculator.calculate_fee(r.effect.gas_used, r.effect.base_fee, 0)
-        }).fold(0u64, |acc, v| acc.saturating_add(v));
-        let staker_reward_u128 = total_fees as u128 * pichain_types::FEE_STAKER_RATE_BPS as u128 / 10_000;
+        let total_fees: u64 = produced
+            .execution_results
+            .iter()
+            .map(|r| fee_calculator.calculate_fee(r.effect.gas_used, r.effect.base_fee, 0))
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+        let staker_reward_u128 =
+            total_fees as u128 * pichain_types::FEE_STAKER_RATE_BPS as u128 / 10_000;
         let staker_reward = u64::try_from(staker_reward_u128).unwrap_or_else(|_| {
-            error!(staker_reward_u128, "staker reward exceeds u64 — clamping to u64::MAX");
+            error!(
+                staker_reward_u128,
+                "staker reward exceeds u64 — clamping to u64::MAX"
+            );
             u64::MAX
         });
         if staker_reward > 0 {
@@ -1055,7 +1295,10 @@ impl NodeState {
                 tx.data.nonce, on_chain_nonce, MAX_NONCE_GAP
             ));
         }
-        self.mempool.insert(tx).map(|_| ()).map_err(|e| e.to_string())
+        self.mempool
+            .insert(tx)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Get current block height.
@@ -1157,26 +1400,36 @@ impl NodeState {
         self.executor.snapshot_dex_reserves();
 
         // Re-execute the block's transactions against local state
-        let execution_results = self.executor.execute_block(
-            &block.transactions,
-            block.header.base_fee,
-        );
+        let execution_results = self
+            .executor
+            .execute_block(&block.transactions, block.header.base_fee);
 
         // Verify execution produces consistent results with the block header
-        let computed_gas: u64 = execution_results.iter()
+        let computed_gas: u64 = execution_results
+            .iter()
             .map(|r| r.effect.gas_used)
             .fold(0u64, |acc, v| acc.saturating_add(v));
 
         // Allow up to 10% gas discrepancy (proposer may have trimmed differently)
         // but reject blocks where gas_used diverges beyond tolerance (bidirectional)
         let tolerance = block.header.gas_used / 10; // 10%
-        if computed_gas > block.header.gas_used.saturating_add(tolerance).saturating_add(21_000) {
+        if computed_gas
+            > block
+                .header
+                .gas_used
+                .saturating_add(tolerance)
+                .saturating_add(21_000)
+        {
             return Err(anyhow::anyhow!(
                 "peer block gas mismatch (over): computed {computed_gas}, header says {}",
                 block.header.gas_used
             ));
         }
-        if block.header.gas_used > computed_gas.saturating_add(tolerance).saturating_add(21_000) {
+        if block.header.gas_used
+            > computed_gas
+                .saturating_add(tolerance)
+                .saturating_add(21_000)
+        {
             return Err(anyhow::anyhow!(
                 "peer block gas mismatch (under): computed {computed_gas}, header says {}",
                 block.header.gas_used
@@ -1184,16 +1437,20 @@ impl NodeState {
         }
 
         // Build a ProducedBlock for persistence
-        let total_burned: u64 = execution_results.iter()
+        let total_burned: u64 = execution_results
+            .iter()
             .map(|r| r.pi_burned)
             .fold(0u64, |acc, v| acc.saturating_add(v));
-        let total_minted: u64 = execution_results.iter()
+        let total_minted: u64 = execution_results
+            .iter()
             .map(|r| r.pi_minted)
             .fold(0u64, |acc, v| acc.saturating_add(v));
-        let proposer_reward: u64 = execution_results.iter()
+        let proposer_reward: u64 = execution_results
+            .iter()
             .map(|r| r.proposer_reward)
             .fold(0u64, |acc, v| acc.saturating_add(v));
-        let total_miner_fee: u64 = execution_results.iter()
+        let total_miner_fee: u64 = execution_results
+            .iter()
             .map(|r| r.miner_fee)
             .fold(0u64, |acc, v| acc.saturating_add(v));
 
@@ -1201,12 +1458,16 @@ impl NodeState {
         // matching the block producer path. Without this, follower nodes have a
         // lower balance for the proposer, causing state root divergence.
         if proposer_reward > 0 {
-            self.executor.credit_account(block.header.proposer, proposer_reward);
+            self.executor
+                .credit_account(block.header.proposer, proposer_reward);
         }
 
         // Feed miner fees back into the mining pool (matching block producer path)
         if total_miner_fee > 0 {
-            self.executor.mining_processor().lock().add_fee_income(total_miner_fee);
+            self.executor
+                .mining_processor()
+                .lock()
+                .add_fee_income(total_miner_fee);
         }
 
         // Drip staking rewards from unmined emission recycling to proposer
@@ -1214,7 +1475,8 @@ impl NodeState {
         {
             let staking_drip = self.executor.mining_processor().lock().drain_staking_drip();
             if staking_drip > 0 {
-                self.executor.credit_account(block.header.proposer, staking_drip);
+                self.executor
+                    .credit_account(block.header.proposer, staking_drip);
             }
         }
 
@@ -1252,7 +1514,9 @@ impl NodeState {
             // proposer's claim was wrong. The node should not continue syncing.
             return Err(anyhow::anyhow!(
                 "state root mismatch at height {}: proposer claims {}, we computed {}",
-                height, claimed_state_root, local_state_root
+                height,
+                claimed_state_root,
+                local_state_root
             ));
         }
 
@@ -1260,7 +1524,8 @@ impl NodeState {
         // block producer path. Without this, stale txs accumulate and get
         // re-proposed if this follower becomes the next block producer.
         {
-            let tx_hashes: Vec<pichain_crypto::Hash> = block.transactions.iter().map(|tx| tx.hash()).collect();
+            let tx_hashes: Vec<pichain_crypto::Hash> =
+                block.transactions.iter().map(|tx| tx.hash()).collect();
             let mut sender_nonces = std::collections::HashMap::new();
             for result in &produced.execution_results {
                 for (addr, state) in &result.state_changes {
@@ -1380,7 +1645,10 @@ impl StateProvider for NodeState {
 
         // Append to WAL before inserting — ensures crash recovery
         self.wal_append(&tx);
-        self.mempool.insert(tx).map(|_| ()).map_err(|e| e.to_string())
+        self.mempool
+            .insert(tx)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     fn get_token_mint(&self, mint_id: &pichain_types::MintId) -> Option<pichain_types::TokenMint> {
@@ -1402,7 +1670,11 @@ impl StateProvider for NodeState {
         mint: &pichain_types::MintId,
     ) -> Option<pichain_types::TokenAccount> {
         // First try the in-memory executor cache
-        if let Some(account) = self.executor.token_executor().get_token_account(owner, mint) {
+        if let Some(account) = self
+            .executor
+            .token_executor()
+            .get_token_account(owner, mint)
+        {
             return Some(account);
         }
         // Fall back to storage
@@ -1418,7 +1690,9 @@ impl StateProvider for NodeState {
         mint_a: &pichain_types::MintId,
         mint_b: &pichain_types::MintId,
     ) -> Option<pichain_types::LiquidityPool> {
-        self.executor.dex_executor().get_pool_by_mints(mint_a, mint_b)
+        self.executor
+            .dex_executor()
+            .get_pool_by_mints(mint_a, mint_b)
     }
 
     fn get_swap_quote(
@@ -1427,7 +1701,10 @@ impl StateProvider for NodeState {
         mint_out: &pichain_types::MintId,
         amount_in: u64,
     ) -> Option<pichain_rpc::SwapQuote> {
-        let pool = self.executor.dex_executor().get_pool_by_mints(mint_in, mint_out)?;
+        let pool = self
+            .executor
+            .dex_executor()
+            .get_pool_by_mints(mint_in, mint_out)?;
         let is_a_to_b = pool.mint_a == *mint_in;
         let (amount_out, fee) = pool.calculate_swap_output(amount_in, is_a_to_b)?;
         let price_impact_bps = pool.price_impact_bps(amount_in, is_a_to_b);
@@ -1468,6 +1745,27 @@ impl StateProvider for NodeState {
     fn get_mining_slot(&self, address: &Address) -> Option<(u64, u32, usize)> {
         let mut processor = self.executor.mining_processor().lock();
         Some(processor.get_or_assign_slot(address))
+    }
+
+    fn get_mining_leaderboard(&self) -> Option<(Vec<(Address, u64)>, u64)> {
+        let processor = self.executor.mining_processor().lock();
+        let top = processor.registry().top_miners(50);
+        let total = processor.registry().total_verified();
+        Some((top, total))
+    }
+
+    fn get_miner_recent_proofs(&self, address: &Address, limit: usize) -> Vec<(u64, u32, u64)> {
+        let processor = self.executor.mining_processor().lock();
+        let mut miner_ranges: Vec<_> = processor
+            .registry()
+            .all_ranges()
+            .iter()
+            .filter(|r| &r.miner == address)
+            .map(|r| (r.start, r.count, r.committed_at_height))
+            .collect();
+        miner_ranges.sort_by(|a, b| b.2.cmp(&a.2));
+        miner_ranges.truncate(limit);
+        miner_ranges
     }
 
     fn activation_count(&self) -> u64 {
@@ -1568,7 +1866,12 @@ impl StateProvider for NodeState {
             .unwrap_or_default()
     }
 
-    fn get_pool_trades(&self, pool_id: &pichain_types::PoolId, limit: usize, before_ms: Option<u64>) -> Vec<pichain_storage::TradeRecord> {
+    fn get_pool_trades(
+        &self,
+        pool_id: &pichain_types::PoolId,
+        limit: usize,
+        before_ms: Option<u64>,
+    ) -> Vec<pichain_storage::TradeRecord> {
         let store = self.store.read();
         pichain_storage::DexStore::new(store.db())
             .get_pool_trades(pool_id, limit, before_ms)
@@ -1582,7 +1885,12 @@ impl StateProvider for NodeState {
             .unwrap_or_default()
     }
 
-    fn get_pool_trades_in_range(&self, pool_id: &pichain_types::PoolId, from_ms: u64, to_ms: u64) -> Vec<pichain_storage::TradeRecord> {
+    fn get_pool_trades_in_range(
+        &self,
+        pool_id: &pichain_types::PoolId,
+        from_ms: u64,
+        to_ms: u64,
+    ) -> Vec<pichain_storage::TradeRecord> {
         let store = self.store.read();
         pichain_storage::DexStore::new(store.db())
             .get_pool_trades_in_range(pool_id, from_ms, to_ms)
@@ -1596,14 +1904,124 @@ impl StateProvider for NodeState {
             .unwrap_or_default()
     }
 
-    fn scan_all_lp_balances(&self) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
+    fn scan_all_lp_balances(
+        &self,
+    ) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
         let store = self.store.read();
         pichain_storage::DexStore::new(store.db())
             .scan_all_lp_balances()
             .unwrap_or_default()
     }
 
-    fn get_launch_by_mint(&self, mint: &pichain_types::MintId) -> Option<pichain_types::TokenLaunch> {
+    fn post_comment(&self, comment: pichain_storage::Comment) -> Result<(), String> {
+        let store = self.store.read();
+        pichain_storage::CommentStore::new(store.db())
+            .put_comment(&comment)
+            .map_err(|e| e.to_string())
+    }
+
+    fn get_comments(
+        &self,
+        mint_id: &pichain_types::MintId,
+        limit: usize,
+    ) -> Vec<pichain_storage::Comment> {
+        let store = self.store.read();
+        pichain_storage::CommentStore::new(store.db())
+            .get_comments(mint_id, limit)
+            .unwrap_or_default()
+    }
+
+    fn get_comment_count(&self, mint_id: &pichain_types::MintId) -> u64 {
+        let store = self.store.read();
+        pichain_storage::CommentStore::new(store.db())
+            .get_comment_count(mint_id)
+            .unwrap_or(0)
+    }
+
+    fn get_claimable_dividends(
+        &self,
+        mint_id: &pichain_types::MintId,
+        holder: &pichain_crypto::ed25519::Address,
+    ) -> u64 {
+        let balance = self
+            .get_token_account(holder, mint_id)
+            .map(|a| a.balance)
+            .unwrap_or(0);
+        if balance == 0 {
+            return 0;
+        }
+        let store = self.store.read();
+        pichain_storage::DividendStore::new(store.db())
+            .claimable(mint_id, holder, balance)
+            .unwrap_or(0)
+    }
+
+    fn get_dividend_pool(
+        &self,
+        mint_id: &pichain_types::MintId,
+    ) -> Option<pichain_storage::DividendPool> {
+        let store = self.store.read();
+        pichain_storage::DividendStore::new(store.db())
+            .get_pool(mint_id)
+            .ok()
+            .flatten()
+    }
+
+    fn claim_dividends(
+        &self,
+        mint_id: &pichain_types::MintId,
+        holder: &pichain_crypto::ed25519::Address,
+    ) -> Result<u64, String> {
+        let balance = self
+            .get_token_account(holder, mint_id)
+            .map(|a| a.balance)
+            .unwrap_or(0);
+        if balance == 0 {
+            return Err("no token balance".to_string());
+        }
+
+        let store = self.store.read();
+        let div_store = pichain_storage::DividendStore::new(store.db());
+        let pool = div_store
+            .get_pool(mint_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "no dividend pool for this token".to_string())?;
+
+        let debt = div_store
+            .get_reward_debt(mint_id, holder)
+            .map_err(|e| e.to_string())?;
+        let entitled = (balance as u128)
+            .checked_mul(pool.reward_per_share_x1e12)
+            .unwrap_or(0)
+            / 1_000_000_000_000;
+        let claimable = entitled.saturating_sub(debt) as u64;
+
+        if claimable == 0 {
+            return Err("nothing to claim".to_string());
+        }
+
+        // Update reward debt
+        div_store
+            .set_reward_debt(mint_id, holder, entitled)
+            .map_err(|e| e.to_string())?;
+
+        // Update pool claimed total
+        let mut updated_pool = pool;
+        updated_pool.total_claimed = updated_pool.total_claimed.saturating_add(claimable);
+        div_store
+            .put_pool(&updated_pool)
+            .map_err(|e| e.to_string())?;
+
+        // Credit PI to the holder's account
+        self.executor.credit_account(*holder, claimable);
+
+        Ok(claimable)
+    }
+
+    fn get_launch_by_mint(
+        &self,
+        mint: &pichain_types::MintId,
+    ) -> Option<pichain_types::TokenLaunch> {
         if let Some(launch) = self.executor.launchpad_executor().get_launch_by_mint(mint) {
             return Some(launch);
         }
@@ -1640,7 +2058,7 @@ impl StateProvider for NodeState {
         recipient: &Address,
         amount: u64,
     ) -> Result<(), String> {
-        use pichain_types::token::{MintId, TokenAccount, token_account_key};
+        use pichain_types::token::{token_account_key, MintId, TokenAccount};
 
         let bridge_operator = GenesisConfig::devnet_bridge_operator_address();
 
@@ -1654,17 +2072,30 @@ impl StateProvider for NodeState {
         };
 
         // Verify mint exists and bridge operator is authority
-        let mut mint = self.executor.token_executor().get_mint(&mint_id)
-            .ok_or_else(|| format!("mint {} not found — bridge tokens not bootstrapped", mint_symbol))?;
+        let mut mint = self
+            .executor
+            .token_executor()
+            .get_mint(&mint_id)
+            .ok_or_else(|| {
+                format!(
+                    "mint {} not found — bridge tokens not bootstrapped",
+                    mint_symbol
+                )
+            })?;
         if mint.mint_authority != Some(bridge_operator) {
             return Err("bridge operator is not mint authority".to_string());
         }
-        mint.total_supply = mint.total_supply.checked_add(amount)
+        mint.total_supply = mint
+            .total_supply
+            .checked_add(amount)
             .ok_or("total supply overflow")?;
 
         // Prepare token account update
         let key = token_account_key(recipient, &mint_id);
-        let mut acct = self.executor.token_executor().get_token_account(recipient, &mint_id)
+        let mut acct = self
+            .executor
+            .token_executor()
+            .get_token_account(recipient, &mint_id)
             .unwrap_or(TokenAccount {
                 key,
                 owner: *recipient,
@@ -1674,15 +2105,21 @@ impl StateProvider for NodeState {
                 delegate_amount: 0,
                 frozen: false,
             });
-        acct.balance = acct.balance.checked_add(amount)
+        acct.balance = acct
+            .balance
+            .checked_add(amount)
             .ok_or("token balance overflow")?;
 
         // Write to storage
         let store = self.store.read();
         let db = store.db();
         let token_store = pichain_storage::TokenStore::new(db);
-        token_store.put_mint(&mint).map_err(|e| format!("storage error: {e}"))?;
-        token_store.put_token_account(&acct).map_err(|e| format!("storage error: {e}"))?;
+        token_store
+            .put_mint(&mint)
+            .map_err(|e| format!("storage error: {e}"))?;
+        token_store
+            .put_token_account(&acct)
+            .map_err(|e| format!("storage error: {e}"))?;
 
         // Update executor caches
         self.executor.token_executor().load_mint(mint);
@@ -1824,23 +2261,27 @@ impl StateProvider for NodeState {
             Ok(g) => g,
             Err(_) => return vec![],
         };
-        guard.all_validators().into_iter().map(|v| {
-            let total_slots = v.blocks_proposed.saturating_add(v.blocks_missed);
-            let uptime_bps = if total_slots > 0 {
-                ((v.blocks_proposed as u128 * 10_000) / total_slots as u128) as u16
-            } else {
-                10_000 // 100% uptime if no slots yet
-            };
-            pichain_rpc::ValidatorInfo {
-                address: v.validator.to_string(),
-                stake: v.self_stake,
-                delegated: v.delegated_stake,
-                commission_bps: v.commission_bps,
-                active: v.active && !v.jailed,
-                uptime_bps,
-                blocks_proposed: v.blocks_proposed,
-            }
-        }).collect()
+        guard
+            .all_validators()
+            .into_iter()
+            .map(|v| {
+                let total_slots = v.blocks_proposed.saturating_add(v.blocks_missed);
+                let uptime_bps = if total_slots > 0 {
+                    ((v.blocks_proposed as u128 * 10_000) / total_slots as u128) as u16
+                } else {
+                    10_000 // 100% uptime if no slots yet
+                };
+                pichain_rpc::ValidatorInfo {
+                    address: v.validator.to_string(),
+                    stake: v.self_stake,
+                    delegated: v.delegated_stake,
+                    commission_bps: v.commission_bps,
+                    active: v.active && !v.jailed,
+                    uptime_bps,
+                    blocks_proposed: v.blocks_proposed,
+                }
+            })
+            .collect()
     }
 
     fn get_delegations(&self, address: &Address) -> Vec<pichain_rpc::DelegationInfo> {
@@ -1848,13 +2289,15 @@ impl StateProvider for NodeState {
             Ok(g) => g,
             Err(_) => return vec![],
         };
-        guard.delegations_for(address).into_iter().map(|d| {
-            pichain_rpc::DelegationInfo {
+        guard
+            .delegations_for(address)
+            .into_iter()
+            .map(|d| pichain_rpc::DelegationInfo {
                 validator: d.validator.to_string(),
                 amount: d.amount,
                 rewards_earned: d.pending_rewards,
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     fn get_staking_rewards(&self, address: &Address) -> u64 {
@@ -1863,12 +2306,14 @@ impl StateProvider for NodeState {
             Err(_) => return 0,
         };
         // Sum rewards from delegations where this address is the delegator
-        let delegation_rewards: u64 = guard.delegations_for(address)
+        let delegation_rewards: u64 = guard
+            .delegations_for(address)
             .iter()
             .map(|d| d.pending_rewards)
             .sum();
         // Add any pending rewards from the validator entry itself (if this address is a validator)
-        let validator_rewards: u64 = guard.all_validators()
+        let validator_rewards: u64 = guard
+            .all_validators()
             .iter()
             .filter(|v| v.validator == *address)
             .map(|v| v.pending_rewards)
@@ -1885,7 +2330,10 @@ impl StateProvider for NodeState {
         limit: usize,
     ) -> Vec<TxHistoryEntry> {
         let store = self.store.read();
-        match store.db().get_address_transactions(&address.0, before_height, limit) {
+        match store
+            .db()
+            .get_address_transactions(&address.0, before_height, limit)
+        {
             Ok(entries) => entries
                 .into_iter()
                 .map(|(tx_hash, height, tx_index)| TxHistoryEntry {
@@ -1952,11 +2400,15 @@ impl StateProvider for NodeState {
             .unwrap_or_default()
     }
 
-    fn get_collection_items(&self, collection_id: &pichain_types::CollectionId) -> Vec<pichain_types::Nft> {
+    fn get_collection_items(
+        &self,
+        collection_id: &pichain_types::CollectionId,
+    ) -> Vec<pichain_types::Nft> {
         // Try in-memory first
         let in_mem = self.executor.nft_executor().all_nfts();
         if !in_mem.is_empty() {
-            return in_mem.into_values()
+            return in_mem
+                .into_values()
                 .filter(|n| n.collection == *collection_id)
                 .collect();
         }
@@ -1974,9 +2426,7 @@ impl StateProvider for NodeState {
         // Try in-memory first
         let in_mem = self.executor.nft_executor().all_nfts();
         if !in_mem.is_empty() {
-            return in_mem.into_values()
-                .filter(|n| n.owner == *owner)
-                .collect();
+            return in_mem.into_values().filter(|n| n.owner == *owner).collect();
         }
         // Fall back to storage
         let store = self.store.read();
@@ -2018,7 +2468,10 @@ impl StateProvider for NodeState {
 
     // --- Betting queries ---
 
-    fn get_betting_match(&self, match_id: &pichain_types::betting::MatchId) -> Option<pichain_types::betting::BettingMatch> {
+    fn get_betting_match(
+        &self,
+        match_id: &pichain_types::betting::MatchId,
+    ) -> Option<pichain_types::betting::BettingMatch> {
         self.executor.betting_executor().get_match(match_id)
     }
 
@@ -2034,7 +2487,10 @@ impl StateProvider for NodeState {
         self.executor.betting_executor().matches_by_category(&cat)
     }
 
-    fn get_matches_by_player(&self, address: &Address) -> Vec<pichain_types::betting::BettingMatch> {
+    fn get_matches_by_player(
+        &self,
+        address: &Address,
+    ) -> Vec<pichain_types::betting::BettingMatch> {
         self.executor.betting_executor().matches_by_player(address)
     }
 
@@ -2057,6 +2513,11 @@ impl StateProvider for NodeState {
     }
 
     fn get_match_nonce(&self, address: &Address) -> u64 {
-        self.executor.betting_executor().all_nonces().get(address).copied().unwrap_or(0)
+        self.executor
+            .betting_executor()
+            .all_nonces()
+            .get(address)
+            .copied()
+            .unwrap_or(0)
     }
 }

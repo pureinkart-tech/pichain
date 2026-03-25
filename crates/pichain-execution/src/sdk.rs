@@ -283,9 +283,13 @@ impl ContractRegistry {
             upgradeable,
         };
         self.contracts.insert(contract_addr, metadata);
-        self.by_deployer.entry(deployer).or_default().push(contract_addr);
+        self.by_deployer
+            .entry(deployer)
+            .or_default()
+            .push(contract_addr);
 
-        self.contracts.get(&contract_addr)
+        self.contracts
+            .get(&contract_addr)
             .ok_or(ContractError::NotFound(contract_addr))
     }
 
@@ -298,7 +302,9 @@ impl ContractRegistry {
         new_abi: ContractAbi,
         new_version: String,
     ) -> Result<(), ContractError> {
-        let metadata = self.contracts.get_mut(&contract_addr)
+        let metadata = self
+            .contracts
+            .get_mut(&contract_addr)
             .ok_or(ContractError::NotFound(contract_addr))?;
 
         if !metadata.upgradeable {
@@ -332,7 +338,10 @@ impl ContractRegistry {
 
     /// Get all contracts deployed by an address.
     pub fn by_deployer(&self, deployer: &Address) -> &[Address] {
-        self.by_deployer.get(deployer).map(|v| v.as_slice()).unwrap_or(&[])
+        self.by_deployer
+            .get(deployer)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Remove a contract from the registry (e.g., when init fails).
@@ -410,66 +419,114 @@ impl TokenStandard {
                 AbiFunction {
                     name: "name".to_string(),
                     inputs: vec![],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::String }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::String,
+                    }],
                     mutability: Mutability::View,
                     selector: ContractAbi::selector("name()"),
                 },
                 AbiFunction {
                     name: "symbol".to_string(),
                     inputs: vec![],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::String }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::String,
+                    }],
                     mutability: Mutability::View,
                     selector: ContractAbi::selector("symbol()"),
                 },
                 AbiFunction {
                     name: "decimals".to_string(),
                     inputs: vec![],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Uint(8) }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Uint(8),
+                    }],
                     mutability: Mutability::View,
                     selector: ContractAbi::selector("decimals()"),
                 },
                 AbiFunction {
                     name: "total_supply".to_string(),
                     inputs: vec![],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Uint(128) }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Uint(128),
+                    }],
                     mutability: Mutability::View,
                     selector: ContractAbi::selector("total_supply()"),
                 },
                 AbiFunction {
                     name: "balance_of".to_string(),
-                    inputs: vec![AbiParam { name: "account".to_string(), param_type: AbiType::Address }],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Uint(128) }],
+                    inputs: vec![AbiParam {
+                        name: "account".to_string(),
+                        param_type: AbiType::Address,
+                    }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Uint(128),
+                    }],
                     mutability: Mutability::View,
                     selector: ContractAbi::selector("balance_of(address)"),
                 },
                 AbiFunction {
                     name: "transfer".to_string(),
                     inputs: vec![
-                        AbiParam { name: "to".to_string(), param_type: AbiType::Address },
-                        AbiParam { name: "amount".to_string(), param_type: AbiType::Uint(128) },
+                        AbiParam {
+                            name: "to".to_string(),
+                            param_type: AbiType::Address,
+                        },
+                        AbiParam {
+                            name: "amount".to_string(),
+                            param_type: AbiType::Uint(128),
+                        },
                     ],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Bool }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Bool,
+                    }],
                     mutability: Mutability::Mutable,
                     selector: ContractAbi::selector("transfer(address,uint128)"),
                 },
                 AbiFunction {
                     name: "approve".to_string(),
                     inputs: vec![
-                        AbiParam { name: "spender".to_string(), param_type: AbiType::Address },
-                        AbiParam { name: "amount".to_string(), param_type: AbiType::Uint(128) },
+                        AbiParam {
+                            name: "spender".to_string(),
+                            param_type: AbiType::Address,
+                        },
+                        AbiParam {
+                            name: "amount".to_string(),
+                            param_type: AbiType::Uint(128),
+                        },
                     ],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Bool }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Bool,
+                    }],
                     mutability: Mutability::Mutable,
                     selector: ContractAbi::selector("approve(address,uint128)"),
                 },
                 AbiFunction {
                     name: "transfer_from".to_string(),
                     inputs: vec![
-                        AbiParam { name: "from".to_string(), param_type: AbiType::Address },
-                        AbiParam { name: "to".to_string(), param_type: AbiType::Address },
-                        AbiParam { name: "amount".to_string(), param_type: AbiType::Uint(128) },
+                        AbiParam {
+                            name: "from".to_string(),
+                            param_type: AbiType::Address,
+                        },
+                        AbiParam {
+                            name: "to".to_string(),
+                            param_type: AbiType::Address,
+                        },
+                        AbiParam {
+                            name: "amount".to_string(),
+                            param_type: AbiType::Uint(128),
+                        },
                     ],
-                    outputs: vec![AbiParam { name: "".to_string(), param_type: AbiType::Bool }],
+                    outputs: vec![AbiParam {
+                        name: "".to_string(),
+                        param_type: AbiType::Bool,
+                    }],
                     mutability: Mutability::Mutable,
                     selector: ContractAbi::selector("transfer_from(address,address,uint128)"),
                 },
@@ -478,25 +535,61 @@ impl TokenStandard {
                 AbiEvent {
                     name: "Transfer".to_string(),
                     params: vec![
-                        AbiEventParam { name: "from".to_string(), param_type: AbiType::Address, indexed: true },
-                        AbiEventParam { name: "to".to_string(), param_type: AbiType::Address, indexed: true },
-                        AbiEventParam { name: "amount".to_string(), param_type: AbiType::Uint(128), indexed: false },
+                        AbiEventParam {
+                            name: "from".to_string(),
+                            param_type: AbiType::Address,
+                            indexed: true,
+                        },
+                        AbiEventParam {
+                            name: "to".to_string(),
+                            param_type: AbiType::Address,
+                            indexed: true,
+                        },
+                        AbiEventParam {
+                            name: "amount".to_string(),
+                            param_type: AbiType::Uint(128),
+                            indexed: false,
+                        },
                     ],
                 },
                 AbiEvent {
                     name: "Approval".to_string(),
                     params: vec![
-                        AbiEventParam { name: "owner".to_string(), param_type: AbiType::Address, indexed: true },
-                        AbiEventParam { name: "spender".to_string(), param_type: AbiType::Address, indexed: true },
-                        AbiEventParam { name: "amount".to_string(), param_type: AbiType::Uint(128), indexed: false },
+                        AbiEventParam {
+                            name: "owner".to_string(),
+                            param_type: AbiType::Address,
+                            indexed: true,
+                        },
+                        AbiEventParam {
+                            name: "spender".to_string(),
+                            param_type: AbiType::Address,
+                            indexed: true,
+                        },
+                        AbiEventParam {
+                            name: "amount".to_string(),
+                            param_type: AbiType::Uint(128),
+                            indexed: false,
+                        },
                     ],
                 },
             ],
             constructor: Some(vec![
-                AbiParam { name: "name".to_string(), param_type: AbiType::String },
-                AbiParam { name: "symbol".to_string(), param_type: AbiType::String },
-                AbiParam { name: "decimals".to_string(), param_type: AbiType::Uint(8) },
-                AbiParam { name: "initial_supply".to_string(), param_type: AbiType::Uint(128) },
+                AbiParam {
+                    name: "name".to_string(),
+                    param_type: AbiType::String,
+                },
+                AbiParam {
+                    name: "symbol".to_string(),
+                    param_type: AbiType::String,
+                },
+                AbiParam {
+                    name: "decimals".to_string(),
+                    param_type: AbiType::Uint(8),
+                },
+                AbiParam {
+                    name: "initial_supply".to_string(),
+                    param_type: AbiType::Uint(128),
+                },
             ]),
         }
     }
@@ -513,16 +606,18 @@ mod tests {
         let contract = Address([2u8; 20]);
         let bytecode = vec![0x00, 0x61, 0x73, 0x6d]; // WASM magic
 
-        let meta = registry.deploy(
-            contract,
-            deployer,
-            bytecode,
-            ContractAbi::new(),
-            "test".to_string(),
-            "0.1.0".to_string(),
-            1,
-            false,
-        ).unwrap();
+        let meta = registry
+            .deploy(
+                contract,
+                deployer,
+                bytecode,
+                ContractAbi::new(),
+                "test".to_string(),
+                "0.1.0".to_string(),
+                1,
+                false,
+            )
+            .unwrap();
 
         assert_eq!(meta.address, contract);
         assert_eq!(meta.deployer, deployer);
@@ -533,18 +628,48 @@ mod tests {
     fn reject_duplicate_deployment() {
         let mut registry = ContractRegistry::new();
         let addr = Address([1u8; 20]);
-        registry.deploy(addr, addr, vec![1], ContractAbi::new(), "a".into(), "1".into(), 0, false).unwrap();
-        assert!(registry.deploy(addr, addr, vec![2], ContractAbi::new(), "b".into(), "1".into(), 0, false).is_err());
+        registry
+            .deploy(
+                addr,
+                addr,
+                vec![1],
+                ContractAbi::new(),
+                "a".into(),
+                "1".into(),
+                0,
+                false,
+            )
+            .unwrap();
+        assert!(registry
+            .deploy(
+                addr,
+                addr,
+                vec![2],
+                ContractAbi::new(),
+                "b".into(),
+                "1".into(),
+                0,
+                false
+            )
+            .is_err());
     }
 
     #[test]
     fn reject_oversized_contract() {
         let mut registry = ContractRegistry::new();
         let big_code = vec![0u8; MAX_CONTRACT_SIZE + 1];
-        assert!(registry.deploy(
-            Address([1u8; 20]), Address([1u8; 20]), big_code,
-            ContractAbi::new(), "big".into(), "1".into(), 0, false
-        ).is_err());
+        assert!(registry
+            .deploy(
+                Address([1u8; 20]),
+                Address([1u8; 20]),
+                big_code,
+                ContractAbi::new(),
+                "big".into(),
+                "1".into(),
+                0,
+                false
+            )
+            .is_err());
     }
 
     #[test]
@@ -553,16 +678,29 @@ mod tests {
         let deployer = Address([1u8; 20]);
         let contract = Address([2u8; 20]);
 
-        registry.deploy(
-            contract, deployer, vec![1, 2, 3],
-            ContractAbi::new(), "test".into(), "0.1.0".into(), 0, true,
-        ).unwrap();
+        registry
+            .deploy(
+                contract,
+                deployer,
+                vec![1, 2, 3],
+                ContractAbi::new(),
+                "test".into(),
+                "0.1.0".into(),
+                0,
+                true,
+            )
+            .unwrap();
 
         // Upgrade
-        registry.upgrade(
-            contract, deployer, vec![4, 5, 6],
-            ContractAbi::new(), "0.2.0".into(),
-        ).unwrap();
+        registry
+            .upgrade(
+                contract,
+                deployer,
+                vec![4, 5, 6],
+                ContractAbi::new(),
+                "0.2.0".into(),
+            )
+            .unwrap();
 
         let meta = registry.get(&contract).unwrap();
         assert_eq!(meta.version, "0.2.0");
@@ -574,15 +712,28 @@ mod tests {
         let deployer = Address([1u8; 20]);
         let contract = Address([2u8; 20]);
 
-        registry.deploy(
-            contract, deployer, vec![1],
-            ContractAbi::new(), "test".into(), "1.0.0".into(), 0, false,
-        ).unwrap();
+        registry
+            .deploy(
+                contract,
+                deployer,
+                vec![1],
+                ContractAbi::new(),
+                "test".into(),
+                "1.0.0".into(),
+                0,
+                false,
+            )
+            .unwrap();
 
-        assert!(registry.upgrade(
-            contract, deployer, vec![2],
-            ContractAbi::new(), "2.0.0".into(),
-        ).is_err());
+        assert!(registry
+            .upgrade(
+                contract,
+                deployer,
+                vec![2],
+                ContractAbi::new(),
+                "2.0.0".into(),
+            )
+            .is_err());
     }
 
     #[test]
@@ -592,15 +743,28 @@ mod tests {
         let attacker = Address([99u8; 20]);
         let contract = Address([2u8; 20]);
 
-        registry.deploy(
-            contract, deployer, vec![1],
-            ContractAbi::new(), "test".into(), "1.0.0".into(), 0, true,
-        ).unwrap();
+        registry
+            .deploy(
+                contract,
+                deployer,
+                vec![1],
+                ContractAbi::new(),
+                "test".into(),
+                "1.0.0".into(),
+                0,
+                true,
+            )
+            .unwrap();
 
-        assert!(registry.upgrade(
-            contract, attacker, vec![2],
-            ContractAbi::new(), "2.0.0".into(),
-        ).is_err());
+        assert!(registry
+            .upgrade(
+                contract,
+                attacker,
+                vec![2],
+                ContractAbi::new(),
+                "2.0.0".into(),
+            )
+            .is_err());
     }
 
     #[test]
@@ -631,14 +795,30 @@ mod tests {
         let mut registry = ContractRegistry::new();
         let deployer = Address([1u8; 20]);
 
-        registry.deploy(
-            Address([2u8; 20]), deployer, vec![1],
-            ContractAbi::new(), "a".into(), "1".into(), 0, false,
-        ).unwrap();
-        registry.deploy(
-            Address([3u8; 20]), deployer, vec![2],
-            ContractAbi::new(), "b".into(), "1".into(), 0, false,
-        ).unwrap();
+        registry
+            .deploy(
+                Address([2u8; 20]),
+                deployer,
+                vec![1],
+                ContractAbi::new(),
+                "a".into(),
+                "1".into(),
+                0,
+                false,
+            )
+            .unwrap();
+        registry
+            .deploy(
+                Address([3u8; 20]),
+                deployer,
+                vec![2],
+                ContractAbi::new(),
+                "b".into(),
+                "1".into(),
+                0,
+                false,
+            )
+            .unwrap();
 
         assert_eq!(registry.by_deployer(&deployer).len(), 2);
         assert_eq!(registry.by_deployer(&Address([99u8; 20])).len(), 0);

@@ -1,6 +1,9 @@
 # Build artifacts
 /target/
 
+# Node dependencies
+node_modules/
+
 # Production data - keys, state, logs
 /live-data/
 
@@ -37,3 +40,10 @@ __pycache__/
 *.pyc
 *.pyo
 explorer/games/quakejs/
+
+# PiBot secrets
+tools/pibot/pibot.db
+tools/pibot/pibot.db-wal
+tools/pibot/pibot.db-shm
+tools/pibot/.env
+tools/pibot/.fee-wallet-seed

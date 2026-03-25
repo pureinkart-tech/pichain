@@ -73,14 +73,15 @@ impl DigitRegistry {
 
     /// Register a new verified digit range.
     /// Returns true if the range was new (not overlapping with existing).
-    pub fn register(
-        &mut self,
-        range: DigitRange,
-    ) -> Result<bool, RegistryError> {
+    pub fn register(&mut self, range: DigitRange) -> Result<bool, RegistryError> {
         let start = range.start;
         let end = match start.checked_add(range.count as u64) {
             Some(e) => e,
-            None => return Err(RegistryError::InvalidRange("digit range overflows u64".to_string())),
+            None => {
+                return Err(RegistryError::InvalidRange(
+                    "digit range overflows u64".to_string(),
+                ))
+            }
         };
 
         // Check for overlap with existing ranges
@@ -93,8 +94,12 @@ impl DigitRegistry {
         let count = range.count as u64;
 
         self.ranges.insert(start, range);
-        *self.miner_contributions.entry(miner).or_insert(0) =
-            self.miner_contributions.get(&miner).copied().unwrap_or(0).saturating_add(count);
+        *self.miner_contributions.entry(miner).or_insert(0) = self
+            .miner_contributions
+            .get(&miner)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(count);
         self.total_verified = self.total_verified.saturating_add(count);
 
         // Update frontier
@@ -140,7 +145,10 @@ impl DigitRegistry {
         }
         // Check if any range starts within [start+1, end) — these overlap by definition.
         // (start itself was already covered by the check above)
-        self.ranges.range((start.saturating_add(1))..end).next().is_some()
+        self.ranges
+            .range((start.saturating_add(1))..end)
+            .next()
+            .is_some()
     }
 
     /// Update the frontier position.
@@ -502,8 +510,8 @@ mod tests {
         reg.register(make_range(1010, 10, 2)).unwrap(); // gap at 1000, size 10
         reg.register(make_range(1030, 10, 2)).unwrap(); // gap at 1020, size 10
         reg.register(make_range(1050, 10, 2)).unwrap(); // gap at 1040, size 10
-        // Big gap after 1060
-        // No more ranges after 1060
+                                                        // Big gap after 1060
+                                                        // No more ranges after 1060
 
         let (pos, size) = reg.find_mineable_gap(100);
         assert_eq!(pos, 1060); // Skipped tiny gaps, found big open space

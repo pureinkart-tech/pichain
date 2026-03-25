@@ -89,17 +89,8 @@ pub fn vdf_verify(proof: &VdfProof) -> bool {
 ///
 /// The seed binds the VDF to the specific proof, miner, and block context,
 /// preventing VDF pre-computation and proof reuse.
-pub fn vdf_seed(
-    digits: &[u8],
-    anchor_block_hash: &[u8; 32],
-    miner: &[u8; 20],
-) -> [u8; 32] {
-    let h = pichain_crypto::hash_concat(&[
-        digits,
-        anchor_block_hash,
-        miner,
-        b"pichain-vdf-v1",
-    ]);
+pub fn vdf_seed(digits: &[u8], anchor_block_hash: &[u8; 32], miner: &[u8; 20]) -> [u8; 32] {
+    let h = pichain_crypto::hash_concat(&[digits, anchor_block_hash, miner, b"pichain-vdf-v1"]);
     *h.as_bytes()
 }
 
@@ -158,11 +149,11 @@ pub fn required_iterations_with_age(frontier: u64, block_height: u64) -> u64 {
         0
     };
     let age_scale = match age_years {
-        0 => 1u64,        // Year 1: no age-based increase
-        1 => 2,           // Year 2: 2x
-        2..=4 => 4,       // Years 3-5: 4x
-        5..=9 => 8,       // Years 6-10: 8x
-        _ => 16,          // Year 11+: 16x (full quantum hardening)
+        0 => 1u64,  // Year 1: no age-based increase
+        1 => 2,     // Year 2: 2x
+        2..=4 => 4, // Years 3-5: 4x
+        5..=9 => 8, // Years 6-10: 8x
+        _ => 16,    // Year 11+: 16x (full quantum hardening)
     };
 
     // Use the LARGER of the two factors — ensures VDF strengthens even if
@@ -338,7 +329,8 @@ mod tests {
         assert!(
             year5_low > year1_low,
             "year 5 at low frontier should be stronger than year 1: {} vs {}",
-            year5_low, year1_low
+            year5_low,
+            year1_low
         );
     }
 
@@ -377,7 +369,10 @@ mod tests {
         let expected = pichain_crypto::hash(&input);
         assert_eq!(proof.output, *expected.as_bytes());
         // Single iteration is far below MIN_VDF_ITERATIONS, should be rejected
-        assert!(!vdf_verify(&proof), "single-iteration VDF should be rejected");
+        assert!(
+            !vdf_verify(&proof),
+            "single-iteration VDF should be rejected"
+        );
     }
 
     #[test]

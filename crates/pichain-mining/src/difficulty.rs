@@ -25,9 +25,8 @@ pub const MAX_DIFFICULTY_BITS: u32 = 240; // Maximum difficulty (hardest)
 /// Initial difficulty target — easy enough for devnet solo mining.
 /// Leading zeros required: 1 byte (8 bits) = ~256 nonce attempts on average.
 pub const INITIAL_DIFFICULTY: [u8; 32] = [
-    0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF,
+    0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// Frontier scale divisor for PoW scaling: frontier / 1000 is used for log2.
@@ -179,13 +178,17 @@ impl DifficultyAdjuster {
         //
         // We express the ratio as (numerator, denominator) = (actual_interval, target_interval)
         // clamped to [500/1000, 2000/1000].
-        let num = actual_interval.min(
-            self.target_interval_ms.saturating_mul(MAX_DIFFICULTY_ADJUSTMENT_NUM)
-                / DIFFICULTY_ADJUSTMENT_DENOM
-        ).max(
-            self.target_interval_ms.saturating_mul(DIFFICULTY_ADJUSTMENT_DENOM)
-                / MAX_DIFFICULTY_ADJUSTMENT_NUM
-        );
+        let num = actual_interval
+            .min(
+                self.target_interval_ms
+                    .saturating_mul(MAX_DIFFICULTY_ADJUSTMENT_NUM)
+                    / DIFFICULTY_ADJUSTMENT_DENOM,
+            )
+            .max(
+                self.target_interval_ms
+                    .saturating_mul(DIFFICULTY_ADJUSTMENT_DENOM)
+                    / MAX_DIFFICULTY_ADJUSTMENT_NUM,
+            );
         let den = self.target_interval_ms;
 
         if den == 0 {
@@ -234,7 +237,11 @@ impl Default for DifficultyAdjuster {
 /// Used to combine the frontier-scaled target with the rate-based target
 /// so that the effective difficulty is always at least as hard as either layer.
 pub fn harder_target(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
-    if a <= b { *a } else { *b }
+    if a <= b {
+        *a
+    } else {
+        *b
+    }
 }
 
 /// Check if a mining proof meets the difficulty requirement.
@@ -248,7 +255,8 @@ pub fn check_proof_difficulty(
     target: &[u8; 32],
     miner: &[u8; 20],
 ) -> bool {
-    let hash = pichain_crypto::hash_concat(&[digits, &nonce.to_le_bytes(), anchor_block_hash, miner]);
+    let hash =
+        pichain_crypto::hash_concat(&[digits, &nonce.to_le_bytes(), anchor_block_hash, miner]);
     hash.as_bytes() <= target
 }
 
@@ -261,7 +269,8 @@ pub fn find_nonce(
     max_attempts: u64,
     miner: &[u8; 20],
 ) -> Option<u64> {
-    (0..max_attempts).find(|&nonce| check_proof_difficulty(digits, nonce, anchor_block_hash, target, miner))
+    (0..max_attempts)
+        .find(|&nonce| check_proof_difficulty(digits, nonce, anchor_block_hash, target, miner))
 }
 
 /// Find a nonce in parallel using rayon.
@@ -344,7 +353,11 @@ fn multiply_target(target: &[u8; 32], factor: f64) -> [u8; 32] {
         return r;
     }
     // Clamp to u64::MAX to prevent undefined behavior from f64 → u64 cast
-    let scaled = if scaled_f > u64::MAX as f64 { u64::MAX } else { scaled_f as u64 };
+    let scaled = if scaled_f > u64::MAX as f64 {
+        u64::MAX
+    } else {
+        scaled_f as u64
+    };
 
     // Determine where the significant bytes moved
     let scaled_be = scaled.to_be_bytes();
@@ -396,8 +409,7 @@ fn multiply_target_int(target: &[u8; 32], numerator: u64, denominator: u64) -> [
     let value = u64::from_be_bytes(buf);
 
     // Scale using u128 to prevent overflow: (value * numerator) / denominator
-    let scaled_128 = (value as u128).saturating_mul(numerator as u128)
-        / (denominator as u128);
+    let scaled_128 = (value as u128).saturating_mul(numerator as u128) / (denominator as u128);
     let scaled = if scaled_128 > u64::MAX as u128 {
         u64::MAX
     } else if scaled_128 == 0 {
@@ -501,12 +513,18 @@ mod tests {
         // With 8-bit difficulty there is a 1/256 chance of false positive,
         // so we only assert the hash outputs differ (not necessarily that
         // miner_b fails difficulty). We check the actual hash differs.
-        let hash_a = pichain_crypto::hash_concat(
-            &[digits.as_slice(), &nonce.to_le_bytes(), &anchor, &miner_a],
-        );
-        let hash_b = pichain_crypto::hash_concat(
-            &[digits.as_slice(), &nonce.to_le_bytes(), &anchor, &miner_b],
-        );
+        let hash_a = pichain_crypto::hash_concat(&[
+            digits.as_slice(),
+            &nonce.to_le_bytes(),
+            &anchor,
+            &miner_a,
+        ]);
+        let hash_b = pichain_crypto::hash_concat(&[
+            digits.as_slice(),
+            &nonce.to_le_bytes(),
+            &anchor,
+            &miner_b,
+        ]);
         assert_ne!(
             hash_a, hash_b,
             "PoW hash must differ when miner address differs"
@@ -662,7 +680,12 @@ mod tests {
         for bits in 8..64 {
             let easier = target_from_bits(bits);
             let harder = target_from_bits(bits + 1);
-            assert!(harder < easier, "bits {} should be easier than {}", bits, bits + 1);
+            assert!(
+                harder < easier,
+                "bits {} should be easier than {}",
+                bits,
+                bits + 1
+            );
         }
     }
 

@@ -25,8 +25,8 @@ pub use nft::{CollectionId, Nft, NftCollection, NftId};
 pub use object::{Object, ObjectId, ObjectOwner, ObjectType};
 pub use token::{MintId, TokenAccount, TokenMint};
 pub use transaction::{
-    SignedTransaction, Transaction, TransactionData, TransactionEffect,
-    TransactionKind, TransactionStatus,
+    SignedTransaction, Transaction, TransactionData, TransactionEffect, TransactionKind,
+    TransactionStatus,
 };
 
 /// PIChain epoch number.

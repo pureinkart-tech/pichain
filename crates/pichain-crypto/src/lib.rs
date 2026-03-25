@@ -13,23 +13,17 @@ pub mod pq_wallet;
 pub mod stark_aggregation;
 
 pub use blake3_hash::{hash, hash_concat, Hash, Hasher};
-pub use bls::{
-    AggregateSignature, BlsKeypair, BlsPublicKey, BlsSecretKey, BlsSignature,
-};
-pub use ed25519::{
-    verify_batch, Address, Keypair, PublicKey, SecretKey, Signature,
-};
+pub use bls::{AggregateSignature, BlsKeypair, BlsPublicKey, BlsSecretKey, BlsSignature};
+pub use ed25519::{verify_batch, Address, Keypair, PublicKey, SecretKey, Signature};
 pub use poseidon::PoseidonHasher;
 pub use pq::{
-    quantum_safe_hash, pq_address, CryptoVersion,
-    MlDsaPublicKey, MlDsaSecretKey, MlDsaSignature,
-    SlhDsaPublicKey, SlhDsaSecretKey, SlhDsaSignature,
-    PqKeypair, PqDualSignature, PqPublicKeys,
+    pq_address, quantum_safe_hash, CryptoVersion, MlDsaPublicKey, MlDsaSecretKey, MlDsaSignature,
+    PqDualSignature, PqKeypair, PqPublicKeys, SlhDsaPublicKey, SlhDsaSecretKey, SlhDsaSignature,
 };
-pub use pq_wallet::{PqWalletExport, generate_pq_wallet, restore_pq_wallet, verify_pq_wallet};
+pub use pq_wallet::{generate_pq_wallet, restore_pq_wallet, verify_pq_wallet, PqWalletExport};
 pub use stark_aggregation::{
-    BlockAggregationProof, StarkProver, PlaceholderProver,
-    compute_tx_commitment, RetentionPolicy, ProofSystem,
+    compute_tx_commitment, BlockAggregationProof, PlaceholderProver, ProofSystem, RetentionPolicy,
+    StarkProver,
 };
 
 /// 32-byte hash output used throughout PIChain.

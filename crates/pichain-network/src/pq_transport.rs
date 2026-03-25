@@ -135,9 +135,13 @@ pub fn create_pq_announce(
 ///
 /// Checks that the ML-DSA signature is valid over the announcement message
 /// (which includes the SLH-DSA public key hash commitment).
-pub fn verify_pq_announce(announce: &PqValidatorAnnounce) -> Result<(), pichain_crypto::CryptoError> {
+pub fn verify_pq_announce(
+    announce: &PqValidatorAnnounce,
+) -> Result<(), pichain_crypto::CryptoError> {
     let msg = pq_announce_message(&announce.address, announce.stake, &announce.slh_dsa_pk_hash);
-    announce.ml_dsa_public_key.verify(&msg, &announce.ml_dsa_signature)
+    announce
+        .ml_dsa_public_key
+        .verify(&msg, &announce.ml_dsa_signature)
 }
 
 /// Shared secret derivation using hybrid classical + PQ key exchange.
@@ -150,11 +154,8 @@ pub fn verify_pq_announce(announce: &PqValidatorAnnounce) -> Result<(), pichain_
 /// This is the "hybrid" approach recommended by NIST and implemented by
 /// Chrome, Cloudflare, and AWS for TLS connections.
 pub fn hybrid_shared_secret(x25519_shared: &[u8; 32], ml_kem_shared: &[u8; 32]) -> [u8; 32] {
-    let combined = pichain_crypto::hash_concat(&[
-        x25519_shared,
-        ml_kem_shared,
-        b"pichain-hybrid-ke",
-    ]);
+    let combined =
+        pichain_crypto::hash_concat(&[x25519_shared, ml_kem_shared, b"pichain-hybrid-ke"]);
     *combined.as_bytes()
 }
 
@@ -169,13 +170,8 @@ mod tests {
         let addr = kp.address();
         let stake = 10_000_000_000_000; // 10,000 PI
 
-        let announce = create_pq_announce(
-            addr,
-            stake,
-            &kp.ml_dsa_pk,
-            &kp.ml_dsa_sk,
-            &kp.slh_dsa_pk,
-        );
+        let announce =
+            create_pq_announce(addr, stake, &kp.ml_dsa_pk, &kp.ml_dsa_sk, &kp.slh_dsa_pk);
 
         assert!(verify_pq_announce(&announce).is_ok());
         assert_eq!(announce.address, addr.0);
@@ -191,7 +187,8 @@ mod tests {
         let kp = PqKeypair::generate();
         let addr = kp.address();
 
-        let mut announce = create_pq_announce(addr, 1000, &kp.ml_dsa_pk, &kp.ml_dsa_sk, &kp.slh_dsa_pk);
+        let mut announce =
+            create_pq_announce(addr, 1000, &kp.ml_dsa_pk, &kp.ml_dsa_sk, &kp.slh_dsa_pk);
         announce.stake = 9999; // tamper
 
         assert!(verify_pq_announce(&announce).is_err());
@@ -212,14 +209,21 @@ mod tests {
 
         // Verify with wrong public key should fail
         let msg = pq_announce_message(&announce.address, announce.stake, &announce.slh_dsa_pk_hash);
-        assert!(kp2.ml_dsa_pk.verify(&msg, &announce.ml_dsa_signature).is_err());
+        assert!(kp2
+            .ml_dsa_pk
+            .verify(&msg, &announce.ml_dsa_signature)
+            .is_err());
     }
 
     #[test]
     fn pq_announce_rejects_tampered_slh_hash() {
         let kp = PqKeypair::generate();
         let mut announce = create_pq_announce(
-            kp.address(), 1000, &kp.ml_dsa_pk, &kp.ml_dsa_sk, &kp.slh_dsa_pk,
+            kp.address(),
+            1000,
+            &kp.ml_dsa_pk,
+            &kp.ml_dsa_sk,
+            &kp.slh_dsa_pk,
         );
         announce.slh_dsa_pk_hash[0] ^= 0xFF; // tamper with SLH-DSA commitment
         assert!(verify_pq_announce(&announce).is_err());

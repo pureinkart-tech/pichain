@@ -3,9 +3,7 @@
 //! Provides ~70,000 verifications/sec/core, deterministic signatures,
 //! and batch verification support.
 
-use ed25519_dalek::{
-    Signer, SigningKey, Verifier, VerifyingKey,
-};
+use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -33,8 +31,8 @@ impl PublicKey {
     }
 
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), CryptoError> {
-        let verifying_key = VerifyingKey::from_bytes(&self.0)
-            .map_err(|_| CryptoError::InvalidPublicKey)?;
+        let verifying_key =
+            VerifyingKey::from_bytes(&self.0).map_err(|_| CryptoError::InvalidPublicKey)?;
         let sig = ed25519_dalek::Signature::from_bytes(&signature.0);
         verifying_key
             .verify(message, &sig)
@@ -212,9 +210,7 @@ pub fn verify_batch(
 
     let verifying_keys: Vec<VerifyingKey> = public_keys
         .iter()
-        .map(|pk| {
-            VerifyingKey::from_bytes(&pk.0).map_err(|_| CryptoError::InvalidPublicKey)
-        })
+        .map(|pk| VerifyingKey::from_bytes(&pk.0).map_err(|_| CryptoError::InvalidPublicKey))
         .collect::<Result<Vec<_>, _>>()?;
 
     let sigs: Vec<ed25519_dalek::Signature> = signatures
@@ -222,12 +218,8 @@ pub fn verify_batch(
         .map(|s| ed25519_dalek::Signature::from_bytes(&s.0))
         .collect();
 
-    ed25519_dalek::verify_batch(
-        messages,
-        &sigs,
-        &verifying_keys,
-    )
-    .map_err(|_| CryptoError::InvalidSignature)
+    ed25519_dalek::verify_batch(messages, &sigs, &verifying_keys)
+        .map_err(|_| CryptoError::InvalidSignature)
 }
 
 #[cfg(test)]
@@ -288,7 +280,10 @@ mod tests {
         // secret material. Verify that after drop, the key bytes are zeroed.
         let kp = Keypair::generate();
         let original_bytes = kp.secret.to_bytes();
-        assert_ne!(original_bytes, [0u8; 32], "generated key should not be all zeros");
+        assert_ne!(
+            original_bytes, [0u8; 32],
+            "generated key should not be all zeros"
+        );
 
         // After signing, key should still work
         let sig = kp.sign(b"test");
@@ -303,6 +298,9 @@ mod tests {
         // "zero" signing key (i.e., the zeroize path produces a valid state).
         let zero_key = SecretKey::from_bytes(&[0u8; 32]);
         let zero_bytes = zero_key.to_bytes();
-        assert_eq!(zero_bytes, [0u8; 32], "zero key should roundtrip as all zeros");
+        assert_eq!(
+            zero_bytes, [0u8; 32],
+            "zero key should roundtrip as all zeros"
+        );
     }
 }
