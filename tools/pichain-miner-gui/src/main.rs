@@ -205,6 +205,18 @@ async fn send_pi(
         .map_err(|e| format!("Network error: {e}"))?;
     let acct: serde_json::Value = acct_resp.json().await.unwrap_or_default();
     let nonce = acct["nonce"].as_u64().unwrap_or(0);
+    let balance = acct["balance"].as_u64().unwrap_or(0);
+
+    // Check sufficient balance before submitting
+    let gas_cost = 21_000u64 * 10_000; // gas_limit * max_base_fee
+    let total_needed = base_units.saturating_add(gas_cost);
+    if balance < total_needed {
+        return Err(format!(
+            "Insufficient balance: have {:.4} PI, need {:.4} PI (amount + gas fee)",
+            balance as f64 / 1e9,
+            total_needed as f64 / 1e9
+        ));
+    }
 
     // Build and sign
     let tx_data = pichain_types::TransactionData {

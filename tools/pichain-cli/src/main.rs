@@ -205,13 +205,20 @@ async fn main() {
             let client = reqwest::Client::new();
             let sender_hex = hex::encode(sender.0);
             let acct_url = format!("{}/api/v1/account/{}", rpc_url, sender_hex);
-            let nonce = match client.get(&acct_url).send().await {
+            let (nonce, balance) = match client.get(&acct_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                    body["nonce"].as_u64().unwrap_or(0)
+                    (body["nonce"].as_u64().unwrap_or(0), body["balance"].as_u64().unwrap_or(0))
                 }
-                _ => 0,
+                _ => (0, 0),
             };
+
+            // Check balance before submitting
+            if balance < base_units {
+                eprintln!("ERROR: insufficient balance: have {:.4} PI, trying to send {:.4} PI",
+                    balance as f64 / 1e9, amount);
+                std::process::exit(1);
+            }
 
             // Build and sign transaction
             let tx_data = pichain_types::TransactionData {
