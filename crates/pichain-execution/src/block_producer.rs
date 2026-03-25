@@ -283,12 +283,8 @@ impl BlockProducer {
             .map(|r| r.miner_fee)
             .fold(0u64, |acc, v| acc.saturating_add(v));
 
-        // Credit block proposer with priority fee + staker share rewards
-        if total_proposer_reward > 0 {
-            let proposer = self.config.validator_address;
-            self.executor
-                .credit_account(proposer, total_proposer_reward);
-        }
+        // Proposer fee credit is handled by the caller (main.rs persist task)
+        // to match the follower path and ensure identical state transitions.
 
         // Feed miner fees back into the mining pool for perpetual sustainability
         if total_miner_fee > 0 {
