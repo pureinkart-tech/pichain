@@ -1252,26 +1252,38 @@ impl NodeState {
             computed_state_root
         }; // Release store lock before acquiring staking lock
 
-        // Distribute staking rewards (65% of fees go to stakers)
+        // Distribute fee rewards (4-way π-native split)
         let fee_calculator = pichain_execution::FeeCalculator::new();
-        let total_fees: u64 = produced
+        let total_base_fees: u64 = produced
             .execution_results
             .iter()
-            .map(|r| fee_calculator.calculate_fee(r.effect.gas_used, r.effect.base_fee, 0))
+            .map(|r| fee_calculator.calculate_base_fee(r.effect.gas_used, r.effect.base_fee))
             .fold(0u64, |acc, v| acc.saturating_add(v));
-        let staker_reward_u128 =
-            total_fees as u128 * pichain_types::FEE_STAKER_RATE_BPS as u128 / 10_000;
-        let staker_reward = u64::try_from(staker_reward_u128).unwrap_or_else(|_| {
-            error!(
-                staker_reward_u128,
-                "staker reward exceeds u64 — clamping to u64::MAX"
-            );
-            u64::MAX
-        });
-        if staker_reward > 0 {
+
+        // 31.41% of base fees → stakers (distributed proportionally)
+        let staker_reward = (total_base_fees as u128
+            * pichain_types::FEE_STAKER_RATE_BPS as u128
+            / 10_000) as u64;
+
+        // 18.59% of base fees → block proposer (on top of priority fees)
+        let proposer_fee_reward = (total_base_fees as u128
+            * pichain_types::FEE_PROPOSER_RATE_BPS as u128
+            / 10_000) as u64;
+
+        if staker_reward > 0 || proposer_fee_reward > 0 {
             let mut staking = self.staking.write().await;
-            staking.distribute_rewards(staker_reward);
+            if staker_reward > 0 {
+                staking.distribute_rewards(staker_reward);
+            }
             staking.record_block_proposed(produced.block.header.proposer);
+
+            // Credit proposer's base fee share directly
+            if proposer_fee_reward > 0 {
+                let proposer = produced.block.header.proposer;
+                let mut acct = self.executor.get_account(&proposer).unwrap_or_default();
+                acct.balance = acct.balance.saturating_add(proposer_fee_reward);
+                self.executor.set_account(proposer, acct);
+            }
         }
 
         Ok(state_root)

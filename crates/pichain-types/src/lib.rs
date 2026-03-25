@@ -65,15 +65,19 @@ pub const MAX_VALIDATORS: u32 = 3_141;
 /// Epoch length in blocks.
 pub const EPOCH_LENGTH: u64 = 31_415;
 
-/// Fee burn rate (31.41% = π × 1000 bps — permanently burned, deflationary).
+/// Fee burn rate (31.41% = π × 1000 bps — permanently destroyed, deflationary).
 pub const FEE_BURN_RATE_BPS: u16 = 3141;
 
-/// Fee to miners rate (18.59% — flows back into mining pool).
-/// Complement of burn to keep burn + miner + staker = 100%.
+/// Fee to stakers rate (31.41% = π × 1000 bps — distributed to all stakers proportionally).
+/// Incentivizes staking → more tokens locked → less sell pressure.
+pub const FEE_STAKER_RATE_BPS: u16 = 3141;
+
+/// Fee to mining pool rate (18.59% — replenishes mining rewards, keeps mining alive forever).
 pub const FEE_MINER_RATE_BPS: u16 = 1859;
 
-/// Fee to stakers/proposer rate (50% of base fee — credited to block proposer).
-pub const FEE_STAKER_RATE_BPS: u16 = 5000;
+/// Fee to block proposer rate (18.59% — rewards the validator who produced this block).
+/// Block proposer also receives 100% of priority fees (tips) on top of this.
+pub const FEE_PROPOSER_RATE_BPS: u16 = 1859;
 
 /// Network mode — determines genesis config and safety guards.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

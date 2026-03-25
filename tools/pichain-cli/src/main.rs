@@ -325,10 +325,11 @@ async fn main() {
             println!("  85% Mining Pool: 2,670,353,755 PI");
             println!("  10% Staking:       314,159,265 PI");
             println!("   5% Liquidity:     157,079,632 PI\n");
-            println!("Fee Structure (EIP-1559 + Burn):");
-            println!("  31.41% burned permanently (pi x 1000 bps)");
+            println!("Fee Structure (4-way pi-native split):");
+            println!("  31.41% burned permanently");
+            println!("  31.41% to stakers (proportional to stake)");
             println!("  18.59% mining pool replenishment");
-            println!("  50.00% stakers / block proposer\n");
+            println!("  18.59% block proposer (+ 100% priority tips)\n");
             println!("Emission: pi-smooth decay (half-life = pi years)");
 
             let calc = pichain_mining::RewardCalculator::new();
