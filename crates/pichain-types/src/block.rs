@@ -117,11 +117,11 @@ pub struct Block {
     pub header: BlockHeader,
     /// Ordered transactions.
     pub transactions: Vec<SignedTransaction>,
-    /// Proposer's Ed25519 public key (32 bytes, hex-encoded).
-    /// Needed to verify signature since Ed25519 doesn't support key recovery.
+    /// Proposer's ML-DSA-65 public key (1,952 bytes).
+    /// Used to verify the block signature.
     #[serde(default)]
     pub proposer_pubkey: Vec<u8>,
-    /// Ed25519 signature over the header hash (64 bytes, hex-encoded).
+    /// ML-DSA-65 signature over the header hash (3,309 bytes).
     /// Proves the claimed proposer actually produced this block.
     /// Genesis blocks have an empty signature.
     #[serde(default)]
@@ -155,52 +155,58 @@ impl Block {
         }
     }
 
-    /// Sign this block with the proposer's Ed25519 keypair.
-    pub fn sign(&mut self, keypair: &pichain_crypto::keys::Keypair) {
-        self.proposer_pubkey = keypair.public.0.to_vec();
+    /// Sign this block with the proposer's PQ keypair (ML-DSA-65).
+    pub fn sign_pq(&mut self, pq_keypair: &pichain_crypto::PqKeypair) {
+        self.proposer_pubkey = pq_keypair.ml_dsa_pk.as_bytes().to_vec();
         let header_hash = self.header.hash();
-        let sig = keypair.secret.sign(header_hash.as_bytes());
-        self.proposer_sig = sig.to_bytes().to_vec();
+        let pq_sig = pq_keypair.sign(header_hash.as_bytes());
+        self.proposer_sig = pq_sig.ml_sig.as_bytes().to_vec();
     }
 
-    /// Verify the proposer's Ed25519 signature over the header hash.
+    /// Verify the proposer's PQ signature (ML-DSA-65) over the header hash.
     /// Returns Ok(()) if valid, Err with description if invalid.
     /// Genesis blocks (height 0) are exempt from signature verification.
     pub fn verify_proposer_sig(&self) -> Result<(), String> {
         if self.header.height == 0 {
             return Ok(()); // Genesis block has no proposer
         }
-        // Validate field lengths
-        if self.proposer_pubkey.len() != 32 {
-            return Err(format!(
-                "proposer_pubkey must be 32 bytes, got {}",
-                self.proposer_pubkey.len()
-            ));
+        // Accept both legacy 32-byte (ed25519) and PQ 1952-byte (ML-DSA) pubkeys
+        // for backwards compat with existing chain data
+        if self.proposer_pubkey.len() == 32 {
+            // Legacy block — verify with ed25519
+            let mut pk_bytes = [0u8; 32];
+            pk_bytes.copy_from_slice(&self.proposer_pubkey);
+            let pubkey = pichain_crypto::keys::PublicKey(pk_bytes);
+            let derived_addr = pubkey.to_address();
+            if derived_addr != self.header.proposer {
+                return Err(format!(
+                    "proposer pubkey derives to {derived_addr}, but header claims {}",
+                    self.header.proposer
+                ));
+            }
+            if self.proposer_sig.len() != 64 {
+                return Err(format!(
+                    "proposer_sig must be 64 bytes for legacy blocks, got {}",
+                    self.proposer_sig.len()
+                ));
+            }
+            let header_hash = self.header.hash();
+            let mut sig_bytes = [0u8; 64];
+            sig_bytes.copy_from_slice(&self.proposer_sig);
+            let sig = pichain_crypto::keys::Signature::from_bytes(&sig_bytes);
+            pubkey
+                .verify(header_hash.as_bytes(), &sig)
+                .map_err(|e| format!("proposer signature verification failed: {e}"))
+        } else {
+            // PQ block — verify with ML-DSA-65
+            let ml_pk = pichain_crypto::MlDsaPublicKey::from_bytes(&self.proposer_pubkey)
+                .map_err(|e| format!("invalid ML-DSA pubkey: {e}"))?;
+            let ml_sig = pichain_crypto::MlDsaSignature::from_bytes(&self.proposer_sig)
+                .map_err(|e| format!("invalid ML-DSA signature: {e}"))?;
+            let header_hash = self.header.hash();
+            ml_pk.verify(header_hash.as_bytes(), &ml_sig)
+                .map_err(|e| format!("proposer PQ signature verification failed: {e}"))
         }
-        if self.proposer_sig.len() != 64 {
-            return Err(format!(
-                "proposer_sig must be 64 bytes, got {}",
-                self.proposer_sig.len()
-            ));
-        }
-        // Verify the embedded public key derives to the claimed proposer address
-        let mut pk_bytes = [0u8; 32];
-        pk_bytes.copy_from_slice(&self.proposer_pubkey);
-        let pubkey = pichain_crypto::keys::PublicKey(pk_bytes);
-        let derived_addr = pubkey.to_address();
-        if derived_addr != self.header.proposer {
-            return Err(format!(
-                "proposer pubkey derives to {derived_addr}, but header claims {}",
-                self.header.proposer
-            ));
-        }
-        let header_hash = self.header.hash();
-        let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&self.proposer_sig);
-        let sig = pichain_crypto::keys::Signature::from_bytes(&sig_bytes);
-        pubkey
-            .verify(header_hash.as_bytes(), &sig)
-            .map_err(|e| format!("proposer signature verification failed: {e}"))
     }
 
     /// Compute the transaction Merkle root.

@@ -113,6 +113,7 @@ impl<'de> Deserialize<'de> for MlDsaPublicKey {
 }
 
 /// ML-DSA-65 secret key (4,032 bytes). Zeroized on drop.
+#[derive(Clone)]
 pub struct MlDsaSecretKey(Vec<u8>);
 
 impl MlDsaSecretKey {
@@ -276,6 +277,7 @@ impl<'de> Deserialize<'de> for SlhDsaPublicKey {
 }
 
 /// SLH-DSA-SHAKE-128f secret key (64 bytes). Zeroized on drop.
+#[derive(Clone)]
 pub struct SlhDsaSecretKey(Vec<u8>);
 
 impl SlhDsaSecretKey {
@@ -378,6 +380,7 @@ impl<'de> Deserialize<'de> for SlhDsaSignature {
 /// - Hash-based (SLH-DSA): broken only if hash preimage resistance fails
 ///
 /// The probability of both being broken simultaneously is negligible.
+#[derive(Clone)]
 pub struct PqKeypair {
     pub ml_dsa_sk: MlDsaSecretKey,
     pub ml_dsa_pk: MlDsaPublicKey,

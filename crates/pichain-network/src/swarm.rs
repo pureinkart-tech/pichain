@@ -1021,7 +1021,7 @@ fn is_routable_address(addr: &Multiaddr) -> bool {
 pub fn peer_id_from_ed25519(secret: &[u8; 32]) -> Result<PeerId, NetworkError> {
     let mut bytes = *secret;
     let ed_key = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut bytes)
-        .map_err(|e| NetworkError::Transport(format!("invalid ed25519 key: {e}")))?;
+        .map_err(|e| NetworkError::Transport(format!("invalid P2P identity key: {e}")))?;
     let ed_keypair = libp2p::identity::ed25519::Keypair::from(ed_key);
     let keypair = Keypair::from(ed_keypair);
     Ok(PeerId::from(keypair.public()))

@@ -1,39 +1,36 @@
+//! PIChain PQ Wallet — Post-Quantum only (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+//!
+//! All wallets are encrypted with AES-256-GCM using Argon2-derived keys.
+//! No legacy crypto paths exist.
+
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
-use pichain_crypto::Keypair;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const WALLET_VERSION: u8 = 2;
-
 // ---------- File format ----------
 
+/// On-disk wallet file format (version 3 = encrypted PQ).
 #[derive(Serialize, Deserialize)]
 pub struct WalletFile {
-    #[serde(default = "default_version")]
     pub version: u8,
-    // V1 (legacy plaintext)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub secret_key: Option<String>,
-    // V2 (encrypted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub salt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
-    // Common
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
-}
-
-fn default_version() -> u8 {
-    1
+    /// Legacy field — ignored, kept only so old wallet files can be deserialized
+    /// without error (they'll fail at the PQ key validation step instead).
+    #[serde(default, skip_serializing)]
+    pub secret_key: Option<String>,
 }
 
 impl WalletFile {
     pub fn is_encrypted(&self) -> bool {
-        self.version >= 2 && self.encrypted_key.is_some()
+        self.version >= 3 && self.encrypted_key.is_some()
     }
 }
 
@@ -49,7 +46,6 @@ pub struct WalletInfo {
 pub struct CreateWalletResult {
     pub address: String,
     pub path: String,
-    pub secret_key: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -120,7 +116,7 @@ fn decrypt_secret(
         .map_err(|_| "Wrong password or corrupted wallet file".to_string())
 }
 
-// ---------- Wallet operations ----------
+// ---------- Wallet operations (PQ only) ----------
 
 pub fn check_wallet_format(path: &str) -> Result<WalletFormatInfo, String> {
     let path = PathBuf::from(path);
@@ -139,203 +135,6 @@ pub fn check_wallet_format(path: &str) -> Result<WalletFormatInfo, String> {
         encrypted: wallet.is_encrypted(),
     })
 }
-
-pub fn create_wallet(save_path: &str, password: &str) -> Result<CreateWalletResult, String> {
-    let path = PathBuf::from(save_path);
-
-    if path.exists() {
-        return Err(format!(
-            "Wallet already exists at '{}'. Remove it first or choose a different path.",
-            path.display()
-        ));
-    }
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
-    }
-
-    let kp = Keypair::generate();
-    let address = hex::encode(kp.address().0);
-    let secret_bytes = kp.secret.to_bytes();
-    let secret_key_hex = hex::encode(secret_bytes);
-
-    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
-
-    let wallet = WalletFile {
-        version: WALLET_VERSION,
-        secret_key: None,
-        encrypted_key: Some(hex::encode(&ciphertext)),
-        salt: Some(hex::encode(&salt)),
-        nonce: Some(hex::encode(&nonce)),
-        address: Some(address.clone()),
-    };
-
-    let json =
-        serde_json::to_string_pretty(&wallet).map_err(|e| format!("Serialization error: {e}"))?;
-    std::fs::write(&path, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
-
-    restrict_file_permissions(&path);
-
-    Ok(CreateWalletResult {
-        address,
-        path: path.display().to_string(),
-        secret_key: secret_key_hex,
-    })
-}
-
-pub fn import_wallet(
-    secret_key_hex: &str,
-    save_path: &str,
-    password: &str,
-) -> Result<WalletInfo, String> {
-    let path = PathBuf::from(save_path);
-
-    if path.exists() {
-        return Err(format!(
-            "Wallet already exists at '{}'. Remove it first or choose a different path.",
-            path.display()
-        ));
-    }
-
-    let secret_bytes =
-        hex::decode(secret_key_hex.trim()).map_err(|e| format!("Invalid hex: {e}"))?;
-    if secret_bytes.len() != 32 {
-        return Err(format!(
-            "Secret key must be 32 bytes (got {})",
-            secret_bytes.len()
-        ));
-    }
-
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&secret_bytes);
-    let kp = Keypair::from_secret_bytes(&arr);
-    let address = hex::encode(kp.address().0);
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
-    }
-
-    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
-
-    let wallet = WalletFile {
-        version: WALLET_VERSION,
-        secret_key: None,
-        encrypted_key: Some(hex::encode(&ciphertext)),
-        salt: Some(hex::encode(&salt)),
-        nonce: Some(hex::encode(&nonce)),
-        address: Some(address.clone()),
-    };
-
-    let json =
-        serde_json::to_string_pretty(&wallet).map_err(|e| format!("Serialization error: {e}"))?;
-    std::fs::write(&path, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
-
-    restrict_file_permissions(&path);
-
-    Ok(WalletInfo {
-        address,
-        path: path.display().to_string(),
-    })
-}
-
-/// Load a wallet. For encrypted wallets, password is required.
-/// Returns (keypair, info, is_encrypted).
-pub fn load_wallet(
-    path: &str,
-    password: Option<&str>,
-) -> Result<(Keypair, WalletLoadResult, bool), String> {
-    let path = PathBuf::from(path);
-    let contents =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read wallet: {e}"))?;
-    let wallet: WalletFile =
-        serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
-
-    let (secret_bytes, is_encrypted) = if wallet.is_encrypted() {
-        let password = password.ok_or("Password required")?;
-        let salt = hex::decode(wallet.salt.as_deref().ok_or("Missing salt field")?)
-            .map_err(|e| format!("Invalid salt hex: {e}"))?;
-        let nonce = hex::decode(wallet.nonce.as_deref().ok_or("Missing nonce field")?)
-            .map_err(|e| format!("Invalid nonce hex: {e}"))?;
-        let ct = hex::decode(
-            wallet
-                .encrypted_key
-                .as_deref()
-                .ok_or("Missing encrypted_key field")?,
-        )
-        .map_err(|e| format!("Invalid ciphertext hex: {e}"))?;
-        let decrypted = decrypt_secret(&salt, &nonce, &ct, password)?;
-        (decrypted, true)
-    } else {
-        // Legacy plaintext wallet
-        let sk_hex = wallet
-            .secret_key
-            .as_deref()
-            .ok_or("Missing secret_key field")?;
-        let bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid hex key: {e}"))?;
-        (bytes, false)
-    };
-
-    if secret_bytes.len() != 32 {
-        return Err(format!(
-            "Secret key must be 32 bytes (got {})",
-            secret_bytes.len()
-        ));
-    }
-
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&secret_bytes);
-    let kp = Keypair::from_secret_bytes(&arr);
-    let address = hex::encode(kp.address().0);
-
-    Ok((
-        kp,
-        WalletLoadResult {
-            address,
-            path: path.display().to_string(),
-            encrypted: is_encrypted,
-        },
-        is_encrypted,
-    ))
-}
-
-/// Migrate a plaintext wallet to encrypted format.
-pub fn migrate_wallet(path: &str, password: &str) -> Result<(), String> {
-    let path_buf = PathBuf::from(path);
-    let contents =
-        std::fs::read_to_string(&path_buf).map_err(|e| format!("Failed to read wallet: {e}"))?;
-    let wallet: WalletFile =
-        serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
-
-    if wallet.is_encrypted() {
-        return Err("Wallet is already encrypted".to_string());
-    }
-
-    let sk_hex = wallet
-        .secret_key
-        .as_deref()
-        .ok_or("Missing secret_key field")?;
-    let secret_bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid hex key: {e}"))?;
-
-    let (salt, nonce, ciphertext) = encrypt_secret(&secret_bytes, password);
-
-    let new_wallet = WalletFile {
-        version: WALLET_VERSION,
-        secret_key: None,
-        encrypted_key: Some(hex::encode(&ciphertext)),
-        salt: Some(hex::encode(&salt)),
-        nonce: Some(hex::encode(&nonce)),
-        address: wallet.address,
-    };
-
-    let json = serde_json::to_string_pretty(&new_wallet)
-        .map_err(|e| format!("Serialization error: {e}"))?;
-    std::fs::write(&path_buf, &json).map_err(|e| format!("Failed to write wallet: {e}"))?;
-    restrict_file_permissions(&path_buf);
-
-    Ok(())
-}
-
-// ---------- PQ Wallet operations ----------
 
 /// Create a new post-quantum wallet (ML-DSA-65 + SLH-DSA-SHAKE-128f).
 /// The PQ key material is encrypted with AES-256-GCM using Argon2-derived key.
@@ -357,7 +156,7 @@ pub fn create_pq_wallet(save_path: &str, password: &str) -> Result<CreateWalletR
     let (salt, nonce, ciphertext) = encrypt_secret(&export_json, password);
 
     let wallet = WalletFile {
-        version: 3, // Version 3 = encrypted PQ wallet
+        version: 3,
         secret_key: None,
         encrypted_key: Some(hex::encode(&ciphertext)),
         salt: Some(hex::encode(&salt)),
@@ -373,7 +172,6 @@ pub fn create_pq_wallet(save_path: &str, password: &str) -> Result<CreateWalletR
     Ok(CreateWalletResult {
         address,
         path: path.display().to_string(),
-        secret_key: String::new(), // PQ wallets don't expose raw secret
     })
 }
 
@@ -388,7 +186,7 @@ pub fn load_pq_wallet(
     let wallet: WalletFile =
         serde_json::from_str(&contents).map_err(|e| format!("Invalid wallet JSON: {e}"))?;
 
-    if wallet.version == 3 {
+    if wallet.is_encrypted() {
         // Encrypted PQ wallet (v3)
         let password = password.ok_or("Password required for encrypted PQ wallet")?;
         let salt = hex::decode(wallet.salt.as_deref().ok_or("Missing salt")?)

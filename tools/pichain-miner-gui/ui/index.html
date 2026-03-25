@@ -113,8 +113,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .modal p { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 
-/* Secret key display */
-.secret-key-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; color: var(--rose); word-break: break-all; margin: 8px 0 12px; user-select: all; -webkit-app-region: no-drag; cursor: text; }
+/* Wallet info display */
+.wallet-info-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; color: var(--rose); word-break: break-all; margin: 8px 0 12px; user-select: all; -webkit-app-region: no-drag; cursor: text; }
 .warning-box { background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.3); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 12px; font-size: 12px; color: var(--rose); line-height: 1.6; }
 
 /* Toast notification */
@@ -257,7 +257,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
 
   <!-- Encryption migration banner (legacy wallets) -->
   <div class="encrypt-banner" id="encrypt-banner" style="display:none;" role="alert">
-    <span><strong>Wallet not encrypted:</strong> Your secret key is stored in plaintext. Encrypt it with a password for better security.</span>
+    <span><strong>Wallet not encrypted:</strong> Your wallet is not encrypted. Set a password for better security.</span>
     <button class="btn btn-primary btn-sm" onclick="doMigrateWallet()">Encrypt Now</button>
   </div>
 
@@ -418,7 +418,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
       <strong>IMPORTANT:</strong> Your wallet is protected by post-quantum cryptography (ML-DSA-65 + SLH-DSA). Keep your wallet file and password safe — if you lose both, your PI tokens are gone forever.
     </div>
     <p style="font-size:13px;margin-bottom:6px;">Your wallet address:</p>
-    <div class="secret-key-box" id="backup-secret-key" aria-label="Wallet address" style="font-size:13px;word-break:break-all;"></div>
+    <div class="wallet-info-box" id="backup-wallet-address" aria-label="Wallet address" style="font-size:13px;word-break:break-all;"></div>
     <p style="font-size:13px;margin-top:10px;">Wallet file location:</p>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:10px;">
       <span style="color:var(--cyan);font-family:monospace;font-size:12px;" id="backup-wallet-path"></span>
@@ -429,7 +429,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
       <label for="backup-ack" style="font-size:13px;color:var(--text);cursor:pointer;">I understand — I will back up my wallet file and remember my password</label>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-secondary btn-sm" onclick="copySecretKey()">Copy Address</button>
+      <button class="btn btn-secondary btn-sm" onclick="copyAddress()">Copy Address</button>
       <button class="btn btn-primary" id="backup-proceed" onclick="dismissBackupModal()" disabled>Continue</button>
     </div>
   </div>
@@ -503,7 +503,7 @@ let walletEncrypted = false;
 let isMining = false;
 let estimatedEarned = 0;
 let lastRewardPerDigit = 0;
-let pendingSecretKey = '';
+let pendingAddress = '';
 
 // ---------- Settings persistence ----------
 
@@ -813,7 +813,7 @@ async function doMigrateWallet() {
 // ---------- Backup modal ----------
 
 function showBackupModal(secretKey, path) {
-  document.getElementById('backup-secret-key').textContent = secretKey;
+  document.getElementById('backup-wallet-address').textContent = secretKey;
   document.getElementById('backup-wallet-path').textContent = path;
   document.getElementById('backup-ack').checked = false;
   document.getElementById('backup-proceed').disabled = true;
@@ -822,16 +822,16 @@ function showBackupModal(secretKey, path) {
 
 function dismissBackupModal() {
   document.getElementById('backup-modal').classList.remove('active');
-  document.getElementById('backup-secret-key').textContent = '';
-  pendingSecretKey = '';
+  document.getElementById('backup-wallet-address').textContent = '';
+  pendingAddress = '';
   showToast('Wallet ready! Hit Start Mining to begin earning PI.', 'success');
   // Pulse the mining button to draw attention
   const btn = document.getElementById('mine-btn');
   if (btn) { btn.classList.add('pulse-glow'); setTimeout(() => btn.classList.remove('pulse-glow'), 4000); }
 }
 
-function copySecretKey() {
-  const key = document.getElementById('backup-secret-key').textContent;
+function copyAddress() {
+  const key = document.getElementById('backup-wallet-address').textContent;
   navigator.clipboard.writeText(key);
   showToast('Address copied to clipboard', 'success');
 }
@@ -1233,7 +1233,7 @@ async function doExportKey() {
   }
   try {
     const key = await invoke('export_wallet_key', { password: password });
-    document.getElementById('backup-secret-key').textContent = key;
+    document.getElementById('backup-wallet-address').textContent = key;
     document.getElementById('backup-wallet-path').textContent = walletPath;
     document.getElementById('backup-ack').checked = false;
     document.getElementById('backup-proceed').disabled = true;

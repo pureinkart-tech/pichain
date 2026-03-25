@@ -17,22 +17,23 @@ use tracing_subscriber::EnvFilter;
 
 /// Validator key file persisted to {data_dir}/validator.key.
 ///
-/// `p2p_secret` is used ONLY for libp2p peer identity (network routing).
-/// It does NOT sign transactions or blocks — all signing is post-quantum
-/// (ML-DSA-65 + SLH-DSA-SHAKE-128f).
+/// Contains three key types:
+/// - `p2p_secret`: libp2p peer identity (ed25519, required by libp2p protocol)
+/// - `bls_secret`: BLS12-381 for consensus attestations
+/// - `pq_wallet`: PQ keypair (ML-DSA-65 + SLH-DSA) for block signing + validator address
 ///
-/// ## PQ upgrade path
-///
-/// When libp2p adds PQ identity support, add a `p2p_pq_secret` field here
-/// and update `PiChainSwarm::start()` to use it. The old `p2p_secret` field
-/// can be kept for migration. All other PIChain signing is already PQ-native.
+/// When libp2p adds PQ identity support, `p2p_secret` can be migrated.
 #[derive(Serialize, Deserialize)]
 struct ValidatorKeyFile {
-    /// libp2p P2P identity key (network routing only, NOT transaction signing).
-    /// Uses ed25519 because libp2p requires it. Will be replaced with PQ when available.
+    /// libp2p P2P identity key (network routing only).
+    /// Uses ed25519 because libp2p requires it.
     #[serde(alias = "ed25519_secret")]
     p2p_secret: String,
     bls_secret: String,
+    /// PQ wallet export (ML-DSA-65 + SLH-DSA) for block signing.
+    /// Generated automatically on first run if missing.
+    #[serde(default)]
+    pq_wallet: Option<pichain_crypto::pq_wallet::PqWalletExport>,
 }
 
 #[derive(Parser)]
@@ -499,6 +500,7 @@ async fn main() -> anyhow::Result<()> {
                 let key_file = ValidatorKeyFile {
                     p2p_secret: hex::encode(ed_kp.secret.to_bytes()),
                     bls_secret: hex::encode(bls_kp.secret.to_bytes()),
+                    pq_wallet: None, // PQ keypair generated in step 8b
                 };
                 let json = serde_json::to_string_pretty(&key_file)?;
                 let tmp_path = key_path.with_extension("key.tmp");
@@ -512,6 +514,38 @@ async fn main() -> anyhow::Result<()> {
                 }
                 info!(address = %ed_kp.address(), "generated new validator keys → {}", key_path.display());
                 (ed_kp, bls_kp)
+            };
+
+            // --- 8b. Load or Generate PQ Block-Signing Keypair ---
+            let pq_block_signer: pichain_crypto::PqKeypair = {
+                // Reload key file to check for pq_wallet field
+                let key_data = std::fs::read_to_string(&key_path)?;
+                let mut keys: ValidatorKeyFile = serde_json::from_str(&key_data)
+                    .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
+
+                if let Some(ref pq_export) = keys.pq_wallet {
+                    // Load existing PQ keypair
+                    let kp = pichain_crypto::restore_pq_wallet(pq_export)
+                        .map_err(|e| anyhow::anyhow!("failed to restore PQ keypair: {e}"))?;
+                    info!(pq_address = %kp.address(), "loaded PQ block-signing keypair");
+                    kp
+                } else {
+                    // Generate new PQ keypair and persist
+                    info!("generating PQ block-signing keypair (ML-DSA-65 + SLH-DSA)...");
+                    let (kp, export) = pichain_crypto::generate_pq_wallet();
+                    keys.pq_wallet = Some(export);
+                    let json = serde_json::to_string_pretty(&keys)?;
+                    let tmp_path = key_path.with_extension("key.tmp");
+                    std::fs::write(&tmp_path, &json)?;
+                    std::fs::rename(&tmp_path, &key_path)?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
+                    }
+                    info!(pq_address = %kp.address(), "generated PQ block-signing keypair → {}", key_path.display());
+                    kp
+                }
             };
 
             // --- 9. Start P2P Networking ---
@@ -537,7 +571,7 @@ async fn main() -> anyhow::Result<()> {
             // --- 10. Initialize Consensus Engine ---
             // Build validator set: self + additional genesis validators from config
             let self_validator = pichain_consensus::Validator {
-                address: validator_key.address(),
+                address: pq_block_signer.address(),
                 bls_public_key: validator_bls.public.clone(),
                 bls_pop: Some(validator_bls.secret.proof_of_possession()),
                 stake: cfg.validator_stake_pi * pichain_types::BASE_UNITS_PER_PI,
@@ -746,14 +780,12 @@ async fn main() -> anyhow::Result<()> {
             let persist_consensus = consensus_engine.clone();
             let ws_broadcaster = rpc.ws_broadcaster().clone();
             let persist_p2p = p2p_broadcaster.clone();
-            // Create a signing keypair for the persist task (Keypair is not Clone due to zeroization)
-            let persist_signing_key = pichain_crypto::keys::Keypair::from_secret_bytes(
-                &validator_key.secret.to_bytes(),
-            );
+            // Clone the PQ keypair for the persist task (block signing)
+            let persist_pq_keypair = pq_block_signer.clone();
             let mut persist_handle = tokio::spawn(async move {
                 while let Some(mut produced) = block_rx.recv().await {
-                    // Sign the block with our validator keypair before persisting/broadcasting
-                    produced.block.sign(&persist_signing_key);
+                    // Sign the block with our PQ keypair (ML-DSA-65)
+                    produced.block.sign_pq(&persist_pq_keypair);
                     let height = produced.block.header.height;
                     let tx_count = produced.block.header.tx_count;
                     let block_hash = produced.block.header.hash();

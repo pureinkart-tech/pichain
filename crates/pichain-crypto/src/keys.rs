@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn ed25519_secret_key_zeroize_on_drop() {
+    fn secret_key_zeroize_on_drop() {
         // Fix 211: SecretKey Drop must use volatile writes (zeroize) to clear
         // secret material. Verify that after drop, the key bytes are zeroed.
         let kp = Keypair::generate();

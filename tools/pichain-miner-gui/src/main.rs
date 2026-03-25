@@ -115,7 +115,7 @@ async fn import_wallet(
     _secret_key: String,
     _save_path: String,
     _password: String,
-) -> Result<wallet::WalletInfo, String> {
+) -> Result<serde_json::Value, String> {
     Err("Key import is not supported. Create a new post-quantum wallet instead.".to_string())
 }
 
@@ -157,13 +157,11 @@ async fn check_wallet_exists(path: String) -> Result<bool, String> {
 
 #[tauri::command]
 async fn migrate_wallet(
-    path: String,
-    password: String,
-    state: State<'_, AppState>,
+    _path: String,
+    _password: String,
+    _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    wallet::migrate_wallet(&path, &password)?;
-    *state.wallet_encrypted.lock().await = true;
-    Ok(())
+    Err("Wallet migration is not supported. Create a new PQ wallet instead.".to_string())
 }
 
 #[tauri::command]
