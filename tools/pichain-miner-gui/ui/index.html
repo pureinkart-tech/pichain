@@ -278,6 +278,7 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
       <div class="wallet-actions">
         <button class="btn btn-secondary btn-sm" id="refresh-btn" onclick="refreshBalance()" aria-label="Refresh balance">Refresh</button>
         <button class="btn btn-primary btn-sm" onclick="copyAddress()" aria-label="Copy wallet address">Copy Address</button>
+        <button class="btn btn-success btn-sm" onclick="showSendModal()" aria-label="Send PI">Send PI</button>
         <button class="btn btn-danger btn-sm" onclick="doResetWallet()" aria-label="Reset wallet">Reset Wallet</button>
       </div>
     </div>
@@ -431,6 +432,28 @@ body { background-image: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.04
     <div class="modal-actions">
       <button class="btn btn-secondary btn-sm" onclick="copyAddress()">Copy Address</button>
       <button class="btn btn-primary" id="backup-proceed" onclick="dismissBackupModal()" disabled>Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send PI modal -->
+<div class="modal-overlay" id="send-modal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <h3>Send PI</h3>
+    <p style="font-size:13px;color:var(--dim);margin-bottom:12px;">Send PI to any PIChain address.</p>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:12px;color:var(--dim);">Recipient Address</label>
+      <input type="text" id="send-to" placeholder="Pi314..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:monospace;font-size:12px;margin-top:4px;">
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:12px;color:var(--dim);">Amount (PI)</label>
+      <input type="number" id="send-amount" placeholder="0.00" step="0.001" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;margin-top:4px;">
+    </div>
+    <div id="send-error" style="color:var(--rose);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <div id="send-success" style="color:var(--green);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="hideSendModal()">Cancel</button>
+      <button class="btn btn-success" id="send-btn" onclick="doSendPi()">Send</button>
     </div>
   </div>
 </div>
@@ -1235,6 +1258,57 @@ async function doExportKey() {
   document.getElementById('backup-ack').checked = false;
   document.getElementById('backup-proceed').disabled = true;
   document.getElementById('backup-modal').classList.add('active');
+}
+
+// ---------- Send PI ----------
+
+function showSendModal() {
+  document.getElementById('send-to').value = '';
+  document.getElementById('send-amount').value = '';
+  document.getElementById('send-error').style.display = 'none';
+  document.getElementById('send-success').style.display = 'none';
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('send-modal').classList.add('active');
+  setTimeout(() => document.getElementById('send-to').focus(), 100);
+}
+
+function hideSendModal() {
+  document.getElementById('send-modal').classList.remove('active');
+}
+
+async function doSendPi() {
+  const to = document.getElementById('send-to').value.trim();
+  const amount = parseFloat(document.getElementById('send-amount').value);
+  const errEl = document.getElementById('send-error');
+  const successEl = document.getElementById('send-success');
+  errEl.style.display = 'none';
+  successEl.style.display = 'none';
+
+  if (!to) { errEl.textContent = 'Enter a recipient address.'; errEl.style.display = 'block'; return; }
+  if (!amount || amount <= 0) { errEl.textContent = 'Enter an amount greater than 0.'; errEl.style.display = 'block'; return; }
+
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    const rpcUrl = document.getElementById('rpc-url') ? document.getElementById('rpc-url').value : 'https://pichain.net';
+    const result = await invoke('send_pi', {
+      rpcUrl: rpcUrl,
+      toAddress: to,
+      amountPi: amount,
+      chainId: 31415
+    });
+    successEl.textContent = 'Sent ' + result.amount + ' PI to ' + result.to + ' (tx: ' + result.tx_hash.slice(0, 16) + '...)';
+    successEl.style.display = 'block';
+    showToast('Sent ' + amount + ' PI!', 'success');
+    await refreshBalance();
+  } catch (e) {
+    errEl.textContent = 'Send failed: ' + e;
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Send';
 }
 
 async function doResetWallet() {

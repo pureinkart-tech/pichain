@@ -165,6 +165,82 @@ async fn migrate_wallet(
 }
 
 #[tauri::command]
+async fn send_pi(
+    state: State<'_, AppState>,
+    rpc_url: String,
+    to_address: String,
+    amount_pi: f64,
+    chain_id: u64,
+) -> Result<serde_json::Value, String> {
+    // Parse recipient
+    let to_hex = to_address.trim().strip_prefix("Pi314").unwrap_or(to_address.trim());
+    if to_hex.len() != 40 {
+        return Err("Recipient address must be 40 hex chars (or Pi314... format)".to_string());
+    }
+    let to_bytes: [u8; 20] = hex::decode(to_hex)
+        .map_err(|e| format!("Invalid address hex: {e}"))?
+        .try_into()
+        .map_err(|_| "Address must be 20 bytes".to_string())?;
+    let recipient = pichain_crypto::keys::Address(to_bytes);
+
+    let base_units = (amount_pi * 1_000_000_000.0) as u64;
+    if base_units == 0 {
+        return Err("Amount must be greater than 0".to_string());
+    }
+
+    // Get PQ keypair from cached keys
+    let pq_keys = state.cached_pq_keys.lock().await;
+    let keys = pq_keys.as_ref().ok_or("No wallet loaded")?;
+    let kp = pichain_crypto::PqKeypair::from_bytes(
+        &keys.ml_dsa_sk, &keys.ml_dsa_pk, &keys.slh_dsa_sk, &keys.slh_dsa_pk,
+    ).map_err(|e| format!("Key error: {e}"))?;
+    let sender = kp.address();
+    drop(pq_keys);
+
+    // Get sender nonce
+    let sender_hex = hex::encode(sender.0);
+    let acct_resp = state.http_client
+        .get(format!("{}/api/v1/account/{}", rpc_url, sender_hex))
+        .send().await
+        .map_err(|e| format!("Network error: {e}"))?;
+    let acct: serde_json::Value = acct_resp.json().await.unwrap_or_default();
+    let nonce = acct["nonce"].as_u64().unwrap_or(0);
+
+    // Build and sign
+    let tx_data = pichain_types::TransactionData {
+        sender,
+        nonce,
+        kind: pichain_types::TransactionKind::Transfer { recipient, amount: base_units },
+        gas_limit: 21_000,
+        max_base_fee: 10_000,
+        max_priority_fee: 100,
+        chain_id,
+    };
+    let signed = pichain_types::Transaction::sign_pq(tx_data, &kp);
+    let tx_json = serde_json::to_vec(&signed).map_err(|e| format!("Serialize error: {e}"))?;
+    let tx_hex = hex::encode(&tx_json);
+
+    // Submit
+    let resp = state.http_client
+        .post(format!("{}/api/v1/tx/submit", rpc_url))
+        .json(&serde_json::json!({"signed_tx_hex": tx_hex}))
+        .send().await
+        .map_err(|e| format!("Network error: {e}"))?;
+    let result: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+
+    if result["status"] == "pending" {
+        Ok(serde_json::json!({
+            "success": true,
+            "tx_hash": result["tx_hash"],
+            "amount": amount_pi,
+            "to": format!("Pi314{}", hex::encode(to_bytes)),
+        }))
+    } else {
+        Err(result["error"].as_str().unwrap_or("rejected").to_string())
+    }
+}
+
+#[tauri::command]
 async fn get_balance(
     state: State<'_, AppState>,
     rpc_url: String,
@@ -616,6 +692,7 @@ fn main() {
             check_wallet_exists,
             migrate_wallet,
             get_balance,
+            send_pi,
             get_mining_status,
             start_mining,
             stop_mining,
