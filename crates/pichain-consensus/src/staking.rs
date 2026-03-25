@@ -11,22 +11,23 @@ use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Minimum stake to become a validator at maturity (10,000 PI in base units).
-/// During bootstrap (< 10 validators), `effective_min_validator_stake()` returns
-/// a lower value (100 PI) to make validator participation accessible at launch.
-pub const MIN_VALIDATOR_STAKE: u64 = 10_000 * 1_000_000_000;
+/// Minimum stake to become a validator at maturity (3,141 PI = π × 1000).
+/// During bootstrap (< π² validators), `effective_min_validator_stake()` returns
+/// a lower value (31 PI = π × 10) to make validator participation accessible.
+pub const MIN_VALIDATOR_STAKE: u64 = 3_141 * 1_000_000_000;
 
-/// Bootstrap minimum stake (100 PI) — accessible for early adopters.
-pub const BOOTSTRAP_MIN_VALIDATOR_STAKE: u64 = 100 * 1_000_000_000;
+/// Bootstrap minimum stake (31 PI = π × 10) — accessible for early adopters.
+pub const BOOTSTRAP_MIN_VALIDATOR_STAKE: u64 = 31 * 1_000_000_000;
 
 /// Number of validators before minimum stake tightens to full MIN_VALIDATOR_STAKE.
-pub const MIN_VALIDATORS_FOR_FULL_STAKE: usize = 10;
+/// π² ≈ 9.87, rounded to 9.
+pub const MIN_VALIDATORS_FOR_FULL_STAKE: usize = 9;
 
 /// Calculate the effective minimum validator stake based on current validator count.
 ///
 /// Progressive strengthening:
-/// - < 10 validators: 100 PI (accessible for early adopters)
-/// - 10+ validators: 10,000 PI (full security requirement)
+/// - < π² (9) validators: 31 PI (π × 10, accessible for early adopters)
+/// - 9+ validators: 3,141 PI (π × 1000, full security requirement)
 pub fn effective_min_validator_stake(validator_count: usize) -> u64 {
     if validator_count < MIN_VALIDATORS_FOR_FULL_STAKE {
         BOOTSTRAP_MIN_VALIDATOR_STAKE
@@ -35,21 +36,21 @@ pub fn effective_min_validator_stake(validator_count: usize) -> u64 {
     }
 }
 
-/// Minimum stake for delegation (1 PI in base units).
-pub const MIN_DELEGATION: u64 = 1_000_000_000;
+/// Minimum stake for delegation (3.14 PI = π PI in base units).
+pub const MIN_DELEGATION: u64 = 3_141_592_653;
 
 /// Unbonding period in epochs.
-/// 62 epochs × 31,415 blocks/epoch × 314ms/block ≈ 7 days.
+/// 62 epochs (π × 20) × 31,415 blocks/epoch × 314ms/block ≈ 7 days.
 pub const UNBONDING_EPOCHS: u64 = 62;
 
-/// Slash rate for double-signing (33% of stake).
-pub const SLASH_DOUBLE_SIGN_BPS: u16 = 3300;
+/// Slash rate for double-signing (31.41% = π × 1000 bps).
+pub const SLASH_DOUBLE_SIGN_BPS: u16 = 3141;
 
-/// Slash rate for extended downtime (1% of stake).
-pub const SLASH_DOWNTIME_BPS: u16 = 100;
+/// Slash rate for extended downtime (3.14% = π × 100 bps).
+pub const SLASH_DOWNTIME_BPS: u16 = 314;
 
-/// Slash rate for invalid block proposal (5% of stake).
-pub const SLASH_INVALID_BLOCK_BPS: u16 = 500;
+/// Slash rate for invalid block proposal (6.28% = 2π × 100 bps).
+pub const SLASH_INVALID_BLOCK_BPS: u16 = 628;
 
 /// Jail duration in epochs for slashed validators.
 /// 88 epochs × 31,415 blocks/epoch × 314ms/block ≈ 10 days.
@@ -60,39 +61,37 @@ pub const JAIL_DURATION_EPOCHS: u64 = 88;
 /// who immediately begins unbonding still has locked funds when evidence arrives.
 pub const MAX_EVIDENCE_AGE_EPOCHS: u64 = 42;
 
-/// Maximum commission rate (20%).
-pub const MAX_COMMISSION_BPS: u16 = 2000;
+/// Maximum commission rate (31.41% = π × 1000 bps).
+pub const MAX_COMMISSION_BPS: u16 = 3141;
 
-/// Maximum percentage of total staked that any single validator can hold (basis points).
-/// 3333 bps = 33.33%. Prevents one validator from controlling 2/3+1 quorum alone.
-pub const MAX_VALIDATOR_STAKE_PCT_BPS: u16 = 3333;
+/// Maximum percentage of total staked that any single validator can hold.
+/// 3141 bps = 31.41% (π × 1000). Prevents one validator from controlling 1/3 quorum.
+pub const MAX_VALIDATOR_STAKE_PCT_BPS: u16 = 3141;
 
-/// Maximum percentage of total staked that any single address can control (basis points).
-/// 1000 bps = 10%. Forces capital distribution even across multiple delegations.
+/// Maximum percentage of total staked that any single address can control.
+/// 1000 bps = 10%. Forces capital distribution across delegations.
 pub const MAX_ADDRESS_STAKE_PCT_BPS: u16 = 1000;
 
-/// Maximum stake growth per validator per epoch (basis points of epoch-start stake).
-/// 5000 bps = 50%. Prevents flash-staking attacks.
-pub const MAX_STAKE_GROWTH_PCT_BPS: u16 = 5000;
+/// Maximum stake growth per validator per epoch (π × 1000 bps = 31.41%).
+/// Prevents flash-staking attacks.
+pub const MAX_STAKE_GROWTH_PCT_BPS: u16 = 3141;
 
 /// Minimum number of validators before full concentration caps are enforced.
 /// During bootstrap (<4 validators), a relaxed 41.3% cap applies per validator.
 pub const MIN_VALIDATORS_FOR_STAKE_CAP: usize = 4;
 
 /// Maximum number of active (eligible) validators.
-/// Prevents Sybil flooding where an attacker registers hundreds of validators
-/// to dilute the set and control consensus.
-pub const MAX_ACTIVE_VALIDATORS: usize = 100;
+/// 314 = π × 100. Prevents Sybil flooding while allowing large validator sets.
+pub const MAX_ACTIVE_VALIDATORS: usize = 314;
 
-/// Correlated slashing multiplier (basis points per simultaneously-slashed validator).
+/// Correlated slashing multiplier (π × 1000 bps per simultaneously-slashed validator).
 /// When N validators are slashed in the same epoch, each receives an ADDITIONAL
-/// penalty of N * 3333 bps (capped at 100%). Makes Sybil attacks self-destructive.
-pub const CORRELATED_SLASH_MULTIPLIER_BPS: u32 = 3333;
+/// penalty of N × 3141 bps (capped at 100%). Makes Sybil attacks self-destructive.
+pub const CORRELATED_SLASH_MULTIPLIER_BPS: u32 = 3141;
 
-/// Bootstrap validator concentration cap (41.3%).
+/// Bootstrap validator concentration cap (41.3% = first digits of π).
 /// Even during bootstrap (<4 validators), no single validator can hold >41.3% of stake.
-/// Prevents a first-mover monopoly before full caps activate.
-/// 4130 bps — PI-themed (4-1-3 = first 3 digits of π).
+/// 4130 bps — π-themed (4-1-3-0).
 pub const BOOTSTRAP_VALIDATOR_STAKE_PCT_BPS: u16 = 4130;
 
 /// A staking entry for a validator.
@@ -1713,17 +1712,15 @@ mod tests {
     #[test]
     fn address_concentration_cap_enforced() {
         let mut mgr = StakingManager::new();
+        // Use 10 validators so individual validator stake % stays well under 31.41%
         let stake = MIN_VALIDATOR_STAKE;
-        mgr.register_validator(addr(1), stake, 1000).unwrap();
-        mgr.register_validator(addr(2), stake, 1000).unwrap();
-        mgr.register_validator(addr(3), stake, 1000).unwrap();
-        mgr.register_validator(addr(4), stake, 1000).unwrap();
-        // Total staked: 4 * stake. addr(10) tries to delegate >10% to addr(2)
-        // 10% of 4*stake = 0.4*stake. Anything over that should fail.
-        // Actually: new_total = 4*stake + amount, new_addr = amount
-        // (amount / (4*stake + amount)) > 10% → amount > 0.444*stake
-        // Try amount = stake/2 = 50% of one validator's stake
-        let result = mgr.delegate(addr(10), addr(2), stake / 2);
+        for i in 1..=10 {
+            mgr.register_validator(addr(i), stake, 1000).unwrap();
+        }
+        // Total staked: 10 * stake. addr(20) tries to delegate >10% to addr(2)
+        // 10% of 10*stake = 1*stake. Need amount/(10*stake + amount) > 10%
+        // amount > 1.111*stake. Try amount = 2*stake
+        let result = mgr.delegate(addr(20), addr(2), stake * 2);
         assert!(result.is_err());
         match result {
             Err(StakingError::AddressConcentrationExceeded { .. }) => {}
