@@ -1,70 +1,84 @@
 #!/bin/bash
 # PIChain Miner — macOS Installer
-# Double-click this file to set up the miner automatically.
+# Double-click this file to install the PIChain Miner app.
 
 set -e
 clear
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║         PIChain Miner — macOS Setup          ║"
+echo "  ║       PIChain Miner — macOS Installer        ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 
-cd "$(dirname "$0")"
 ARCH=$(uname -m)
+APP_NAME="PIChain Miner.app"
+APP_DEST="/Applications/$APP_NAME"
 
 # Detect architecture
 if [ "$ARCH" = "arm64" ]; then
-    MINER="pichain-miner-macos-arm64"
-    SIGNER="pichain-signer-macos-arm64"
+    DMG_NAME="pichain-miner-gui-macos-arm64.dmg"
     echo "  Detected: Apple Silicon (M1/M2/M3/M4)"
 else
-    MINER="pichain-miner-macos-x86_64"
-    SIGNER="pichain-signer-macos-x86_64"
+    DMG_NAME="pichain-miner-gui-macos-x86_64.dmg"
     echo "  Detected: Intel Mac"
 fi
 
-# Download if not present
-if [ ! -f "$MINER" ]; then
-    echo "  Downloading miner..."
-    curl -L -o "$MINER" "https://github.com/pureinkart-tech/pichain/releases/latest/download/$MINER"
-fi
-if [ ! -f "$SIGNER" ]; then
-    echo "  Downloading signer..."
-    curl -L -o "$SIGNER" "https://github.com/pureinkart-tech/pichain/releases/latest/download/$SIGNER"
-fi
+DMG_URL="https://github.com/pureinkart-tech/pichain/releases/latest/download/$DMG_NAME"
+DMG_PATH="/tmp/$DMG_NAME"
 
-# Make executable + remove quarantine + sign
-echo "  Setting up permissions..."
-chmod +x "$MINER" "$SIGNER"
-xattr -cr "$MINER" 2>/dev/null || sudo xattr -cr "$MINER" 2>/dev/null || true
-xattr -cr "$SIGNER" 2>/dev/null || sudo xattr -cr "$SIGNER" 2>/dev/null || true
-codesign --sign - --force "$MINER" 2>/dev/null || true
-codesign --sign - --force "$SIGNER" 2>/dev/null || true
+# Download DMG
+echo ""
+echo "  Downloading PIChain Miner..."
+curl -L -o "$DMG_PATH" "$DMG_URL"
+echo "  Download complete."
 
-# Generate wallet if needed
-if [ ! -f "wallet.json" ]; then
-    echo ""
-    echo "  Creating your quantum-safe wallet..."
-    ./"$MINER" --keypair wallet.json --generate-keypair
+# Mount DMG
+echo "  Installing..."
+MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse -quiet | grep "/Volumes" | awk '{print substr($0, index($0, "/Volumes"))}')
+
+if [ -z "$MOUNT_DIR" ]; then
+    echo "  Error: Failed to mount DMG. Please try downloading manually."
+    exit 1
 fi
 
+# Find the .app inside the mounted DMG
+APP_SRC=$(find "$MOUNT_DIR" -maxdepth 1 -name "*.app" -type d | head -1)
+if [ -z "$APP_SRC" ]; then
+    echo "  Error: No .app found in DMG."
+    hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+    exit 1
+fi
+
+# Remove old version if present
+if [ -d "$APP_DEST" ]; then
+    echo "  Removing previous version..."
+    rm -rf "$APP_DEST"
+fi
+
+# Copy to Applications
+echo "  Copying to Applications..."
+cp -R "$APP_SRC" "$APP_DEST"
+
+# Unmount DMG
+hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+rm -f "$DMG_PATH"
+
+# Remove quarantine attribute (this is what causes "move to trash")
+echo "  Removing macOS security blocks..."
+xattr -cr "$APP_DEST" 2>/dev/null || sudo xattr -cr "$APP_DEST" 2>/dev/null || true
+
+# Ad-hoc code sign so macOS treats it as a known app
+codesign --sign - --force --deep "$APP_DEST" 2>/dev/null || true
+
 echo ""
-echo "  ✅ Setup complete!"
+echo "  ✅ PIChain Miner installed successfully!"
 echo ""
-echo "  Your wallet: wallet.json"
-echo "  Address: $(grep -o '"address":"[^"]*"' wallet.json 2>/dev/null | head -1 | cut -d'"' -f4)"
+echo "  The app is in your Applications folder."
+echo "  You can find it in Launchpad or Spotlight (Cmd+Space → PIChain)."
 echo ""
-echo "  To start mining, run:"
-echo "    ./$MINER --keypair wallet.json"
-echo ""
-echo "  To use the DEX/staking from your browser, run:"
-echo "    ./$SIGNER --wallet wallet.json"
-echo "    Then open https://pichain.net"
-echo ""
-read -p "  Start mining now? (y/n) " choice
+
+read -p "  Open PIChain Miner now? (y/n) " choice
 if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-    echo ""
-    ./"$MINER" --keypair wallet.json --rpc-url https://pichain.net --profile desktop
+    open "$APP_DEST"
 fi
