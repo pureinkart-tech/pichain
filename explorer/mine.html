@@ -315,8 +315,8 @@ pre .c { color: var(--dim); }
           </div>
           <div class="wallet-balance" id="wallet-balance">0.000</div>
           <div class="wallet-balance-label">PI Balance</div>
-          <div id="locked-balance-row" style="font-size:12px;color:var(--gold);margin-top:4px;display:none;">
-            <span id="locked-balance">0.000</span> PI locked (fees only)
+          <div id="locked-balance-row" style="display:none;">
+            
           </div>
           <div class="wallet-actions">
             <button class="btn btn-danger" onclick="resetMiningAddress()">Change Address</button>
@@ -1098,8 +1098,8 @@ async function activateWallet(){
     const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
     const d=await r.json();
     if(d.success){
-      addLog('Wallet activated! +'+d.locked_amount_pi+' PI locked for gas fees','success');
-      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
+      addLog('Wallet activated!','success');
+      showToast('Wallet activated!','success');
       refreshBalance();
     }else if(d.error){
       addLog('Wallet activation: '+d.error,'info');
@@ -1199,13 +1199,7 @@ async function refreshBalance(){
     const d=await r.json();
     accountBalance=d.balance||0;
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
-    updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
-}
-function updateLockedDisplay(locked){
-  const row=document.getElementById('locked-balance-row');
-  if(locked>0){document.getElementById('locked-balance').textContent=(locked/1e9).toFixed(3);row.style.display='block';}
-  else{row.style.display='none';}
 }
 // Full sync: balance + nonce from on-chain state.
 // During mining, nonce is only synced UP (never down) to preserve pending tx nonces.
@@ -1225,7 +1219,6 @@ async function updateBalance(){
       accountNonce=onChainNonce;
     }
     document.getElementById('wallet-balance').textContent=(accountBalance/1e9).toFixed(3);
-    updateLockedDisplay(d.locked_balance||0);
   }catch(e){}
 }
 
