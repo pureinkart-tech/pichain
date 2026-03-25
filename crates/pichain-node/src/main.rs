@@ -18,6 +18,7 @@ use tracing_subscriber::EnvFilter;
 /// Validator key file persisted to {data_dir}/validator.key.
 #[derive(Serialize, Deserialize)]
 struct ValidatorKeyFile {
+    #[serde(alias = "ed25519_secret")]
     p2p_secret: String,
     bls_secret: String,
 }
