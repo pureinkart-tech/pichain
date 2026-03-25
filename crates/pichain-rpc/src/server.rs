@@ -362,6 +362,21 @@ pub trait StateProvider: Send + Sync + 'static {
     fn mempool_size(&self) -> usize;
     fn mempool_insert(&self, tx: pichain_types::SignedTransaction) -> Result<(), String>;
 
+    /// Pool-style mining: accept an unsigned proof, sign it with the node's PQ key,
+    /// and inject into the mempool. The reward goes to the specified miner address.
+    /// Used by browser miners who can't sign PQ transactions locally.
+    fn pool_submit_mining_proof(
+        &self,
+        _miner_address: &pichain_crypto::keys::Address,
+        _start_position: u64,
+        _digit_count: u32,
+        _digits: Vec<u8>,
+        _pow_nonce: u64,
+        _anchor_block_hash: Vec<u8>,
+    ) -> Result<String, String> {
+        Err("pool mining not supported on this node".to_string())
+    }
+
     /// Look up which block height contains a given transaction.
     fn get_tx_block_height(&self, _tx_hash: &pichain_crypto::Hash) -> Option<u64> {
         None
@@ -1063,6 +1078,7 @@ impl RpcServer {
             .route("/api/v1/tx/:hash", get(get_transaction))
             .route("/api/v1/account/:address", get(get_account))
             .route("/api/v1/mining/status", get(get_mining_status))
+            .route("/api/v1/mining/pool-submit", post(pool_submit_proof))
             .route("/api/v1/mining/slot/:address", get(get_mining_slot))
             .route("/api/v1/mining/leaderboard", get(get_mining_leaderboard))
             .route(
@@ -1704,6 +1720,132 @@ async fn get_block(
         StatusCode::NOT_FOUND,
         Json(BlockResponse::not_found(height)),
     )
+}
+
+// ── Pool Mining (browser miners) ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PoolSubmitRequest {
+    /// Miner's PIChain address (hex, 40 chars, no Pi314 prefix).
+    miner_address: String,
+    start_position: u64,
+    digit_count: u32,
+    digits: Vec<u8>,
+    pow_nonce: u64,
+    anchor_block_hash: String,
+}
+
+#[derive(Serialize)]
+struct PoolSubmitResponse {
+    status: String,
+    tx_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Pool-style mining endpoint for browser miners.
+/// Accepts raw proof data + miner address — no PQ signing needed.
+/// The node validates the proof and signs the transaction internally.
+async fn pool_submit_proof(
+    State(state): State<Arc<RpcState>>,
+    Json(req): Json<PoolSubmitRequest>,
+) -> (StatusCode, Json<PoolSubmitResponse>) {
+    let provider = match &state.state_provider {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(PoolSubmitResponse {
+                    status: "error".to_string(),
+                    tx_hash: String::new(),
+                    error: Some("node not ready".to_string()),
+                }),
+            );
+        }
+    };
+
+    // Parse miner address
+    let addr_hex = req.miner_address.trim().trim_start_matches("Pi314");
+    if addr_hex.len() != 40 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(PoolSubmitResponse {
+                status: "error".to_string(),
+                tx_hash: String::new(),
+                error: Some("miner_address must be 40 hex chars".to_string()),
+            }),
+        );
+    }
+    let addr_bytes = match hex::decode(addr_hex) {
+        Ok(b) if b.len() == 20 => {
+            let mut arr = [0u8; 20];
+            arr.copy_from_slice(&b);
+            pichain_crypto::keys::Address(arr)
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(PoolSubmitResponse {
+                    status: "error".to_string(),
+                    tx_hash: String::new(),
+                    error: Some("invalid miner address hex".to_string()),
+                }),
+            );
+        }
+    };
+
+    // Parse anchor block hash
+    let anchor = match hex::decode(&req.anchor_block_hash) {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(PoolSubmitResponse {
+                    status: "error".to_string(),
+                    tx_hash: String::new(),
+                    error: Some("invalid anchor_block_hash hex".to_string()),
+                }),
+            );
+        }
+    };
+
+    // Basic validation
+    if req.digits.is_empty() || req.digit_count == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(PoolSubmitResponse {
+                status: "error".to_string(),
+                tx_hash: String::new(),
+                error: Some("empty proof".to_string()),
+            }),
+        );
+    }
+
+    match provider.pool_submit_mining_proof(
+        &addr_bytes,
+        req.start_position,
+        req.digit_count,
+        req.digits,
+        req.pow_nonce,
+        anchor,
+    ) {
+        Ok(tx_hash) => (
+            StatusCode::OK,
+            Json(PoolSubmitResponse {
+                status: "pending".to_string(),
+                tx_hash,
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(PoolSubmitResponse {
+                status: "error".to_string(),
+                tx_hash: String::new(),
+                error: Some(e),
+            }),
+        ),
+    }
 }
 
 #[derive(Deserialize)]

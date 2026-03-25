@@ -62,6 +62,9 @@ pub struct NodeState {
     /// Mempool WAL (write-ahead log) path for crash recovery.
     /// Pending transactions are written here so they survive node restarts.
     mempool_wal_path: Option<PathBuf>,
+    /// PQ keypair for pool mining — signs mining proofs on behalf of browser miners.
+    /// The reward goes to the specified miner address, not the node's address.
+    pool_signer: RwLock<Option<pichain_crypto::PqKeypair>>,
 }
 
 /// Registered custodial addresses from the bridge relayer.
@@ -109,7 +112,13 @@ impl NodeState {
             bridge_transfers: RwLock::new(Vec::new()),
             deposit_intents: RwLock::new(HashMap::new()),
             mempool_wal_path: None,
+            pool_signer: RwLock::new(None),
         }
+    }
+
+    /// Set the PQ keypair used for pool mining (browser miners).
+    pub fn set_pool_signer(&self, pq_keypair: pichain_crypto::PqKeypair) {
+        *self.pool_signer.write() = Some(pq_keypair);
     }
 
     /// Set the mempool WAL path and replay any pending transactions from a previous run.
@@ -1649,6 +1658,71 @@ impl StateProvider for NodeState {
             .insert(tx)
             .map(|_| ())
             .map_err(|e| e.to_string())
+    }
+
+    fn pool_submit_mining_proof(
+        &self,
+        miner_address: &pichain_crypto::keys::Address,
+        start_position: u64,
+        digit_count: u32,
+        digits: Vec<u8>,
+        pow_nonce: u64,
+        anchor_block_hash: Vec<u8>,
+    ) -> Result<String, String> {
+        // Verify pool mining is configured on this node
+        if self.pool_signer.read().is_none() {
+            return Err("pool mining not configured on this node".to_string());
+        }
+
+        // Process the proof directly through the mining processor
+        let executor_guard = self.executor.mining_processor();
+        let mut mining = executor_guard.lock();
+        mining.set_height(self.height());
+        mining.set_block_timestamp(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        );
+
+        // Build the mining proof
+        let proof = pichain_mining::MiningProof::new(
+            start_position,
+            digits,
+            *miner_address,
+            pow_nonce,
+        );
+
+        // Convert anchor hash to fixed-size array
+        let mut anchor = [0u8; 32];
+        if anchor_block_hash.len() >= 32 {
+            anchor.copy_from_slice(&anchor_block_hash[..32]);
+        } else {
+            anchor[..anchor_block_hash.len()].copy_from_slice(&anchor_block_hash);
+        }
+
+        let result = mining.process_proof(&proof, &anchor);
+        if !result.valid {
+            return Err(result.error.unwrap_or_else(|| "proof rejected".to_string()));
+        }
+
+        if result.reward_amount > 0 {
+            // Credit the miner's account
+            let mut acct = self
+                .executor
+                .get_account(miner_address)
+                .unwrap_or_default();
+            acct.balance = acct.balance.saturating_add(result.reward_amount);
+            self.executor.set_account(*miner_address, acct);
+            self.total_minted.fetch_add(
+                result.reward_amount,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+
+        // Return a pseudo tx hash (proof was processed directly, not via mempool)
+        let hash_input = format!("pool:{}:{}:{}", hex::encode(miner_address.0), start_position, digit_count);
+        Ok(hex::encode(pichain_crypto::hash(hash_input.as_bytes()).0))
     }
 
     fn get_token_mint(&self, mint_id: &pichain_types::MintId) -> Option<pichain_types::TokenMint> {

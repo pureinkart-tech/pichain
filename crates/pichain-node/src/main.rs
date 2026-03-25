@@ -413,6 +413,7 @@ async fn main() -> anyhow::Result<()> {
                 NodeState::new(state_store, executor.clone(), mempool.clone(), chain_id);
             // Enable mempool WAL for crash recovery (replays pending txs from previous run)
             node_state.enable_mempool_wal(&data_dir);
+            // Pool signer will be set after PQ keypair is loaded (step 8b)
             let node_state = Arc::new(node_state);
 
             // --- 6. Apply Genesis (if first run) ---
@@ -545,6 +546,9 @@ async fn main() -> anyhow::Result<()> {
                     kp
                 }
             };
+
+            // Set pool signer for browser mining
+            node_state.set_pool_signer(pq_block_signer.clone());
 
             // --- 9. Start P2P Networking ---
             // Resolve seeds: hardcoded mainnet seeds → DNS seeds → config bootstrap_peers

@@ -284,12 +284,13 @@ pre .c { color: var(--dim); }
     </div>
 
     <div id="wallet-setup" class="card" style="text-align:center;">
-      <h3>Create Your Mining Wallet</h3>
-      <p style="color:var(--muted);margin-bottom:20px;">Generate a wallet to start mining. Your private key stays in your browser &mdash; never sent anywhere.</p>
-      <button class="btn btn-success" onclick="createWallet()">Create Wallet</button>
-      <div style="margin-top:12px;">
-        <button class="btn btn-secondary" onclick="showImportModal()">Import Existing Wallet</button>
+      <h3>Enter Your Mining Address</h3>
+      <p style="color:var(--muted);margin-bottom:12px;">Enter your PIChain address to start mining. Get one from the <a onclick="switchTab('cli');return false;" style="cursor:pointer;">desktop app</a>, CLI miner, or PiBot.</p>
+      <div style="max-width:480px;margin:0 auto 16px;">
+        <input type="text" id="address-input" placeholder="Pi314..." style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-family:monospace;font-size:13px;" />
       </div>
+      <button class="btn btn-success" onclick="setMiningAddress()">Start Mining</button>
+      <p style="color:var(--dim);font-size:11px;margin-top:8px;">Your computer computes PI digits. Rewards go directly to your address on-chain.</p>
     </div>
 
     <div id="wallet-info" style="display:none;">
@@ -318,8 +319,7 @@ pre .c { color: var(--dim); }
             <span id="locked-balance">0.000</span> PI locked (fees only)
           </div>
           <div class="wallet-actions">
-            <button class="btn btn-secondary" onclick="exportWallet()">Export Key</button>
-            <button class="btn btn-danger" onclick="resetWallet()">Reset</button>
+            <button class="btn btn-danger" onclick="resetMiningAddress()">Change Address</button>
           </div>
         </div>
         <div class="card">
@@ -1037,32 +1037,46 @@ let accountNonce=0, accountBalance=0;
 
 function deriveAddress(pk){return BLAKE3.hash(pk).slice(12,32);}
 
-function createWallet(){initWallet(crypto.getRandomValues(new Uint8Array(32)));showToast('Wallet created! Your key is stored in this browser.','success');}
-
-const WALLET_PAGE_ID='mine';
-function initWallet(seed){
-  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
-  walletSeed=seed;
-  // PQ: keypair managed by signing proxy
-  walletKeypair={publicKey:walletAddress}; // shim for compatibility checks
-  walletAddress=deriveAddress(walletKeypair.publicKey);
-  walletAddressHex=hexEncode(walletAddress);
-  localStorage.setItem('pichain_wallet_seed',hexEncode(seed));
-  localStorage.setItem('pichain_seed',hexEncode(seed));
-  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
-  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
+function createWallet(){/* legacy — use setMiningAddress instead */}
+function setMiningAddress(){
+  const input=document.getElementById('address-input').value.trim();
+  if(!input){showToast('Please enter your PIChain address','error');return;}
+  let hex=input;
+  if(hex.startsWith('Pi314'))hex=hex.slice(5);
+  if(!/^[0-9a-fA-F]{40}$/.test(hex)){showToast('Invalid address. Must be 40 hex characters (or Pi314... format).','error');return;}
+  walletAddressHex=hex.toLowerCase();
+  walletAddress=hexDecode(walletAddressHex);
+  localStorage.setItem('pichain_mining_address',walletAddressHex);
   document.getElementById('wallet-setup').style.display='none';
   document.getElementById('wallet-info').style.display='block';
   document.getElementById('wallet-address').textContent='Pi314'+walletAddressHex;
   document.getElementById('mine-btn').disabled=false;
   const maxT=navigator.hardwareConcurrency||4;
   document.getElementById('thread-count').max=Math.min(maxT,16);
-  loadSettings();
-  applyPowerMode();
-  activateWallet();
-  updateBalance();
-  addLog('Wallet ready: Pi314'+walletAddressHex,'info');
+  loadSettings();applyPowerMode();
+  activateWallet();updateBalance();
+  addLog('Mining address set: Pi314'+walletAddressHex,'info');
+  showToast('Address set! Click Start Mining to begin.','success');
 }
+
+const WALLET_PAGE_ID='mine';
+function initWallet(seed){
+  // Legacy — redirect to address-based flow
+  if(seed){
+    const addr=deriveAddress(seed);
+    walletAddressHex=hexEncode(addr);
+    walletAddress=addr;
+    setMiningAddress();
+  }
+}
+// Restore saved mining address on page load
+(function(){
+  const saved=localStorage.getItem('pichain_mining_address');
+  if(saved && /^[0-9a-fA-F]{40}$/.test(saved)){
+    document.getElementById('address-input').value='Pi314'+saved;
+    setMiningAddress();
+  }
+})();
 
 async function activateWallet(){
   if(!walletAddressHex)return;
@@ -1166,12 +1180,15 @@ function exportWallet(){
   a.download='pichain-wallet.json';a.click();addLog('Wallet exported','info');
 }
 
-function resetWallet(){
-  if(!confirm('Disconnect wallet from this page?'))return;
-  stopMining();localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
-  walletSeed=null;walletKeypair=null;walletAddress=null;walletAddressHex='';
+function resetWallet(){resetMiningAddress();}
+function resetMiningAddress(){
+  if(!confirm('Change mining address?'))return;
+  stopMining();
+  localStorage.removeItem('pichain_mining_address');
+  walletAddress=null;walletAddressHex='';
   document.getElementById('wallet-setup').style.display='block';
   document.getElementById('wallet-info').style.display='none';
+  document.getElementById('address-input').value='';
 }
 
 // Refresh only balance (safe to call during mining — doesn't touch nonce)
@@ -1693,46 +1710,23 @@ function buildCanonicalBytes(sender,nonce,gasLimit,maxBaseFee,maxPriorityFee,cha
 }
 
 async function submitMiningProof(startPosition,digitCount,digits,powNonce,anchorHash){
-  const baseFee=currentStatus.base_fee||1000;
-  // Gas scales with digit count: 500 + digits*5 (matches backend). Add 10% headroom.
-  const gasLimit=Math.ceil((500+digitCount*5)*1.1);
-  const chainId=CHAIN_ID;
-
-  // CRITICAL: Grab nonce BEFORE any await to prevent race condition.
-  // Multiple web workers complete simultaneously and call this function.
-  // If we read accountNonce after an await, all workers would use the same nonce.
-  const myNonce=accountNonce++;
-
-  // PQ signing via proxy — no local Ed25519 signing
-  const hexStr = await signAndBuildPQ('MiningProof', {
-    start_position: startPosition,
-    digit_count: digitCount,
-    digits: Array.from(digits),
-    proof: [],
-    pow_nonce: powNonce,
-    anchor_block_hash: Array.from(anchorHash)
-  }, myNonce, gasLimit, { maxBaseFee: baseFee, chainId: chainId });
-
-  var res;
-  try{
-    res=await fetch(API+'/api/v1/tx/submit',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({signed_tx_hex:hexStr})
-    });
-  }catch(netErr){
-    // Network error — tx never reached mempool. Roll back nonce to prevent gap.
-    accountNonce=myNonce;
-    throw new Error('network error: '+netErr.message);
-  }
-  if(!res.ok){
-    // Server rejected before mempool — roll back nonce to prevent gap.
-    accountNonce=myNonce;
-    throw new Error('Submit HTTP '+res.status);
-  }
+  // Pool-style mining: submit raw proof + address to node, no PQ signing needed.
+  // The node validates the proof and credits the miner's address directly.
+  const res = await fetch(API+'/api/v1/mining/pool-submit',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      miner_address: walletAddressHex,
+      start_position: startPosition,
+      digit_count: digitCount,
+      digits: Array.from(digits),
+      pow_nonce: powNonce,
+      anchor_block_hash: hexEncode(anchorHash)
+    })
+  });
+  if(!res.ok) throw new Error('Submit HTTP '+res.status);
   const result=await res.json();
-  if(result.status==='pending'){return result.tx_hash;}
-  // Server rejected (sig invalid, nonce issue, etc.) — roll back nonce
-  accountNonce=myNonce;
+  if(result.status==='pending') return result.tx_hash;
   throw new Error(result.error||result.status||'rejected');
 }
 
