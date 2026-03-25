@@ -3,7 +3,7 @@
 //! Blocks contain ordered transactions from the Bullshark consensus output,
 //! with Blake3 hashes linking them in a chain.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 
@@ -156,7 +156,7 @@ impl Block {
     }
 
     /// Sign this block with the proposer's Ed25519 keypair.
-    pub fn sign(&mut self, keypair: &pichain_crypto::ed25519::Keypair) {
+    pub fn sign(&mut self, keypair: &pichain_crypto::keys::Keypair) {
         self.proposer_pubkey = keypair.public.0.to_vec();
         let header_hash = self.header.hash();
         let sig = keypair.secret.sign(header_hash.as_bytes());
@@ -186,7 +186,7 @@ impl Block {
         // Verify the embedded public key derives to the claimed proposer address
         let mut pk_bytes = [0u8; 32];
         pk_bytes.copy_from_slice(&self.proposer_pubkey);
-        let pubkey = pichain_crypto::ed25519::PublicKey(pk_bytes);
+        let pubkey = pichain_crypto::keys::PublicKey(pk_bytes);
         let derived_addr = pubkey.to_address();
         if derived_addr != self.header.proposer {
             return Err(format!(
@@ -197,7 +197,7 @@ impl Block {
         let header_hash = self.header.hash();
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(&self.proposer_sig);
-        let sig = pichain_crypto::ed25519::Signature::from_bytes(&sig_bytes);
+        let sig = pichain_crypto::keys::Signature::from_bytes(&sig_bytes);
         pubkey
             .verify(header_hash.as_bytes(), &sig)
             .map_err(|e| format!("proposer signature verification failed: {e}"))

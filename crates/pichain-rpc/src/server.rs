@@ -308,7 +308,7 @@ struct ActivationChallenge {
     /// Random 32-byte challenge seed.
     challenge: [u8; 32],
     /// Address this challenge is bound to.
-    address: pichain_crypto::ed25519::Address,
+    address: pichain_crypto::keys::Address,
     /// Expiry timestamp (seconds since UNIX epoch).
     expires_at: u64,
 }
@@ -342,7 +342,7 @@ pub trait StateProvider: Send + Sync + 'static {
     fn get_block_sync(&self, height: u64) -> Option<pichain_types::Block>;
     fn get_account_sync(
         &self,
-        address: &pichain_crypto::ed25519::Address,
+        address: &pichain_crypto::keys::Address,
     ) -> Option<pichain_types::Account>;
     fn get_transaction_sync(
         &self,
@@ -381,7 +381,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Get a token account balance.
     fn get_token_account(
         &self,
-        _owner: &pichain_crypto::ed25519::Address,
+        _owner: &pichain_crypto::keys::Address,
         _mint: &pichain_types::MintId,
     ) -> Option<pichain_types::TokenAccount> {
         None
@@ -418,7 +418,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
     fn get_mining_slot(
         &self,
-        _address: &pichain_crypto::ed25519::Address,
+        _address: &pichain_crypto::keys::Address,
     ) -> Option<(u64, u32, usize)> {
         None
     }
@@ -426,14 +426,14 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Get top miners for leaderboard. Returns (Vec<(address, digits)>, total_digits).
     fn get_mining_leaderboard(
         &self,
-    ) -> Option<(Vec<(pichain_crypto::ed25519::Address, u64)>, u64)> {
+    ) -> Option<(Vec<(pichain_crypto::keys::Address, u64)>, u64)> {
         None
     }
 
     /// Get recent proofs for a specific miner. Returns Vec<(start, count, committed_at_height)>.
     fn get_miner_recent_proofs(
         &self,
-        _address: &pichain_crypto::ed25519::Address,
+        _address: &pichain_crypto::keys::Address,
         _limit: usize,
     ) -> Vec<(u64, u32, u64)> {
         vec![]
@@ -448,7 +448,7 @@ pub trait StateProvider: Send + Sync + 'static {
 
     /// Activate a wallet: grant 3.14 PI locked (non-transferable, fee-only).
     /// Returns the locked amount granted, or error if already activated.
-    fn activate_wallet(&self, _address: &pichain_crypto::ed25519::Address) -> Result<u64, String> {
+    fn activate_wallet(&self, _address: &pichain_crypto::keys::Address) -> Result<u64, String> {
         Err("wallet activation not available".to_string())
     }
 
@@ -474,13 +474,13 @@ pub trait StateProvider: Send + Sync + 'static {
         None
     }
     /// Get the mint creation nonce for an address (for deterministic MintId derivation).
-    fn get_mint_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+    fn get_mint_nonce(&self, _address: &pichain_crypto::keys::Address) -> u64 {
         0
     }
     /// Get all token balances for an owner address.
     fn get_token_balances_for_owner(
         &self,
-        _owner: &pichain_crypto::ed25519::Address,
+        _owner: &pichain_crypto::keys::Address,
     ) -> Vec<(pichain_types::MintId, pichain_types::TokenAccount)> {
         vec![]
     }
@@ -516,7 +516,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Scan all LP balances.
     fn scan_all_lp_balances(
         &self,
-    ) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
+    ) -> Vec<(pichain_types::PoolId, pichain_crypto::keys::Address, u64)> {
         vec![]
     }
 
@@ -545,7 +545,7 @@ pub trait StateProvider: Send + Sync + 'static {
     fn get_claimable_dividends(
         &self,
         _mint_id: &pichain_types::MintId,
-        _holder: &pichain_crypto::ed25519::Address,
+        _holder: &pichain_crypto::keys::Address,
     ) -> u64 {
         0
     }
@@ -560,7 +560,7 @@ pub trait StateProvider: Send + Sync + 'static {
     fn claim_dividends(
         &self,
         _mint_id: &pichain_types::MintId,
-        _holder: &pichain_crypto::ed25519::Address,
+        _holder: &pichain_crypto::keys::Address,
     ) -> Result<u64, String> {
         Err("dividends not available".to_string())
     }
@@ -570,7 +570,7 @@ pub trait StateProvider: Send + Sync + 'static {
     fn bridge_mint(
         &self,
         _mint_symbol: &str,
-        _recipient: &pichain_crypto::ed25519::Address,
+        _recipient: &pichain_crypto::keys::Address,
         _amount: u64,
     ) -> Result<(), String> {
         Err("bridge minting not available".to_string())
@@ -633,7 +633,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Get transactions involving an address, newest-first.
     fn get_address_transactions(
         &self,
-        _address: &pichain_crypto::ed25519::Address,
+        _address: &pichain_crypto::keys::Address,
         _before_height: Option<u64>,
         _limit: usize,
     ) -> Vec<TxHistoryEntry> {
@@ -650,7 +650,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Query events by address.
     fn query_events_by_address(
         &self,
-        _address: &pichain_crypto::ed25519::Address,
+        _address: &pichain_crypto::keys::Address,
         _limit: usize,
     ) -> Vec<TxHistoryEntry> {
         vec![]
@@ -664,12 +664,12 @@ pub trait StateProvider: Send + Sync + 'static {
     }
 
     /// Get delegations for an address.
-    fn get_delegations(&self, _address: &pichain_crypto::ed25519::Address) -> Vec<DelegationInfo> {
+    fn get_delegations(&self, _address: &pichain_crypto::keys::Address) -> Vec<DelegationInfo> {
         vec![]
     }
 
     /// Get staking rewards for an address.
-    fn get_staking_rewards(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+    fn get_staking_rewards(&self, _address: &pichain_crypto::keys::Address) -> u64 {
         0
     }
 
@@ -691,7 +691,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Get NFTs owned by an address.
     fn get_nfts_by_owner(
         &self,
-        _owner: &pichain_crypto::ed25519::Address,
+        _owner: &pichain_crypto::keys::Address,
     ) -> Vec<pichain_types::Nft> {
         vec![]
     }
@@ -699,14 +699,14 @@ pub trait StateProvider: Send + Sync + 'static {
     // --- Light Client ---
 
     /// Get JMT proof for an account.
-    fn get_account_proof(&self, _address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> {
+    fn get_account_proof(&self, _address: &pichain_crypto::keys::Address) -> Option<Vec<u8>> {
         None
     }
 
     // --- Richlist ---
 
     /// Get top accounts by balance.
-    fn get_richlist(&self, _limit: usize) -> Vec<(pichain_crypto::ed25519::Address, u64)> {
+    fn get_richlist(&self, _limit: usize) -> Vec<(pichain_crypto::keys::Address, u64)> {
         vec![]
     }
 
@@ -753,7 +753,7 @@ pub trait StateProvider: Send + Sync + 'static {
     /// Get matches involving an address.
     fn get_matches_by_player(
         &self,
-        _address: &pichain_crypto::ed25519::Address,
+        _address: &pichain_crypto::keys::Address,
     ) -> Vec<pichain_types::betting::BettingMatch> {
         vec![]
     }
@@ -762,7 +762,7 @@ pub trait StateProvider: Send + Sync + 'static {
         BettingStatsData::default()
     }
     /// Get match nonce for an address.
-    fn get_match_nonce(&self, _address: &pichain_crypto::ed25519::Address) -> u64 {
+    fn get_match_nonce(&self, _address: &pichain_crypto::keys::Address) -> u64 {
         0
     }
 }
@@ -2006,7 +2006,7 @@ async fn get_account(
                 if addr_bytes.len() == 20 {
                     let mut arr = [0u8; 20];
                     arr.copy_from_slice(&addr_bytes);
-                    let address = pichain_crypto::ed25519::Address(arr);
+                    let address = pichain_crypto::keys::Address(arr);
 
                     let _permit = state.blocking_semaphore.acquire().await;
                     if let Ok(Some(account)) =
@@ -2148,7 +2148,7 @@ async fn get_mining_slot(
             Json(serde_json::json!({"error": "address must be 20 bytes (40 hex chars)"})),
         ));
     }
-    let mut addr = pichain_crypto::ed25519::Address([0u8; 20]);
+    let mut addr = pichain_crypto::keys::Address([0u8; 20]);
     addr.0.copy_from_slice(&addr_bytes);
 
     if let Some(provider) = &state.state_provider {
@@ -2294,7 +2294,7 @@ async fn get_mining_miner_detail(
             Json(serde_json::json!({"error": "address must be 20 bytes"})),
         ));
     }
-    let mut addr = pichain_crypto::ed25519::Address([0u8; 20]);
+    let mut addr = pichain_crypto::keys::Address([0u8; 20]);
     addr.0.copy_from_slice(&addr_bytes);
 
     let provider = state.state_provider.as_ref().ok_or_else(|| {
@@ -2400,7 +2400,7 @@ async fn get_activation_challenge(
 
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
-    let address = pichain_crypto::ed25519::Address(arr);
+    let address = pichain_crypto::keys::Address(arr);
 
     let remaining = if let Some(provider) = &state.state_provider {
         3_140_000u64.saturating_sub(provider.activation_count())
@@ -2549,7 +2549,7 @@ async fn activate_wallet(
     };
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
-    let address = pichain_crypto::ed25519::Address(arr);
+    let address = pichain_crypto::keys::Address(arr);
 
     // Look up and consume the challenge (one-time use)
     let challenge_entry = state.activation_challenges.remove(&req.challenge);
@@ -2938,7 +2938,7 @@ async fn get_token_account_balance(
 
                     let mut addr_arr = [0u8; 20];
                     addr_arr.copy_from_slice(&addr_bytes);
-                    let address = pichain_crypto::ed25519::Address(addr_arr);
+                    let address = pichain_crypto::keys::Address(addr_arr);
 
                     let _permit = state.blocking_semaphore.acquire().await;
                     if let Ok(Some(account)) = tokio::task::spawn_blocking(move || {
@@ -3323,7 +3323,7 @@ async fn bridge_mint_tokens(
     };
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
-    let recipient = pichain_crypto::ed25519::Address(arr);
+    let recipient = pichain_crypto::keys::Address(arr);
 
     if req.amount == 0 {
         return (
@@ -3929,7 +3929,7 @@ async fn post_launch_comment(
     author_arr.copy_from_slice(&author_bytes);
 
     let comment = pichain_storage::Comment {
-        author: pichain_crypto::ed25519::Address(author_arr),
+        author: pichain_crypto::keys::Address(author_arr),
         text,
         timestamp_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -4020,7 +4020,7 @@ async fn get_launch_dividends(
                     let mut ha = [0u8; 20];
                     ha.copy_from_slice(&hb);
                     provider
-                        .get_claimable_dividends(&mint_id, &pichain_crypto::ed25519::Address(ha))
+                        .get_claimable_dividends(&mint_id, &pichain_crypto::keys::Address(ha))
                 } else {
                     0
                 }
@@ -4095,7 +4095,7 @@ async fn claim_launch_dividends(
     };
     let mut ha = [0u8; 20];
     ha.copy_from_slice(&holder_bytes);
-    let holder = pichain_crypto::ed25519::Address(ha);
+    let holder = pichain_crypto::keys::Address(ha);
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
@@ -4213,7 +4213,7 @@ async fn get_mint_nonce(
                 if bytes.len() == 20 {
                     let mut arr = [0u8; 20];
                     arr.copy_from_slice(&bytes);
-                    let addr = pichain_crypto::ed25519::Address(arr);
+                    let addr = pichain_crypto::keys::Address(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
                     if let Ok(nonce) =
                         tokio::task::spawn_blocking(move || provider.get_mint_nonce(&addr)).await
@@ -4249,7 +4249,7 @@ async fn get_portfolio(
                 if bytes.len() == 20 {
                     let mut arr = [0u8; 20];
                     arr.copy_from_slice(&bytes);
-                    let addr = pichain_crypto::ed25519::Address(arr);
+                    let addr = pichain_crypto::keys::Address(arr);
                     let _permit = state.blocking_semaphore.acquire().await;
                     if let Ok(result) = tokio::task::spawn_blocking(move || {
                         let pi_account = provider.get_account_sync(&addr);
@@ -4320,7 +4320,7 @@ async fn get_address_transactions(
     if let Some(provider) = &state.state_provider {
         let mut address = [0u8; 20];
         address.copy_from_slice(&addr_bytes);
-        let addr = pichain_crypto::ed25519::Address(address);
+        let addr = pichain_crypto::keys::Address(address);
         let entries = provider.get_address_transactions(&addr, before_height, limit);
         return (
             StatusCode::OK,
@@ -4384,7 +4384,7 @@ async fn query_events(
             if let Ok(bytes) = hex::decode(addr_hex) {
                 let mut address = [0u8; 20];
                 address.copy_from_slice(&bytes);
-                let addr = pichain_crypto::ed25519::Address(address);
+                let addr = pichain_crypto::keys::Address(address);
                 let entries = provider.query_events_by_address(&addr, limit);
                 return (
                     StatusCode::OK,
@@ -4441,7 +4441,7 @@ async fn get_delegations(
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
-        let addr = pichain_crypto::ed25519::Address(address);
+        let addr = pichain_crypto::keys::Address(address);
         let delegations = provider.get_delegations(&addr);
         return (
             StatusCode::OK,
@@ -4471,7 +4471,7 @@ async fn get_staking_rewards(
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
-        let addr = pichain_crypto::ed25519::Address(address);
+        let addr = pichain_crypto::keys::Address(address);
         let rewards = provider.get_staking_rewards(&addr);
         return (
             StatusCode::OK,
@@ -4572,7 +4572,7 @@ async fn get_nfts_by_owner(
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
-        let addr = pichain_crypto::ed25519::Address(address);
+        let addr = pichain_crypto::keys::Address(address);
         let nfts = provider.get_nfts_by_owner(&addr);
         let data: Vec<_> = nfts
             .iter()
@@ -4613,7 +4613,7 @@ async fn get_account_proof(
     if let (Ok(bytes), Some(provider)) = (hex::decode(address_hex), &state.state_provider) {
         let mut address = [0u8; 20];
         address.copy_from_slice(&bytes);
-        let addr = pichain_crypto::ed25519::Address(address);
+        let addr = pichain_crypto::keys::Address(address);
         if let Some(proof_bytes) = provider.get_account_proof(&addr) {
             return (
                 StatusCode::OK,
@@ -5728,7 +5728,7 @@ async fn get_betting_history(
     };
     let mut addr_arr = [0u8; 20];
     addr_arr.copy_from_slice(&addr_bytes);
-    let address = pichain_crypto::ed25519::Address(addr_arr);
+    let address = pichain_crypto::keys::Address(addr_arr);
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;
@@ -5869,7 +5869,7 @@ async fn get_match_nonce(
     };
     let mut addr_arr = [0u8; 20];
     addr_arr.copy_from_slice(&addr_bytes);
-    let address = pichain_crypto::ed25519::Address(addr_arr);
+    let address = pichain_crypto::keys::Address(addr_arr);
 
     if let Some(provider) = state.state_provider.clone() {
         let _permit = state.blocking_semaphore.acquire().await;

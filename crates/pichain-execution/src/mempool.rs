@@ -10,7 +10,7 @@
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use pichain_types::transaction::SignedTransaction;
 use pichain_types::PiAmount;
@@ -34,10 +34,6 @@ pub struct MempoolConfig {
     /// Expected chain_id — rejects transactions targeting a different chain.
     /// 0 means no chain_id enforcement (for tests).
     pub chain_id: u64,
-    /// Require post-quantum signatures (reject Ed25519 legacy).
-    /// Enabled by default in production. Disabled in tests for performance
-    /// (PQ keygen is ~100ms vs <1ms for Ed25519).
-    pub require_pq: bool,
 }
 
 impl Default for MempoolConfig {
@@ -49,7 +45,6 @@ impl Default for MempoolConfig {
             max_tx_age_secs: 300, // 5 minutes TTL — gives slow networks time to include txs
             max_tx_size_bytes: 512 * 1024, // 512KB max transaction size
             chain_id: 0,          // 0 = no enforcement (tests); set to real chain_id in production
-            require_pq: true,     // Reject Ed25519 legacy transactions in production
         }
     }
 }
@@ -149,12 +144,6 @@ impl TransactionPool {
     /// Insert a transaction into the pool.
     /// Returns Ok(tx_hash) if accepted, Err if rejected.
     pub fn insert(&self, tx: SignedTransaction) -> Result<Hash, MempoolError> {
-        // SECURITY: Reject Ed25519 (legacy) transactions — vulnerable to quantum attacks.
-        // Only post-quantum signed transactions are accepted by the network.
-        if self.config.require_pq && !tx.crypto_version.is_post_quantum() {
-            return Err(MempoolError::LegacyCryptoRejected);
-        }
-
         // Signature verification — reject forged transactions at ingress
         if tx.verify().is_err() {
             return Err(MempoolError::InvalidSignature);
@@ -372,7 +361,7 @@ impl TransactionPool {
         // is never updated, causing future transactions at nonce N+1 to appear
         // "not ready" because the queue still expects nonce N (or 0 for a
         // freshly-created default queue).
-        let mut sender_max_nonce: std::collections::HashMap<pichain_crypto::ed25519::Address, u64> =
+        let mut sender_max_nonce: std::collections::HashMap<pichain_crypto::keys::Address, u64> =
             std::collections::HashMap::new();
         for tx in &txs {
             let entry = sender_max_nonce.entry(tx.data.sender).or_insert(0);
@@ -567,41 +556,38 @@ pub enum MempoolError {
         expected: u64,
         max_gap: u64,
     },
-    #[error("Ed25519 transactions rejected — use post-quantum wallet (ML-DSA + SLH-DSA)")]
-    LegacyCryptoRejected,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::Keypair;
+    use pichain_crypto::PqKeypair;
     use pichain_types::transaction::Transaction;
 
-    /// Test config: PQ requirement disabled for performance (Ed25519 keygen is ~100x faster).
     fn test_config() -> MempoolConfig {
         MempoolConfig {
-            require_pq: false,
+            chain_id: 31415,
             ..Default::default()
         }
     }
 
-    fn make_tx(sender: &Keypair, nonce: u64, priority_fee: PiAmount) -> SignedTransaction {
-        let recipient = Keypair::generate();
+    fn make_tx(sender: &PqKeypair, nonce: u64, priority_fee: PiAmount) -> SignedTransaction {
+        let recipient = PqKeypair::generate();
         let mut data = Transaction::transfer(
             sender.address(),
             nonce,
             recipient.address(),
             1_000_000, // 0.001 PI
-            1,
+            31415,
         );
         data.max_priority_fee = priority_fee;
-        Transaction::sign_ed25519_for_tests_only(data, sender)
+        Transaction::sign_pq(data, sender)
     }
 
     #[test]
     fn insert_and_retrieve() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
         let tx = make_tx(&sender, 0, 100);
         let hash = tx.hash();
 
@@ -613,7 +599,7 @@ mod tests {
     #[test]
     fn duplicate_rejected() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
         let tx = make_tx(&sender, 0, 100);
 
         pool.insert(tx.clone()).unwrap();
@@ -624,9 +610,9 @@ mod tests {
     fn ready_transactions_ordered_by_priority() {
         let pool = TransactionPool::with_config(test_config());
 
-        let s1 = Keypair::generate();
-        let s2 = Keypair::generate();
-        let s3 = Keypair::generate();
+        let s1 = PqKeypair::generate();
+        let s2 = PqKeypair::generate();
+        let s3 = PqKeypair::generate();
 
         // Insert with different priorities
         pool.insert(make_tx(&s1, 0, 10)).unwrap();
@@ -644,7 +630,7 @@ mod tests {
     #[test]
     fn nonce_ordering_within_sender() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
 
         // Insert nonces out of order
         pool.insert(make_tx(&sender, 2, 100)).unwrap();
@@ -659,7 +645,7 @@ mod tests {
     #[test]
     fn gap_in_nonces_blocks_later_txs() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
 
         // Insert nonce 0 and 2 (gap at 1)
         pool.insert(make_tx(&sender, 0, 100)).unwrap();
@@ -674,7 +660,7 @@ mod tests {
     #[test]
     fn remove_transaction() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
         let tx = make_tx(&sender, 0, 100);
         let hash = tx.hash();
 
@@ -693,7 +679,7 @@ mod tests {
             ..test_config()
         };
         let pool = TransactionPool::with_config(config);
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
 
         pool.insert(make_tx(&sender, 0, 100)).unwrap();
         pool.insert(make_tx(&sender, 1, 100)).unwrap();
@@ -706,8 +692,8 @@ mod tests {
     #[test]
     fn stats() {
         let pool = TransactionPool::with_config(test_config());
-        let s1 = Keypair::generate();
-        let s2 = Keypair::generate();
+        let s1 = PqKeypair::generate();
+        let s2 = PqKeypair::generate();
 
         pool.insert(make_tx(&s1, 0, 100)).unwrap();
         pool.insert(make_tx(&s1, 1, 50)).unwrap();
@@ -729,10 +715,10 @@ mod tests {
         };
         let pool = TransactionPool::with_config(config);
 
-        let s1 = Keypair::generate();
-        let s2 = Keypair::generate();
-        let s3 = Keypair::generate();
-        let s4 = Keypair::generate();
+        let s1 = PqKeypair::generate();
+        let s2 = PqKeypair::generate();
+        let s3 = PqKeypair::generate();
+        let s4 = PqKeypair::generate();
 
         // Fill pool with 3 txs at different priorities
         pool.insert(make_tx(&s1, 0, 10)).unwrap(); // lowest priority
@@ -758,7 +744,7 @@ mod tests {
             ..test_config()
         };
         let pool = TransactionPool::with_config(config);
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
 
         pool.insert(make_tx(&sender, 0, 100)).unwrap();
         pool.insert(make_tx(&sender, 1, 50)).unwrap();
@@ -779,7 +765,7 @@ mod tests {
             ..test_config()
         };
         let pool = TransactionPool::with_config(config);
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
 
         pool.insert(make_tx(&sender, 0, 100)).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -793,12 +779,12 @@ mod tests {
     #[test]
     fn invalid_signature_rejected() {
         let pool = TransactionPool::with_config(test_config());
-        let sender = Keypair::generate();
-        let other = Keypair::generate();
+        let sender = PqKeypair::generate();
+        let other = PqKeypair::generate();
 
-        // Create a properly signed transaction, then corrupt the signature
+        // Create a properly signed transaction, then corrupt the PQ signature
         let mut tx = make_tx(&sender, 0, 100);
-        tx.signature = other.sign(b"wrong message");
+        tx.pq_signature = Some(other.sign(b"wrong message"));
 
         let result = pool.insert(tx);
         assert!(result.is_err());

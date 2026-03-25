@@ -28,7 +28,7 @@
 //! - Based on Module Learning With Errors (Module-LWE)
 //! - NIST Level 5 security (AES-256 equivalent)
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::pq::{MlDsaPublicKey, MlDsaSignature};
 
 /// Protocol version for PQ transport negotiation.
@@ -39,9 +39,7 @@ const PQ_ANNOUNCE_DOMAIN: &[u8] = b"pichain-pq-validator-announce:";
 
 /// A PQ-safe validator announcement message.
 ///
-/// Extends the existing Ed25519-based ValidatorAnnounce with ML-DSA signatures.
-/// Peers that support PQ transport verify the ML-DSA signature; legacy peers
-/// verify the Ed25519 signature.
+/// Uses ML-DSA-65 signatures for post-quantum validator authentication.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PqValidatorAnnounce {
     /// Validator's PIChain address (20 bytes).
@@ -82,11 +80,6 @@ impl PqCapabilities {
             slh_dsa_tx: true,
             pq_version: PQ_TRANSPORT_VERSION,
         }
-    }
-
-    /// Legacy mode (no PQ support).
-    pub fn legacy() -> Self {
-        Self::default()
     }
 
     /// Check if this peer supports post-quantum transactions.
@@ -262,8 +255,9 @@ mod tests {
     }
 
     #[test]
-    fn pq_capabilities_legacy() {
-        let caps = PqCapabilities::legacy();
+    fn pq_capabilities_default() {
+        let caps = PqCapabilities::default();
+        // Default capabilities don't have PQ features enabled
         assert!(!caps.supports_pq_transactions());
     }
 }

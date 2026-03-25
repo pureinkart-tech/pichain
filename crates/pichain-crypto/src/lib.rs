@@ -1,12 +1,12 @@
 //! PIChain Cryptographic Primitives
 //!
-//! Provides Ed25519 (legacy transactions), BLS12-381 (consensus attestations),
-//! Blake3 (general hashing), Poseidon (ZK-friendly state trie hashing),
-//! and post-quantum signatures via ML-DSA-65 + SLH-DSA-SHAKE-128f.
+//! Provides post-quantum signatures (ML-DSA-65 + SLH-DSA-SHAKE-128f),
+//! BLS12-381 (consensus attestations), Blake3 (general hashing),
+//! Poseidon (ZK-friendly state trie hashing), and core key types.
 
 pub mod blake3_hash;
 pub mod bls;
-pub mod ed25519;
+pub mod keys;
 pub mod poseidon;
 pub mod pq;
 pub mod pq_wallet;
@@ -14,7 +14,7 @@ pub mod stark_aggregation;
 
 pub use blake3_hash::{hash, hash_concat, Hash, Hasher};
 pub use bls::{AggregateSignature, BlsKeypair, BlsPublicKey, BlsSecretKey, BlsSignature};
-pub use ed25519::{verify_batch, Address, Keypair, PublicKey, SecretKey, Signature};
+pub use keys::{verify_batch, Address, Keypair, PublicKey, SecretKey, Signature};
 pub use poseidon::PoseidonHasher;
 pub use pq::{
     pq_address, quantum_safe_hash, CryptoVersion, MlDsaPublicKey, MlDsaSecretKey, MlDsaSignature,

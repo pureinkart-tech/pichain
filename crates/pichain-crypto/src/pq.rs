@@ -466,7 +466,7 @@ impl PqKeypair {
     /// both public keys, taking the last 20 bytes as the address.
     /// The address commits to both key families, ensuring it cannot be
     /// derived from a single compromised key type.
-    pub fn address(&self) -> crate::ed25519::Address {
+    pub fn address(&self) -> crate::keys::Address {
         pq_address(&self.ml_dsa_pk, &self.slh_dsa_pk)
     }
 
@@ -604,7 +604,7 @@ impl PqPublicKeys {
     }
 
     /// Derive the quantum-safe address from these public keys.
-    pub fn address(&self) -> crate::ed25519::Address {
+    pub fn address(&self) -> crate::keys::Address {
         pq_address(&self.ml_pk, &self.slh_pk)
     }
 
@@ -662,7 +662,7 @@ pub fn quantum_safe_hash(data: &[u8]) -> [u8; 32] {
 /// The address commits to BOTH key families with a dual-hash combiner.
 /// Reversing the address requires breaking both Blake3 AND SHA3-256 simultaneously,
 /// which provides 128-bit quantum security even under Grover's algorithm on both hashes.
-pub fn pq_address(ml_pk: &MlDsaPublicKey, slh_pk: &SlhDsaPublicKey) -> crate::ed25519::Address {
+pub fn pq_address(ml_pk: &MlDsaPublicKey, slh_pk: &SlhDsaPublicKey) -> crate::keys::Address {
     let mut material = Vec::with_capacity(SLH_DSA_PK_BYTES + ML_DSA_PK_BYTES + 14);
     material.extend_from_slice(slh_pk.as_bytes());
     material.extend_from_slice(ml_pk.as_bytes());
@@ -671,7 +671,7 @@ pub fn pq_address(ml_pk: &MlDsaPublicKey, slh_pk: &SlhDsaPublicKey) -> crate::ed
     let hash = quantum_safe_hash(&material);
     let mut addr = [0u8; 20];
     addr.copy_from_slice(&hash[12..32]);
-    crate::ed25519::Address(addr)
+    crate::keys::Address(addr)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -680,13 +680,11 @@ pub fn pq_address(ml_pk: &MlDsaPublicKey, slh_pk: &SlhDsaPublicKey) -> crate::ed
 
 /// Cryptographic scheme version for transaction signing.
 ///
-/// Enables crypto agility — new schemes can be added without hard forks.
-/// The chain activates new versions via governance. Old versions remain verifiable.
+/// PIChain uses post-quantum dual signatures exclusively.
+/// New PQ schemes can be added via governance without hard forks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CryptoVersion {
-    /// Ed25519 only (legacy, pre-quantum). Supported for historical verification.
-    Ed25519Legacy = 0,
     /// Dual PQ: ML-DSA-65 + SLH-DSA-SHAKE-128f (post-quantum).
     /// Both signatures must verify.
     PqDualV1 = 1,
@@ -696,15 +694,10 @@ impl CryptoVersion {
     /// Deserialize from a u8 value.
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => Some(Self::Ed25519Legacy),
-            1 => Some(Self::PqDualV1),
+            // Accept 0 as PqDualV1 for serde backwards compat with default values
+            0 | 1 => Some(Self::PqDualV1),
             _ => None,
         }
-    }
-
-    /// Returns true if this version uses post-quantum signatures.
-    pub fn is_post_quantum(&self) -> bool {
-        matches!(self, Self::PqDualV1)
     }
 }
 
@@ -895,14 +888,10 @@ mod tests {
 
     #[test]
     fn crypto_version_roundtrip() {
-        assert_eq!(
-            CryptoVersion::from_u8(0),
-            Some(CryptoVersion::Ed25519Legacy)
-        );
+        assert_eq!(CryptoVersion::from_u8(0), Some(CryptoVersion::PqDualV1));
         assert_eq!(CryptoVersion::from_u8(1), Some(CryptoVersion::PqDualV1));
         assert_eq!(CryptoVersion::from_u8(2), None);
-        assert!(CryptoVersion::PqDualV1.is_post_quantum());
-        assert!(!CryptoVersion::Ed25519Legacy.is_post_quantum());
+        assert_eq!(CryptoVersion::default(), CryptoVersion::PqDualV1);
     }
 
     #[test]

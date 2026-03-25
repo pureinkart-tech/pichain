@@ -12,7 +12,7 @@ use crate::sdk::{ContractAbi, ContractRegistry};
 use crate::token_executor::TokenExecutor;
 use crate::wasm_vm::WasmVM;
 use dashmap::DashMap;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use pichain_types::account::{Account, AccountState};
 use pichain_types::betting::{BettingMatch, MatchId};
@@ -3157,12 +3157,12 @@ impl Default for TransactionExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::Keypair;
+    use pichain_crypto::PqKeypair;
     use pichain_types::transaction::Transaction;
 
-    fn setup_transfer() -> (Keypair, Keypair, TransactionExecutor) {
-        let sender_kp = Keypair::generate();
-        let recipient_kp = Keypair::generate();
+    fn setup_transfer() -> (PqKeypair, PqKeypair, TransactionExecutor) {
+        let sender_kp = PqKeypair::generate();
+        let recipient_kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1); // chain_id = 1 for tests
 
         // Give sender 100 PI
@@ -3185,7 +3185,7 @@ mod tests {
             1_000_000_000, // 1 PI
             1,
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender_kp);
+        let signed = Transaction::sign_pq(tx_data, &sender_kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert_eq!(results.len(), 1);
@@ -3207,7 +3207,7 @@ mod tests {
             200 * 1_000_000_000, // 200 PI (sender only has 100)
             1,
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender_kp);
+        let signed = Transaction::sign_pq(tx_data, &sender_kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
@@ -3221,8 +3221,8 @@ mod tests {
         let executor = TransactionExecutor::new(1);
 
         // Create 10 independent sender→recipient pairs
-        let pairs: Vec<(Keypair, Keypair)> = (0..10)
-            .map(|_| (Keypair::generate(), Keypair::generate()))
+        let pairs: Vec<(PqKeypair, PqKeypair)> = (0..10)
+            .map(|_| (PqKeypair::generate(), PqKeypair::generate()))
             .collect();
 
         for (sender, _) in &pairs {
@@ -3242,7 +3242,7 @@ mod tests {
                     1_000_000_000,
                     1,
                 );
-                Transaction::sign_ed25519_for_tests_only(data, sender)
+                Transaction::sign_pq(data, sender)
             })
             .collect();
 
@@ -3265,7 +3265,7 @@ mod tests {
             1_000_000_000,
             999, // wrong chain_id
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender_kp);
+        let signed = Transaction::sign_pq(tx_data, &sender_kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
@@ -3286,7 +3286,7 @@ mod tests {
             1_000_000_000,
             1,
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender_kp);
+        let signed = Transaction::sign_pq(tx_data, &sender_kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
@@ -3307,7 +3307,7 @@ mod tests {
             1_000_000_000,
             1,
         );
-        let signed1 = Transaction::sign_ed25519_for_tests_only(tx1, &sender_kp);
+        let signed1 = Transaction::sign_pq(tx1, &sender_kp);
         let results = executor.execute_block(&[signed1], 1_000);
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
 
@@ -3319,7 +3319,7 @@ mod tests {
             1_000_000_000,
             1,
         );
-        let signed2 = Transaction::sign_ed25519_for_tests_only(tx2, &sender_kp);
+        let signed2 = Transaction::sign_pq(tx2, &sender_kp);
         let results = executor.execute_block(&[signed2], 1_000);
         assert!(matches!(
             results[0].effect.status,
@@ -3330,7 +3330,7 @@ mod tests {
     #[test]
     fn valid_mining_proof_rewards() {
         let executor = TransactionExecutor::new(1);
-        let miner_kp = Keypair::generate();
+        let miner_kp = PqKeypair::generate();
 
         // Give miner some PI for gas
         executor.set_account(
@@ -3370,7 +3370,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &miner_kp);
+        let signed = Transaction::sign_pq(tx_data, &miner_kp);
 
         // R29-FIX: Set genesis timestamp so mining processor accepts proofs
         executor
@@ -3397,7 +3397,7 @@ mod tests {
     #[test]
     fn invalid_mining_proof_rejected() {
         let executor = TransactionExecutor::new(1);
-        let miner_kp = Keypair::generate();
+        let miner_kp = PqKeypair::generate();
 
         executor.set_account(
             miner_kp.address(),
@@ -3423,7 +3423,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &miner_kp);
+        let signed = Transaction::sign_pq(tx_data, &miner_kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
@@ -3434,7 +3434,7 @@ mod tests {
 
     #[test]
     fn unstake_enters_unbonding_period() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_block_height(100);
 
@@ -3455,7 +3455,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let signed = Transaction::sign_pq(tx_data, &kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
@@ -3470,7 +3470,7 @@ mod tests {
 
     #[test]
     fn unbonding_blocks_second_unstake() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_block_height(100);
 
@@ -3493,7 +3493,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let signed = Transaction::sign_pq(tx_data, &kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
@@ -3504,7 +3504,7 @@ mod tests {
 
     #[test]
     fn unbonding_auto_releases_after_period() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
 
         // Set up account with unbonding that started long ago.
@@ -3519,7 +3519,7 @@ mod tests {
         executor.set_block_height(100 + AccountState::UNBONDING_BLOCKS);
 
         // Execute any transaction (a simple transfer to trigger auto-release)
-        let recipient = Keypair::generate();
+        let recipient = PqKeypair::generate();
         let tx_data = Transaction::transfer(
             kp.address(),
             0,
@@ -3527,7 +3527,7 @@ mod tests {
             1_000_000_000, // 1 PI
             1,
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let signed = Transaction::sign_pq(tx_data, &kp);
 
         let results = executor.execute_block(&[signed], 1_000);
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
@@ -3543,7 +3543,7 @@ mod tests {
 
     #[test]
     fn token_creation_rejects_xss_name() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_account(kp.address(), AccountState::with_balance(10 * 1_000_000_000));
 
@@ -3562,7 +3562,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let signed = Transaction::sign_pq(tx_data, &kp);
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
             results[0].effect.status,
@@ -3575,7 +3575,7 @@ mod tests {
     /// gets refunded for unused gas after WASM execution completes.
     #[test]
     fn contract_call_precharges_gas_limit() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         let initial_balance = 100 * 1_000_000_000u64; // 100 PI
         executor.set_account(kp.address(), AccountState::with_balance(initial_balance));
@@ -3602,7 +3602,7 @@ mod tests {
             max_priority_fee: priority_fee,
             chain_id: 1,
         };
-        let _signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let _signed = Transaction::sign_pq(tx_data, &kp);
 
         // The pre-charge should be gas_limit * fee_per_gas = 10_000_000 * 1_100 = 11_000_000_000
         // which equals 11 PI. Since the contract won't be found, execution will revert,
@@ -3617,7 +3617,7 @@ mod tests {
         let too_small_balance = estimated_precharge as u64 + 1_000_000; // enough for estimated, not gas_limit
         executor.set_account(kp.address(), AccountState::with_balance(too_small_balance));
 
-        let signed2 = Transaction::sign_ed25519_for_tests_only(
+        let signed2 = Transaction::sign_pq(
             pichain_types::transaction::TransactionData {
                 sender: kp.address(),
                 nonce: 0,
@@ -3647,7 +3647,7 @@ mod tests {
             kp.address(),
             AccountState::with_balance(max_precharge as u64 + 1_000_000),
         );
-        let signed3 = Transaction::sign_ed25519_for_tests_only(
+        let signed3 = Transaction::sign_pq(
             pichain_types::transaction::TransactionData {
                 sender: kp.address(),
                 nonce: 0,
@@ -3686,7 +3686,7 @@ mod tests {
 
     #[test]
     fn token_creation_rejects_oversized_name() {
-        let kp = Keypair::generate();
+        let kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_account(kp.address(), AccountState::with_balance(10 * 1_000_000_000));
 
@@ -3705,7 +3705,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &kp);
+        let signed = Transaction::sign_pq(tx_data, &kp);
         let results = executor.execute_block(&[signed], 1_000);
         assert!(matches!(
             results[0].effect.status,
@@ -3715,7 +3715,7 @@ mod tests {
 
     #[test]
     fn buy_nft_nonexistent_returns_reverted() {
-        let buyer_kp = Keypair::generate();
+        let buyer_kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_account(
             buyer_kp.address(),
@@ -3737,7 +3737,7 @@ mod tests {
             max_priority_fee: 100,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &buyer_kp);
+        let signed = Transaction::sign_pq(tx_data, &buyer_kp);
         let results = executor.execute_block(&[signed], 1_000);
         assert!(
             matches!(
@@ -3751,8 +3751,8 @@ mod tests {
 
     #[test]
     fn participate_in_launch_uses_direct_fields() {
-        let creator_kp = Keypair::generate();
-        let buyer_kp = Keypair::generate();
+        let creator_kp = PqKeypair::generate();
+        let buyer_kp = PqKeypair::generate();
         let executor = TransactionExecutor::new(1);
         executor.set_account(
             creator_kp.address(),
@@ -3813,7 +3813,7 @@ mod tests {
     // ── Anti-concentration staking tests ──────────────────────────────────────
 
     fn make_stake_tx(
-        sender: &Keypair,
+        sender: &PqKeypair,
         nonce: u64,
         validator: Address,
         amount: u64,
@@ -3827,7 +3827,7 @@ mod tests {
             max_priority_fee: 0,
             chain_id: 1,
         };
-        Transaction::sign_ed25519_for_tests_only(tx_data, sender)
+        Transaction::sign_pq(tx_data, sender)
     }
 
     fn make_validator_addr(i: u8) -> Address {
@@ -3842,8 +3842,8 @@ mod tests {
     /// bootstrap → enforcement transition). Uses 20 stakers across 5 validators
     /// (4 per validator, 10 PI each).
     /// Total = 200 PI, each address = 5% < 10%, each validator = 40 PI (20%) < 33.33%.
-    fn bootstrap_staking(executor: &TransactionExecutor) -> (Vec<Keypair>, Vec<Address>) {
-        let stakers: Vec<Keypair> = (0..20).map(|_| Keypair::generate()).collect();
+    fn bootstrap_staking(executor: &TransactionExecutor) -> (Vec<PqKeypair>, Vec<Address>) {
+        let stakers: Vec<PqKeypair> = (0..20).map(|_| PqKeypair::generate()).collect();
         let validators: Vec<Address> = (0..5).map(|i| make_validator_addr(i)).collect();
         // Pre-populate state: each staker has 200k PI balance with 2,500 PI staked.
         // 20 stakers / 5 validators = 4 stakers per validator × 2,500 PI = 10,000 PI per validator.
@@ -3865,7 +3865,7 @@ mod tests {
         let (_stakers, validators) = bootstrap_staking(&executor);
         // 50,000 PI across 5 validators (10,000 each = 20%). New staker tries to stake
         // 20,000 PI to validator 0: would make it 30,000/70,000 = 42.8% > 33.33%
-        let attacker = Keypair::generate();
+        let attacker = PqKeypair::generate();
         executor.set_account(
             attacker.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),
@@ -3885,7 +3885,7 @@ mod tests {
         let (_stakers, _validators) = bootstrap_staking(&executor);
         // 50,000 PI total. New staker tries to stake 6,000 PI to a new validator:
         // address share = 6,000/56,000 = 10.7% > 10%
-        let attacker = Keypair::generate();
+        let attacker = PqKeypair::generate();
         executor.set_account(
             attacker.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),
@@ -3905,7 +3905,7 @@ mod tests {
         let (_stakers, _validators) = bootstrap_staking(&executor);
         // 50,000 PI total. New staker stakes 500 PI to a new validator:
         // validator share = 500/50,500 = 0.99%, address share = 500/50,500 = 0.99% — both under cap
-        let new_staker = Keypair::generate();
+        let new_staker = PqKeypair::generate();
         executor.set_account(
             new_staker.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),
@@ -3925,9 +3925,9 @@ mod tests {
         // Setup: 3 validators each staking 10,000 PI (each 33.3% of total).
         let executor = TransactionExecutor::new(1);
         let stake = 10_000 * 1_000_000_000_u64; // MIN_VALIDATOR_STAKE
-        let staker1 = Keypair::generate();
-        let staker2 = Keypair::generate();
-        let staker3 = Keypair::generate();
+        let staker1 = PqKeypair::generate();
+        let staker2 = PqKeypair::generate();
+        let staker3 = PqKeypair::generate();
         executor.set_account(
             staker1.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),
@@ -3977,7 +3977,7 @@ mod tests {
             max_priority_fee: 0,
             chain_id: 1,
         };
-        let signed = Transaction::sign_ed25519_for_tests_only(unstake_tx_data, &stakers[0]);
+        let signed = Transaction::sign_pq(unstake_tx_data, &stakers[0]);
         let results = executor.execute_block(&[signed], 1_000);
         assert_eq!(results[0].effect.status, TransactionStatus::Success);
         // Verify tracker was updated
@@ -3997,7 +3997,7 @@ mod tests {
         // Validator 0 has 10,000 PI. Max 50% growth = 5,000 PI additional.
         // Try to add 5,500 PI → 15,500/10,000 = 55% growth > 50% → velocity rejected
         // Address check: 5,500/55,500 = 9.9% < 10% ✓  Validator: 15,500/55,500 = 27.9% < 33.33% ✓
-        let attacker = Keypair::generate();
+        let attacker = PqKeypair::generate();
         executor.set_account(
             attacker.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),
@@ -4018,7 +4018,7 @@ mod tests {
         // A brand new validator has no velocity limit (new to tracker).
         // Adding 4,000 PI to validator 6: address share = 4,000/54,000 = 7.4% < 10% ✓
         // Validator share = 4,000/54,000 = 7.4% < 33.33% ✓. No velocity limit for new entry.
-        let staker = Keypair::generate();
+        let staker = PqKeypair::generate();
         executor.set_account(
             staker.address(),
             AccountState::with_balance(200_000 * 1_000_000_000),

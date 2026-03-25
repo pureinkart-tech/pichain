@@ -7,7 +7,7 @@
 //! After the target is reached or the creator finalizes, remaining tokens
 //! and raised PI are seeded into an AMM pool automatically.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::token::MintId;

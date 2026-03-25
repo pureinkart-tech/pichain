@@ -24,7 +24,7 @@
 //! Until sampling is fully integrated, the fast-path should only be used
 //! for transactions that will also be confirmed through the full DAG consensus.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};

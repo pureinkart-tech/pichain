@@ -5,7 +5,7 @@
 
 use crate::db::PiChainDB;
 use crate::StorageError;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 
 type KvScanResult = Result<Vec<(Vec<u8>, Vec<u8>)>, StorageError>;
 type FullScanResult = Result<Vec<(Address, Vec<u8>, Vec<u8>)>, StorageError>;

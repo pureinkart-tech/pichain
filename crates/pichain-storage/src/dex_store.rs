@@ -6,7 +6,7 @@
 //! - `T` + pool_id(32) + inverted_timestamp(8) + idx(2) → TradeRecord JSON
 //! - `R` + inverted_timestamp(8) + pool_id(32) + idx(2) → same TradeRecord (global recent index)
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::dex::{LiquidityPool, PoolId};
 use pichain_types::token::MintId;
 use serde::{Deserialize, Serialize};

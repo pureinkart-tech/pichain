@@ -145,7 +145,7 @@ fn nft_key(id: &NftId) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::ed25519::Address;
+    use pichain_crypto::keys::Address;
     use pichain_types::nft::NftAttribute;
 
     #[test]

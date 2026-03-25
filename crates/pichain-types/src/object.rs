@@ -4,7 +4,7 @@
 //! Owned objects can use the fast-path (bypass full consensus).
 //! Shared objects go through full DAG consensus.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 

@@ -6,7 +6,7 @@
 //! Staking rewards come from the 65% fee distribution to stakers.
 //! Delegation allows non-validators to earn rewards by delegating to validators.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

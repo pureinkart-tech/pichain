@@ -231,7 +231,7 @@ pub struct MiningProcessor {
     block_timestamp_ms: u64,
     /// Per-miner reward accumulator for the current mining epoch.
     /// Reconstructed on replay via register_historical().
-    epoch_miner_rewards: BTreeMap<pichain_crypto::ed25519::Address, u64>,
+    epoch_miner_rewards: BTreeMap<pichain_crypto::keys::Address, u64>,
     /// Current mining epoch number (current_height / BLOCKS_PER_MINING_EPOCH).
     current_mining_epoch: u64,
     /// Total mining rewards actually minted in the current epoch.
@@ -244,7 +244,7 @@ pub struct MiningProcessor {
     /// Active miner registry: address → (slot_index, last_proof_height).
     /// Slot indices are assigned sequentially; stale miners (no proof in 1 epoch)
     /// get their slots released for reuse.
-    active_miners: BTreeMap<pichain_crypto::ed25519::Address, (u32, u64)>,
+    active_miners: BTreeMap<pichain_crypto::keys::Address, (u32, u64)>,
     /// Next slot index to assign (monotonically increasing, wraps via reuse).
     next_slot_index: u32,
 }
@@ -401,7 +401,7 @@ impl MiningProcessor {
     /// Returns the capped reward amount (may be 0 if cap exceeded).
     fn check_miner_cap(
         &self,
-        miner: &pichain_crypto::ed25519::Address,
+        miner: &pichain_crypto::keys::Address,
         proposed_reward: u64,
     ) -> u64 {
         let cap = self.epoch_emission_cap();
@@ -414,7 +414,7 @@ impl MiningProcessor {
     }
 
     /// Get (earned_this_epoch, cap_this_epoch) for a given miner.
-    pub fn miner_epoch_budget(&self, miner: &pichain_crypto::ed25519::Address) -> (u64, u64) {
+    pub fn miner_epoch_budget(&self, miner: &pichain_crypto::keys::Address) -> (u64, u64) {
         let earned = self.epoch_miner_rewards.get(miner).copied().unwrap_or(0);
         let cap = self.epoch_emission_cap();
         (earned, cap)
@@ -952,7 +952,7 @@ impl MiningProcessor {
     /// to reduce wasted computation from collisions.
     pub fn get_or_assign_slot(
         &mut self,
-        miner: &pichain_crypto::ed25519::Address,
+        miner: &pichain_crypto::keys::Address,
     ) -> (u64, u32, usize) {
         // Cleanup stale miners first
         self.cleanup_stale_miners();
@@ -992,7 +992,7 @@ impl MiningProcessor {
     }
 
     /// Record that a miner submitted a proof (updates their last_proof_height).
-    fn touch_miner(&mut self, miner: &pichain_crypto::ed25519::Address) {
+    fn touch_miner(&mut self, miner: &pichain_crypto::keys::Address) {
         if let Some(entry) = self.active_miners.get_mut(miner) {
             entry.1 = self.current_height;
         } else {
@@ -1002,7 +1002,7 @@ impl MiningProcessor {
     }
 
     /// Get slot info for a specific miner without modifying state.
-    pub fn miner_slot_info(&self, miner: &pichain_crypto::ed25519::Address) -> Option<(u64, u32)> {
+    pub fn miner_slot_info(&self, miner: &pichain_crypto::keys::Address) -> Option<(u64, u32)> {
         self.active_miners.get(miner).map(|&(idx, _)| {
             let frontier = self.registry.frontier();
             let position = frontier.saturating_add((idx as u64).saturating_mul(SLOT_RANGE_SIZE));
@@ -1092,7 +1092,7 @@ impl MiningProcessor {
         start_position: u64,
         digit_count: u32,
         digits: &[u8],
-        miner: pichain_crypto::ed25519::Address,
+        miner: pichain_crypto::keys::Address,
         block_height: u64,
         block_timestamp_ms: u64,
     ) -> Result<(), String> {
@@ -1216,7 +1216,7 @@ fn default_max_batch() -> u64 {
 mod tests {
     use super::*;
     use crate::bbp::BbpComputer;
-    use pichain_crypto::ed25519::Address;
+    use pichain_crypto::keys::Address;
 
     /// Test genesis timestamp — year 1 starts here.
     const TEST_GENESIS_TS: u64 = 1_000_000_000_000;

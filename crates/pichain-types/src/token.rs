@@ -7,7 +7,7 @@
 //! Native PI is represented as `NATIVE_PI_MINT = MintId::ZERO`, allowing
 //! unified treatment in pools and transfers.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 /// Maximum length of a token symbol (e.g., "DOPI", "USDC").

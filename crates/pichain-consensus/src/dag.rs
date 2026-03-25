@@ -3,7 +3,7 @@
 //! All validators contribute transaction data simultaneously (no single leader bottleneck).
 //! Certificates form a DAG. Bullshark provides total ordering with zero additional messages.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

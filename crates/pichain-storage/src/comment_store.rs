@@ -4,7 +4,7 @@
 //! - `C:` + mint_id(32) + inverted_timestamp(8) + comment_idx(2) → Comment JSON
 //! - `Cc:` + mint_id(32) → comment count (u64 LE)
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::token::MintId;
 use serde::{Deserialize, Serialize};
 

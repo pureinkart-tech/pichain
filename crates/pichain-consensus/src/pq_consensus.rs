@@ -17,7 +17,7 @@
 //! switch to those for bandwidth savings. The `PqConsensusVersion` enum enables
 //! this without hard forks.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::pq::{MlDsaPublicKey, MlDsaSecretKey, MlDsaSignature};
 use pichain_crypto::CryptoError;
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,6 @@ const PQ_CHAIN_ID_DOMAIN: &[u8] = b":chain_id=";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum PqConsensusVersion {
-    /// BLS12-381 aggregate signatures (legacy, quantum-vulnerable).
-    BlsLegacy = 0,
     /// ML-DSA-65 per-validator signatures (post-quantum).
     MlDsaV1 = 1,
 }

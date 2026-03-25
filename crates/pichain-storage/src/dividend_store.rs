@@ -4,7 +4,7 @@
 //! - `Dv:` + mint_id(32) → DividendPool JSON (per-token accumulator)
 //! - `Dd:` + mint_id(32) + address(20) → DividendDebt (u128 LE, reward_debt)
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::token::MintId;
 use serde::{Deserialize, Serialize};
 

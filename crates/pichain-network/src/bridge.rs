@@ -12,7 +12,7 @@
 //! 4. Once quorum is reached, wrapped tokens are minted on destination chain
 //! 5. Reverse: burn wrapped tokens → release original on source chain
 
-use pichain_crypto::ed25519::{Address, PublicKey, Signature};
+use pichain_crypto::keys::{Address, PublicKey, Signature};
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

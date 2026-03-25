@@ -7,7 +7,7 @@
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::launchpad::{LaunchId, LaunchState, LaunchType, TokenLaunch};
 use pichain_types::token::MintId;
 use pichain_types::transaction::{TransactionEvent, TransactionStatus};

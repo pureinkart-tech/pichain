@@ -1,0 +1,14 @@
+{
+  "name": "pichain-mev-research",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internal MEV research bot for PIChain protocol hardening",
+  "main": "sniper.js",
+  "scripts": {
+    "snipe": "node sniper.js",
+    "watch": "POLL_MS=300 node sniper.js"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
+  }
+}

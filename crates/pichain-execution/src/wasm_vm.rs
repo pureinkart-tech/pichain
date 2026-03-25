@@ -12,7 +12,7 @@
 //! - Memory isolation per contract
 //! - Host functions for blockchain state access
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

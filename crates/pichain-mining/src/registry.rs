@@ -9,7 +9,7 @@
 //! This enables the "Computing the Infinite" mission by maintaining
 //! a permanent record of humanity's progress computing PI digits.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

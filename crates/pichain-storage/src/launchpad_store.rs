@@ -82,7 +82,7 @@ fn launch_key(id: &LaunchId) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::ed25519::Address;
+    use pichain_crypto::keys::Address;
     use pichain_types::launchpad::{LaunchState, LaunchType};
     use pichain_types::token::MintId;
     use std::collections::HashMap;

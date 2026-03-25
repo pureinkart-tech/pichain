@@ -24,7 +24,7 @@ pub use swarm::{
 pub use sync::{StateSyncManager, SyncMode, SyncRequest, SyncResponse, SyncState};
 pub use testnet::{LocalTestnet, TestNodeConfig, TestnetConfig};
 
-use pichain_crypto::ed25519::{Address, PublicKey, Signature};
+use pichain_crypto::keys::{Address, PublicKey, Signature};
 use pichain_types::transaction::SignedTransaction;
 
 #[derive(Debug, thiserror::Error)]

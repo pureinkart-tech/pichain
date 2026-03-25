@@ -6,7 +6,7 @@
 //!
 //! This avoids creating new column families while maintaining clean separation.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};
 
 use crate::db::PiChainDB;

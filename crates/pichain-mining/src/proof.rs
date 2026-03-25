@@ -47,7 +47,7 @@ pub struct MiningProof {
     /// Blake3 hash of the digits (commitment).
     pub commitment: Hash,
     /// Miner's address (for reward distribution).
-    pub miner: pichain_crypto::ed25519::Address,
+    pub miner: pichain_crypto::keys::Address,
     /// Nonce used in the proof.
     pub nonce: u64,
 }
@@ -57,7 +57,7 @@ impl MiningProof {
     pub fn new(
         start_position: u64,
         digits: Vec<u8>,
-        miner: pichain_crypto::ed25519::Address,
+        miner: pichain_crypto::keys::Address,
         nonce: u64,
     ) -> Self {
         let commitment = pichain_crypto::hash(&digits);
@@ -232,7 +232,7 @@ impl Default for ProofVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::ed25519::Address;
+    use pichain_crypto::keys::Address;
 
     #[test]
     fn valid_proof_passes() {

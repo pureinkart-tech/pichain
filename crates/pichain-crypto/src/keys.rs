@@ -1,7 +1,7 @@
-//! Ed25519 signature scheme for PIChain user transactions.
+//! PIChain fundamental cryptographic types: Address, PublicKey, Signature, Keypair.
 //!
-//! Provides ~70,000 verifications/sec/core, deterministic signatures,
-//! and batch verification support.
+//! These types are used for P2P network identity (libp2p) and as building blocks.
+//! Transaction signing uses post-quantum signatures (see pq.rs).
 
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};

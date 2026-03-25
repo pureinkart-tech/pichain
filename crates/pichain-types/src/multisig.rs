@@ -3,7 +3,7 @@
 //! Allows M-of-N threshold signing: a transaction from a multisig address
 //! is only valid when signed by at least `threshold` of the `signers`.
 
-use pichain_crypto::ed25519::{Address, PublicKey, Signature};
+use pichain_crypto::keys::{Address, PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
 /// Multi-signature wallet configuration.

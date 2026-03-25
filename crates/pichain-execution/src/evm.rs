@@ -8,7 +8,7 @@
 //! Native PI uses 9 decimals (like SOL), while EVM uses 18 decimals.
 //! The conversion is handled transparently.
 
-use pichain_crypto::ed25519::Address as PiAddress;
+use pichain_crypto::keys::Address as PiAddress;
 use pichain_types::PiAmount;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

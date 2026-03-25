@@ -3,7 +3,7 @@
 //! Every account is inherently a smart contract (native account abstraction).
 //! Accounts can be externally-owned (default logic) or fully programmable.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{Nonce, PiAmount};

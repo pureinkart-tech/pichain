@@ -4,7 +4,7 @@
 //! is burned on resolution for deflation. Provably fair randomness uses a
 //! commit-reveal scheme with future block hashes.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a betting match.

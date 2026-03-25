@@ -1,7 +1,7 @@
 //! Validator management and PI-weighted selection.
 
 use pichain_crypto::bls::{BlsPublicKey, BlsSignature};
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 
 /// A validator in the PIChain network.
 #[derive(Clone, Debug)]

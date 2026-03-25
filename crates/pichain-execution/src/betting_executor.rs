@@ -6,7 +6,7 @@
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::betting::{
     BettingMatch, GameCategory, MatchId, MatchState, HOUSE_FEE_BPS, MATCH_EXPIRY_BLOCKS,
     MAX_GAME_ID_LEN, MAX_MATCHES_PER_CREATOR, MAX_PLAYERS, MAX_WAGER, MIN_PLAYERS, MIN_WAGER,

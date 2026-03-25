@@ -8,7 +8,7 @@
 //! - Network partition simulation
 //! - Performance benchmarking
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Keypair;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};

@@ -80,7 +80,7 @@ fn match_key(id: &MatchId) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::ed25519::Address;
+    use pichain_crypto::keys::Address;
     use pichain_types::betting::{GameCategory, MatchState, HOUSE_FEE_BPS};
 
     fn test_match(creator: Address) -> BettingMatch {

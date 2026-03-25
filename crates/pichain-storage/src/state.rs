@@ -13,7 +13,7 @@
 //! object ownership. Verifying sub-executor state requires a full node or a
 //! future sub-executor Merkle commitment scheme.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::account::{Account, AccountState};
 use pichain_types::object::{Object, ObjectId};
 
@@ -385,7 +385,7 @@ impl StateStore {
             Option<&pichain_types::TransactionEffect>,
         )],
         state_changes: &[(
-            pichain_crypto::ed25519::Address,
+            pichain_crypto::keys::Address,
             &pichain_types::account::AccountState,
         )],
     ) -> Result<pichain_crypto::poseidon::PoseidonHash, StorageError> {
@@ -418,7 +418,7 @@ impl StateStore {
             Option<&pichain_types::TransactionEffect>,
         )],
         state_changes: &[(
-            pichain_crypto::ed25519::Address,
+            pichain_crypto::keys::Address,
             &pichain_types::account::AccountState,
         )],
         object_changes: &[(pichain_types::ObjectId, &[u8])],

@@ -3,7 +3,7 @@
 //! Each NFT belongs to a `NftCollection` and has unique metadata.
 //! Royalties are enforced at the protocol level on marketplace sales.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for an NFT collection.

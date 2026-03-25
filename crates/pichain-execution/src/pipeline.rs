@@ -11,7 +11,7 @@
 //! Stage 2 — **Banking**: Execute transactions via Sealevel scheduler, build block.
 //! Stage 3 — **Ledger Write**: Persist block + state (handled externally by NodeState).
 
-use pichain_crypto::ed25519;
+use pichain_crypto::keys;
 use pichain_types::transaction::SignedTransaction;
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -43,7 +43,7 @@ pub struct PipelineConfig {
     /// Maximum gas per block.
     pub max_gas_per_block: u64,
     /// Validator address.
-    pub validator_address: ed25519::Address,
+    pub validator_address: keys::Address,
 }
 
 /// Cumulative pipeline metrics.
@@ -189,11 +189,10 @@ impl TransactionPipeline {
     }
 }
 
-/// Batch-verify Ed25519 signatures in parallel using rayon.
+/// Verify PQ signatures in parallel using rayon.
 ///
-/// Splits transactions into chunks and verifies each chunk using ed25519_dalek's
-/// batch verification (Schnorr trick — faster than individual verification).
-/// Invalid signatures are filtered out; valid transactions are returned.
+/// Splits transactions into chunks and verifies each chunk's dual PQ signatures
+/// (ML-DSA-65 + SLH-DSA-SHAKE-128f) in parallel. Invalid signatures are filtered out.
 ///
 /// Returns `(valid_transactions, rejected_count)`.
 pub fn batch_verify_signatures(
@@ -203,7 +202,7 @@ pub fn batch_verify_signatures(
         return (vec![], 0);
     }
 
-    // For small batches, verify individually (batch overhead not worth it)
+    // For small batches, verify individually
     if transactions.len() <= 4 {
         let mut valid = Vec::with_capacity(transactions.len());
         let mut rejected = 0;
@@ -217,29 +216,18 @@ pub fn batch_verify_signatures(
         return (valid, rejected);
     }
 
-    // Parallel batch verification: split into chunks of 64 for batch verify
+    // Parallel PQ verification: split into chunks
     const CHUNK_SIZE: usize = 64;
 
     let chunk_results: Vec<Vec<SignedTransaction>> = transactions
         .par_chunks(CHUNK_SIZE)
         .map(|chunk| {
-            // Serialize messages using canonical binary encoding (deterministic)
-            let messages: Vec<Vec<u8>> = chunk.iter().map(|tx| tx.data.canonical_bytes()).collect();
-            let msg_refs: Vec<&[u8]> = messages.iter().map(|m| m.as_slice()).collect();
-            let sigs: Vec<ed25519::Signature> = chunk.iter().map(|tx| tx.signature).collect();
-            let pks: Vec<ed25519::PublicKey> = chunk.iter().map(|tx| tx.public_key).collect();
-
-            if ed25519::verify_batch(&msg_refs, &sigs, &pks).is_ok() {
-                // All valid — return entire chunk
-                chunk.to_vec()
-            } else {
-                // Some invalid — fall back to individual verification
-                chunk
-                    .iter()
-                    .filter(|tx| tx.verify().is_ok())
-                    .cloned()
-                    .collect()
-            }
+            // Verify each transaction's dual PQ signatures individually
+            chunk
+                .iter()
+                .filter(|tx| tx.verify().is_ok())
+                .cloned()
+                .collect()
         })
         .collect();
 
@@ -251,19 +239,19 @@ pub fn batch_verify_signatures(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pichain_crypto::Keypair;
+    use pichain_crypto::PqKeypair;
     use pichain_types::transaction::Transaction;
 
-    fn make_signed_tx(sender: &Keypair, nonce: u64) -> SignedTransaction {
-        let recipient = Keypair::generate();
+    fn make_signed_tx(sender: &PqKeypair, nonce: u64) -> SignedTransaction {
+        let recipient = PqKeypair::generate();
         let data =
             Transaction::transfer(sender.address(), nonce, recipient.address(), 1_000_000, 1);
-        Transaction::sign_ed25519_for_tests_only(data, sender)
+        Transaction::sign_pq(data, sender)
     }
 
     #[test]
     fn batch_sig_verify_valid() {
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
         let txs: Vec<SignedTransaction> = (0..100).map(|i| make_signed_tx(&sender, i)).collect();
 
         let (valid, rejected) = batch_verify_signatures(&txs);
@@ -273,13 +261,13 @@ mod tests {
 
     #[test]
     fn batch_sig_verify_rejects_bad() {
-        let sender = Keypair::generate();
-        let other = Keypair::generate();
+        let sender = PqKeypair::generate();
+        let other = PqKeypair::generate();
         let mut txs: Vec<SignedTransaction> = (0..10).map(|i| make_signed_tx(&sender, i)).collect();
 
-        // Corrupt signatures on 3 transactions
+        // Corrupt PQ signatures on 3 transactions
         for i in [2, 5, 8] {
-            txs[i].signature = other.sign(b"wrong message");
+            txs[i].pq_signature = Some(other.sign(b"wrong message"));
         }
 
         let (valid, rejected) = batch_verify_signatures(&txs);
@@ -296,7 +284,7 @@ mod tests {
 
     #[test]
     fn batch_sig_verify_single() {
-        let sender = Keypair::generate();
+        let sender = PqKeypair::generate();
         let txs = vec![make_signed_tx(&sender, 0)];
 
         let (valid, rejected) = batch_verify_signatures(&txs);
@@ -306,13 +294,13 @@ mod tests {
 
     #[test]
     fn batch_sig_verify_all_invalid() {
-        let sender = Keypair::generate();
-        let other = Keypair::generate();
+        let sender = PqKeypair::generate();
+        let other = PqKeypair::generate();
         let mut txs: Vec<SignedTransaction> = (0..5).map(|i| make_signed_tx(&sender, i)).collect();
 
-        // Corrupt all signatures
+        // Corrupt all PQ signatures
         for tx in &mut txs {
-            tx.signature = other.sign(b"wrong");
+            tx.pq_signature = Some(other.sign(b"wrong"));
         }
 
         let (valid, rejected) = batch_verify_signatures(&txs);

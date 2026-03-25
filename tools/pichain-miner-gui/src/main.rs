@@ -38,10 +38,8 @@ struct AppState {
     running: Arc<AtomicBool>,
     mining_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     wallet_path: Mutex<Option<String>>,
-    /// Cached PQ key material (replaces legacy Ed25519 cached_secret).
+    /// Cached PQ key material for mining sessions.
     cached_pq_keys: Mutex<Option<CachedPqKeys>>,
-    /// Legacy Ed25519 secret — kept only for loading old encrypted wallets during migration.
-    cached_secret: Mutex<Option<[u8; 32]>>,
     wallet_encrypted: Mutex<bool>,
     http_client: reqwest::Client,
 }
@@ -53,7 +51,6 @@ impl Default for AppState {
             mining_task: Mutex::new(None),
             wallet_path: Mutex::new(None),
             cached_pq_keys: Mutex::new(None),
-            cached_secret: Mutex::new(None),
             wallet_encrypted: Mutex::new(false),
             http_client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -119,12 +116,7 @@ async fn import_wallet(
     _save_path: String,
     _password: String,
 ) -> Result<wallet::WalletInfo, String> {
-    // Ed25519 key import no longer supported — wallets must be post-quantum.
-    // Users should create a new PQ wallet instead of importing Ed25519 keys.
-    Err(
-        "Importing Ed25519 keys is no longer supported. Create a new post-quantum wallet instead."
-            .to_string(),
-    )
+    Err("Key import is not supported. Create a new post-quantum wallet instead.".to_string())
 }
 
 #[tauri::command]
@@ -318,7 +310,6 @@ async fn reset_wallet(state: State<'_, AppState>) -> Result<String, String> {
         let _ = std::fs::remove_file(&p);
     }
     *state.cached_pq_keys.lock().await = None;
-    *state.cached_secret.lock().await = None;
     *state.wallet_encrypted.lock().await = false;
     Ok("Wallet reset".to_string())
 }

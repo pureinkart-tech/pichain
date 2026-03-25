@@ -17,7 +17,7 @@
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::account::AccountState;
 use pichain_types::PiAmount;
 use rayon::prelude::*;

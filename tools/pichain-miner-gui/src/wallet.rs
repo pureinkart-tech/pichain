@@ -417,7 +417,7 @@ pub fn load_pq_wallet(
     } else {
         // Try loading as unencrypted PQ wallet export
         let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
-            .map_err(|_| "Not a PQ wallet — legacy Ed25519 wallets are no longer supported. Create a new PQ wallet.".to_string())?;
+            .map_err(|_| "Invalid wallet format. Create a new PQ wallet.".to_string())?;
         let address = export.address.clone();
         Ok((
             export,

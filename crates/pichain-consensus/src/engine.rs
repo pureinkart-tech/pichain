@@ -10,7 +10,7 @@
 //! 4. Committed blocks are finalized and safe to persist
 
 use pichain_crypto::bls::{BlsPublicKey, BlsSecretKey};
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use tracing::{debug, info, warn};
@@ -1282,11 +1282,11 @@ mod tests {
         staking
             .register_validator(validator_address, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();
-        let dummy_addr = pichain_crypto::ed25519::Address([99u8; 20]);
+        let dummy_addr = pichain_crypto::keys::Address([99u8; 20]);
         staking
             .register_validator(dummy_addr, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();
-        let dummy_addr2 = pichain_crypto::ed25519::Address([98u8; 20]);
+        let dummy_addr2 = pichain_crypto::keys::Address([98u8; 20]);
         staking
             .register_validator(dummy_addr2, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();
@@ -1536,11 +1536,11 @@ mod tests {
         staking
             .register_validator(validator_address, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();
-        let dummy_addr = pichain_crypto::ed25519::Address([99u8; 20]);
+        let dummy_addr = pichain_crypto::keys::Address([99u8; 20]);
         staking
             .register_validator(dummy_addr, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();
-        let dummy_addr2 = pichain_crypto::ed25519::Address([98u8; 20]);
+        let dummy_addr2 = pichain_crypto::keys::Address([98u8; 20]);
         staking
             .register_validator(dummy_addr2, crate::staking::MIN_VALIDATOR_STAKE, 1000)
             .unwrap();

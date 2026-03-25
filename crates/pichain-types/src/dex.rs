@@ -6,7 +6,7 @@
 //! Native PI is represented as `MintId::ZERO`, allowing unified treatment
 //! in pools and swaps without special-casing.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::token::MintId;

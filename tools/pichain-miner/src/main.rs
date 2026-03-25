@@ -8,7 +8,7 @@
 //!   pichain-miner --keypair wallet.json --rpc-url https://pichain.net
 
 use clap::Parser;
-use pichain_crypto::Keypair;
+use pichain_crypto::PqKeypair;
 use pichain_mining::bbp::BbpComputer;
 use pichain_types::transaction::{Transaction, TransactionData, TransactionKind};
 use serde::{Deserialize, Serialize};
@@ -146,10 +146,10 @@ impl MiningConfig {
     }
 }
 
-/// Wallet file format (supports both legacy Ed25519 and PQ wallets).
+/// Wallet file format (PQ wallets).
 #[derive(Serialize, Deserialize)]
 struct WalletFile {
-    /// Ed25519 secret key (legacy wallets).
+    /// Legacy field (ignored, kept for file compat).
     #[serde(skip_serializing_if = "Option::is_none")]
     secret_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -181,7 +181,7 @@ struct LoadedWallet {
 }
 
 impl LoadedWallet {
-    fn address(&self) -> pichain_crypto::ed25519::Address {
+    fn address(&self) -> pichain_crypto::keys::Address {
         self.pq_keypair.address()
     }
 }
@@ -255,15 +255,12 @@ fn load_wallet(path: &PathBuf) -> anyhow::Result<LoadedWallet> {
     let contents = std::fs::read_to_string(path)?;
     let wallet: WalletFile = serde_json::from_str(&contents)?;
 
-    // Require PQ wallet — legacy Ed25519 wallets are no longer accepted
+    // Require PQ wallet
     if wallet.ml_dsa_secret_key.is_none() {
-        if wallet.secret_key.is_some() {
-            anyhow::bail!(
-                "Legacy Ed25519 wallets are no longer supported — they are vulnerable to quantum attacks.\n\
-                 Generate a new post-quantum wallet with: pichain-miner --keypair wallet.json --generate-keypair"
-            );
-        }
-        anyhow::bail!("Invalid wallet file — missing PQ key fields");
+        anyhow::bail!(
+            "Invalid wallet file — missing PQ key fields.\n\
+             Generate a new wallet with: pichain-miner --keypair wallet.json --generate-keypair"
+        );
     }
 
     info!("Loading post-quantum wallet (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
@@ -883,22 +880,20 @@ mod tests {
     #[test]
     fn legacy_wallet_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("legacy.json");
+        let path = dir.path().join("invalid.json");
 
-        // Create a legacy Ed25519 wallet file
-        let kp = Keypair::generate();
-        let legacy = serde_json::json!({
-            "secret_key": hex::encode(kp.secret.to_bytes()),
-            "address": kp.address().to_string()
+        // Create an invalid wallet file (no PQ keys)
+        let invalid = serde_json::json!({
+            "address": "0000000000000000000000000000000000000000"
         });
-        std::fs::write(&path, serde_json::to_string(&legacy).unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_string(&invalid).unwrap()).unwrap();
 
-        // Loading should FAIL — legacy wallets are rejected
+        // Loading should FAIL — missing PQ key fields
         let result = load_wallet(&path);
-        assert!(result.is_err(), "legacy wallet should be rejected");
+        assert!(result.is_err(), "invalid wallet should be rejected");
         let err = result.err().unwrap().to_string();
         assert!(
-            err.contains("no longer supported"),
+            err.contains("missing PQ key fields"),
             "expected rejection message, got: {err}"
         );
     }

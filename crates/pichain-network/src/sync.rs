@@ -772,7 +772,7 @@ impl StateSyncManager {
         // Reject headers from the null proposer — every real block has a
         // non-zero proposer set by the consensus layer.
         for header in headers {
-            if header.proposer == pichain_crypto::ed25519::Address::ZERO && !header.is_genesis() {
+            if header.proposer == pichain_crypto::keys::Address::ZERO && !header.is_genesis() {
                 return false;
             }
         }
@@ -930,7 +930,7 @@ mod tests {
     fn verify_valid_header_chain() {
         let genesis = Block::genesis(31415, 1000);
         let mut headers = vec![genesis.header.clone()];
-        let proposer = pichain_crypto::ed25519::Address([1u8; 20]); // non-zero proposer
+        let proposer = pichain_crypto::keys::Address([1u8; 20]); // non-zero proposer
 
         // Create a chain of headers
         for i in 1..5u64 {
@@ -949,7 +949,7 @@ mod tests {
         let genesis = Block::genesis(31415, 1000);
         let mut h1 = genesis.header.clone();
         h1.height = 1;
-        h1.proposer = pichain_crypto::ed25519::Address([1u8; 20]); // non-zero proposer
+        h1.proposer = pichain_crypto::keys::Address([1u8; 20]); // non-zero proposer
         h1.parent_hash = Hash::ZERO; // Wrong parent!
 
         assert!(!StateSyncManager::verify_header_chain(&[
@@ -961,7 +961,7 @@ mod tests {
     #[test]
     fn verify_header_chain_rejects_non_monotonic_timestamps() {
         let genesis = Block::genesis(31415, 5000);
-        let proposer = pichain_crypto::ed25519::Address([1u8; 20]);
+        let proposer = pichain_crypto::keys::Address([1u8; 20]);
 
         let mut h1 = genesis.header.clone();
         h1.height = 1;
@@ -1007,7 +1007,7 @@ mod tests {
         h1.parent_hash = genesis.header.hash();
         h1.timestamp_ms = 2000;
         // Leave proposer as ZERO — should be rejected for non-genesis blocks
-        h1.proposer = pichain_crypto::ed25519::Address::ZERO;
+        h1.proposer = pichain_crypto::keys::Address::ZERO;
 
         assert!(
             !StateSyncManager::verify_header_chain(&[genesis.header.clone(), h1]),
@@ -1097,7 +1097,7 @@ mod tests {
 
         // First, insert a valid chain starting from height 0 (genesis)
         let genesis = Block::genesis(31415, 1000);
-        let proposer = pichain_crypto::ed25519::Address([1u8; 20]);
+        let proposer = pichain_crypto::keys::Address([1u8; 20]);
 
         let mut h1 = genesis.header.clone();
         h1.height = 1;

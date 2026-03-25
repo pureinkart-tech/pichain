@@ -18,7 +18,7 @@ use tracing_subscriber::EnvFilter;
 /// Validator key file persisted to {data_dir}/validator.key.
 #[derive(Serialize, Deserialize)]
 struct ValidatorKeyFile {
-    ed25519_secret: String,
+    p2p_secret: String,
     bls_secret: String,
 }
 
@@ -386,7 +386,7 @@ async fn main() -> anyhow::Result<()> {
             let mempool_config = pichain_execution::MempoolConfig {
                 max_transactions: cfg.max_mempool_size,
                 chain_id,
-                ..Default::default() // require_pq: true (default)
+                ..Default::default()
             };
             let mempool = Arc::new(pichain_execution::TransactionPool::with_config(
                 mempool_config,
@@ -454,9 +454,9 @@ async fn main() -> anyhow::Result<()> {
                     let key_data = std::fs::read_to_string(&key_path)?;
                     let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
                         .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
-                    let ed_bytes: [u8; 32] = hex::decode(&keys.ed25519_secret)?
+                    let ed_bytes: [u8; 32] = hex::decode(&keys.p2p_secret)?
                         .try_into()
-                        .map_err(|_| anyhow::anyhow!("ed25519 secret key must be 32 bytes"))?;
+                        .map_err(|_| anyhow::anyhow!("P2P secret key must be 32 bytes"))?;
                     pichain_crypto::Keypair::from_secret_bytes(&ed_bytes)
                 } else {
                     pichain_crypto::Keypair::generate()
@@ -469,9 +469,9 @@ async fn main() -> anyhow::Result<()> {
                 let key_data = std::fs::read_to_string(&key_path)?;
                 let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
                     .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
-                let ed_bytes: [u8; 32] = hex::decode(&keys.ed25519_secret)?
+                let ed_bytes: [u8; 32] = hex::decode(&keys.p2p_secret)?
                     .try_into()
-                    .map_err(|_| anyhow::anyhow!("ed25519 secret key must be 32 bytes"))?;
+                    .map_err(|_| anyhow::anyhow!("P2P secret key must be 32 bytes"))?;
                 let bls_bytes: [u8; 32] = hex::decode(&keys.bls_secret)?
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("BLS secret key must be 32 bytes"))?;
@@ -484,7 +484,7 @@ async fn main() -> anyhow::Result<()> {
                 let ed_kp = pichain_crypto::Keypair::generate();
                 let bls_kp = pichain_crypto::BlsKeypair::generate();
                 let key_file = ValidatorKeyFile {
-                    ed25519_secret: hex::encode(ed_kp.secret.to_bytes()),
+                    p2p_secret: hex::encode(ed_kp.secret.to_bytes()),
                     bls_secret: hex::encode(bls_kp.secret.to_bytes()),
                 };
                 let json = serde_json::to_string_pretty(&key_file)?;
@@ -547,7 +547,7 @@ async fn main() -> anyhow::Result<()> {
                         gv.address
                     )
                 })?;
-                let addr = pichain_crypto::ed25519::Address(addr_bytes);
+                let addr = pichain_crypto::keys::Address(addr_bytes);
                 if addr == validator_key.address() {
                     continue; // Skip self
                 }
@@ -734,7 +734,7 @@ async fn main() -> anyhow::Result<()> {
             let ws_broadcaster = rpc.ws_broadcaster().clone();
             let persist_p2p = p2p_broadcaster.clone();
             // Create a signing keypair for the persist task (Keypair is not Clone due to zeroization)
-            let persist_signing_key = pichain_crypto::ed25519::Keypair::from_secret_bytes(
+            let persist_signing_key = pichain_crypto::keys::Keypair::from_secret_bytes(
                 &validator_key.secret.to_bytes(),
             );
             let mut persist_handle = tokio::spawn(async move {
@@ -1049,7 +1049,7 @@ async fn main() -> anyhow::Result<()> {
                                     // Validate proposer is not zero address (genesis excluded)
                                     if block.header.height > 0
                                         && block.header.proposer
-                                            == pichain_crypto::ed25519::Address::ZERO
+                                            == pichain_crypto::keys::Address::ZERO
                                     {
                                         warn!(
                                             height = block.header.height,
@@ -1361,7 +1361,7 @@ async fn main() -> anyhow::Result<()> {
                                                 if valid
                                                     && block.header.height > 0
                                                     && block.header.proposer
-                                                        == pichain_crypto::ed25519::Address::ZERO
+                                                        == pichain_crypto::keys::Address::ZERO
                                                 {
                                                     warn!(
                                                         height,
@@ -1408,7 +1408,7 @@ async fn main() -> anyhow::Result<()> {
                                         (Ok(ca), Ok(cb)) => {
                                             let evidence =
                                                 pichain_consensus::EquivocationEvidence {
-                                                    author: pichain_crypto::ed25519::Address(
+                                                    author: pichain_crypto::keys::Address(
                                                         author,
                                                     ),
                                                     round,
@@ -1836,7 +1836,7 @@ async fn main() -> anyhow::Result<()> {
                 let proof = pichain_mining::MiningProof::new(
                     pos,
                     digits,
-                    pichain_crypto::ed25519::Address::ZERO,
+                    pichain_crypto::keys::Address::ZERO,
                     0,
                 );
                 let verifier = pichain_mining::ProofVerifier::new();
@@ -1920,9 +1920,9 @@ async fn main() -> anyhow::Result<()> {
                 let key_data = std::fs::read_to_string(&key_path)?;
                 let keys: ValidatorKeyFile = serde_json::from_str(&key_data)
                     .map_err(|e| anyhow::anyhow!("failed to parse validator.key: {e}"))?;
-                let ed_bytes: [u8; 32] = hex::decode(&keys.ed25519_secret)?
+                let ed_bytes: [u8; 32] = hex::decode(&keys.p2p_secret)?
                     .try_into()
-                    .map_err(|_| anyhow::anyhow!("ed25519 secret key must be 32 bytes"))?;
+                    .map_err(|_| anyhow::anyhow!("P2P secret key must be 32 bytes"))?;
                 let kp = pichain_crypto::Keypair::from_secret_bytes(&ed_bytes);
 
                 let contents = std::fs::read_to_string(&genesis_file)?;
@@ -1976,7 +1976,7 @@ async fn main() -> anyhow::Result<()> {
                 // Check for zero addresses (virtual pools are allowed to use Address::ZERO)
                 let mut zero_count = 0;
                 for alloc in &genesis.allocations {
-                    if alloc.address == pichain_crypto::ed25519::Address::ZERO
+                    if alloc.address == pichain_crypto::keys::Address::ZERO
                         && !alloc.virtual_pool
                     {
                         zero_count += 1;

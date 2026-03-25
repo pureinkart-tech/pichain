@@ -3,7 +3,7 @@
 //! Defines the initial state of the blockchain at genesis,
 //! including token distribution and initial validators.
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

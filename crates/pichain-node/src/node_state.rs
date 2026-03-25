@@ -10,7 +10,7 @@
 
 use parking_lot::RwLock;
 use pichain_consensus::StakingManager;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::Hash;
 use pichain_execution::{ProducedBlock, TransactionExecutor, TransactionPool};
 use pichain_rpc::{StateProvider, TxHistoryEntry};
@@ -541,7 +541,7 @@ impl NodeState {
             if key_suffix.len() == 20 && value.len() == 8 {
                 let mut addr_bytes = [0u8; 20];
                 addr_bytes.copy_from_slice(key_suffix);
-                let addr = pichain_crypto::ed25519::Address(addr_bytes);
+                let addr = pichain_crypto::keys::Address(addr_bytes);
                 let nonce = u64::from_le_bytes(value[..8].try_into().unwrap());
                 self.executor.token_executor().load_mint_nonce(addr, nonce);
             }
@@ -553,7 +553,7 @@ impl NodeState {
             if key_suffix.len() == 20 && value.len() == 8 {
                 let mut addr_bytes = [0u8; 20];
                 addr_bytes.copy_from_slice(key_suffix);
-                let addr = pichain_crypto::ed25519::Address(addr_bytes);
+                let addr = pichain_crypto::keys::Address(addr_bytes);
                 let nonce = u64::from_le_bytes(value[..8].try_into().unwrap());
                 self.executor
                     .nft_executor()
@@ -1601,7 +1601,7 @@ impl StateProvider for NodeState {
         self.state_root().to_string()
     }
 
-    fn get_account_proof(&self, address: &pichain_crypto::ed25519::Address) -> Option<Vec<u8>> {
+    fn get_account_proof(&self, address: &pichain_crypto::keys::Address) -> Option<Vec<u8>> {
         let store = self.store.read();
         store.get_account_proof(address)
     }
@@ -1906,7 +1906,7 @@ impl StateProvider for NodeState {
 
     fn scan_all_lp_balances(
         &self,
-    ) -> Vec<(pichain_types::PoolId, pichain_crypto::ed25519::Address, u64)> {
+    ) -> Vec<(pichain_types::PoolId, pichain_crypto::keys::Address, u64)> {
         let store = self.store.read();
         pichain_storage::DexStore::new(store.db())
             .scan_all_lp_balances()
@@ -1941,7 +1941,7 @@ impl StateProvider for NodeState {
     fn get_claimable_dividends(
         &self,
         mint_id: &pichain_types::MintId,
-        holder: &pichain_crypto::ed25519::Address,
+        holder: &pichain_crypto::keys::Address,
     ) -> u64 {
         let balance = self
             .get_token_account(holder, mint_id)
@@ -1970,7 +1970,7 @@ impl StateProvider for NodeState {
     fn claim_dividends(
         &self,
         mint_id: &pichain_types::MintId,
-        holder: &pichain_crypto::ed25519::Address,
+        holder: &pichain_crypto::keys::Address,
     ) -> Result<u64, String> {
         let balance = self
             .get_token_account(holder, mint_id)

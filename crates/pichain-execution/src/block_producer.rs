@@ -7,7 +7,7 @@
 //! 4. Applies state changes to storage
 //! 5. Emits the block for consensus/propagation
 
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_crypto::poseidon::PoseidonHash;
 use pichain_crypto::Hash;
 use pichain_types::block::{Block, BlockHeader};
@@ -546,16 +546,16 @@ fn compute_merkle_root(hashes: &[Hash]) -> Hash {
 mod tests {
     use super::*;
     use crate::mempool::TransactionPool;
-    use pichain_crypto::Keypair;
+    use pichain_crypto::PqKeypair;
     use pichain_types::account::AccountState;
     use pichain_types::transaction::Transaction;
 
-    fn setup() -> (BlockProducer, Keypair) {
-        let validator = Keypair::generate();
+    fn setup() -> (BlockProducer, PqKeypair) {
+        let validator = PqKeypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                require_pq: false,
+                
                 ..Default::default()
             },
         ));
@@ -581,18 +581,18 @@ mod tests {
 
     #[test]
     fn produce_block_with_transactions() {
-        let validator = Keypair::generate();
+        let validator = PqKeypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                require_pq: false,
+                
                 ..Default::default()
             },
         ));
 
         // Fund a sender
-        let sender = Keypair::generate();
-        let recipient = Keypair::generate();
+        let sender = PqKeypair::generate();
+        let recipient = PqKeypair::generate();
         executor.set_account(
             sender.address(),
             AccountState::with_balance(100 * 1_000_000_000),
@@ -606,7 +606,7 @@ mod tests {
             1_000_000_000, // 1 PI
             1,
         );
-        let signed = Transaction::sign_ed25519_for_tests_only(tx_data, &sender);
+        let signed = Transaction::sign_pq(tx_data, &sender);
         mempool.insert(signed).unwrap();
 
         let config = BlockProducerConfig {
@@ -643,11 +643,11 @@ mod tests {
 
     #[test]
     fn base_fee_adjusts() {
-        let validator = Keypair::generate();
+        let validator = PqKeypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                require_pq: false,
+                
                 ..Default::default()
             },
         ));
@@ -687,18 +687,18 @@ mod tests {
 
     #[test]
     fn block_gas_limit_enforced_by_trimming() {
-        let validator = Keypair::generate();
+        let validator = PqKeypair::generate();
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                require_pq: false,
+                
                 ..Default::default()
             },
         ));
 
         // Create multiple senders with funds
-        let senders: Vec<Keypair> = (0..5).map(|_| Keypair::generate()).collect();
-        let recipient = Keypair::generate();
+        let senders: Vec<PqKeypair> = (0..5).map(|_| PqKeypair::generate()).collect();
+        let recipient = PqKeypair::generate();
         for sender in &senders {
             executor.set_account(
                 sender.address(),
@@ -715,7 +715,7 @@ mod tests {
                 1_000_000_000, // 1 PI
                 1,
             );
-            let signed = Transaction::sign_ed25519_for_tests_only(tx_data, sender);
+            let signed = Transaction::sign_pq(tx_data, sender);
             mempool.insert(signed).unwrap();
         }
 

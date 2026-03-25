@@ -8,7 +8,7 @@
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use pichain_crypto::ed25519::Address;
+use pichain_crypto::keys::Address;
 use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};
 use pichain_types::transaction::{TransactionEvent, TransactionStatus};
 use std::collections::HashMap;
