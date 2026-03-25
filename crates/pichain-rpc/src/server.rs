@@ -2762,7 +2762,7 @@ fn default_limit() -> u64 {
 /// Maximum blocks returned in a range query.
 /// Max blocks per range query. Capped at 25 to limit DoS via expensive scans.
 /// Clients needing more should paginate.
-const MAX_BLOCK_RANGE: u64 = 25;
+const MAX_BLOCK_RANGE: u64 = 31;
 
 /// Maximum transaction hashes included in a single block response.
 const MAX_TX_HASHES_PER_BLOCK: usize = 1000;

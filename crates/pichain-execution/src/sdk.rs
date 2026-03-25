@@ -14,8 +14,8 @@ use pichain_crypto::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Maximum contract code size (1 MB).
-pub const MAX_CONTRACT_SIZE: usize = 1_048_576;
+/// Maximum contract code size (~3.14 MB = π × 10^6 bytes).
+pub const MAX_CONTRACT_SIZE: usize = 3_141_592;
 
 /// Maximum contract storage key size (256 bytes).
 pub const MAX_STORAGE_KEY_SIZE: usize = 256;
@@ -23,11 +23,11 @@ pub const MAX_STORAGE_KEY_SIZE: usize = 256;
 /// Maximum contract storage value size (64 KB).
 pub const MAX_STORAGE_VALUE_SIZE: usize = 65_536;
 
-/// Maximum number of events per transaction.
-pub const MAX_EVENTS_PER_TX: usize = 256;
+/// Maximum number of events per transaction (π × 100).
+pub const MAX_EVENTS_PER_TX: usize = 314;
 
-/// Maximum cross-contract call depth.
-pub const MAX_CALL_DEPTH: u32 = 16;
+/// Maximum cross-contract call depth (π × 10).
+pub const MAX_CALL_DEPTH: u32 = 31;
 
 /// Contract metadata — describes a deployed contract.
 #[derive(Clone, Debug, Serialize, Deserialize)]

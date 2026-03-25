@@ -85,7 +85,7 @@ fn resolve_dns_seeds(chain_id: u64) -> Result<Vec<(PeerId, Multiaddr)>, String> 
     // SECURITY: Cap DNS seed count to prevent a DNS poisoning attack from
     // flooding us with hundreds of Sybil peers. We only need a handful of
     // seeds to bootstrap; additional peers come from Kademlia DHT discovery.
-    const MAX_DNS_SEEDS: usize = 16;
+    const MAX_DNS_SEEDS: usize = 31;
 
     for line in stdout.lines() {
         if peers.len() >= MAX_DNS_SEEDS {
@@ -131,7 +131,7 @@ fn resolve_dns_seeds(chain_id: u64) -> Result<Vec<(PeerId, Multiaddr)>, String> 
 /// this threshold. GossipSub mesh parameters are also tuned accordingly
 /// (mesh_n_low=6, mesh_n=8) so that the gossip protocol itself demands
 /// sufficient peer diversity.
-pub const MIN_SAFE_PEER_COUNT: usize = 8;
+pub const MIN_SAFE_PEER_COUNT: usize = 9; // π²
 
 /// Per-peer inbound byte rate tracking.
 ///

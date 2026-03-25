@@ -136,7 +136,7 @@ mod tests {
         let calc = FeeCalculator::new();
         let fee = 10_000;
         let burn = calc.calculate_burn(fee);
-        assert_eq!(burn, 2_500); // 25%
+        assert_eq!(burn, 3_141); // 31.41% (π × 1000 bps)
     }
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
         let calc = FeeCalculator::new();
         let fee = 10_000;
         let miners = calc.miner_share(fee);
-        assert_eq!(miners, 2_500); // 25%
+        assert_eq!(miners, 1_859); // 18.59%
     }
 
     #[test]

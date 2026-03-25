@@ -79,7 +79,8 @@ impl BlockHeader {
 
     /// Minimum base fee floor — prevents near-zero fees that enable spam.
     /// At 200,000 gas per tx, this means minimum ~0.2 PI per transaction.
-    pub const MIN_BASE_FEE: PiAmount = 1_000;
+    /// Minimum base fee (π × 100 base units).
+    pub const MIN_BASE_FEE: PiAmount = 314;
 
     /// Calculate the next block's base fee (EIP-1559 adjustment).
     /// Increases if gas_used > 50% of target, decreases otherwise.

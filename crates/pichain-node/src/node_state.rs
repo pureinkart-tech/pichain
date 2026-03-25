@@ -1776,7 +1776,7 @@ impl StateProvider for NodeState {
         // 3.14 PI in base units (1 PI = 1_000_000_000)
         let locked_grant: u64 = 3_140_000_000;
         // Global cap: first 3.14 million wallets
-        const MAX_ACTIVATIONS: u64 = 3_140_000;
+        const MAX_ACTIVATIONS: u64 = 3_141_592;
 
         // Check if already activated (read lock first for fast path)
         {
@@ -1785,7 +1785,7 @@ impl StateProvider for NodeState {
                 return Err("wallet already activated".to_string());
             }
             if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
-                return Err("wallet activation cap reached (3,140,000 wallets)".to_string());
+                return Err("wallet activation cap reached (3,141,592 wallets)".to_string());
             }
         }
 
@@ -1797,7 +1797,7 @@ impl StateProvider for NodeState {
             return Err("wallet already activated".to_string());
         }
         if store.activation_count().unwrap_or(0) >= MAX_ACTIVATIONS {
-            return Err("wallet activation cap reached (3,140,000 wallets)".to_string());
+            return Err("wallet activation cap reached (3,141,592 wallets)".to_string());
         }
 
         // Load or create target account

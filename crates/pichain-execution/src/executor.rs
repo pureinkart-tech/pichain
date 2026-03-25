@@ -63,7 +63,7 @@ const MIN_VALIDATORS_FOR_STAKE_CAP: usize = 4;
 
 /// Maximum stake growth per validator per epoch (bps of epoch-start stake).
 /// 5000 bps = 50%. Prevents flash-staking attacks.
-const MAX_STAKE_GROWTH_PCT_BPS: u32 = 5000;
+const MAX_STAKE_GROWTH_PCT_BPS: u32 = 3141; // π × 1000 bps
 
 /// Maximum number of active validators. Prevents Sybil flooding.
 const MAX_ACTIVE_VALIDATORS: usize = 100;

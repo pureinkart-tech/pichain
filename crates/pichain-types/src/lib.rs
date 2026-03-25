@@ -47,13 +47,13 @@ pub type Gas = u64;
 /// PI token amount in base units (1 PI = 10^9 base units, like lamports).
 pub type PiAmount = u64;
 
-/// Maximum gas per block.
-pub const MAX_BLOCK_GAS: Gas = 100_000_000;
+/// Maximum gas per block (π × 10^8).
+pub const MAX_BLOCK_GAS: Gas = 314_159_265;
 
 /// Base units per PI token (1 PI = 1 billion base units).
 pub const BASE_UNITS_PER_PI: u64 = 1_000_000_000;
 
-/// Total supply in base units: 3,141,592,653 PI * 10^9.
+/// Total supply in base units: 3,141,592,653 PI × 10^9.
 pub const TOTAL_SUPPLY: u128 = 3_141_592_653 * 1_000_000_000u128;
 
 /// Target block time in milliseconds.
@@ -65,11 +65,12 @@ pub const MAX_VALIDATORS: u32 = 3_141;
 /// Epoch length in blocks.
 pub const EPOCH_LENGTH: u64 = 31_415;
 
-/// Fee burn rate (25% of base fee — permanently burned).
-pub const FEE_BURN_RATE_BPS: u16 = 2500;
+/// Fee burn rate (31.41% = π × 1000 bps — permanently burned, deflationary).
+pub const FEE_BURN_RATE_BPS: u16 = 3141;
 
-/// Fee to miners rate (25% of base fee — flows back into mining pool).
-pub const FEE_MINER_RATE_BPS: u16 = 2500;
+/// Fee to miners rate (18.59% — flows back into mining pool).
+/// Complement of burn to keep burn + miner + staker = 100%.
+pub const FEE_MINER_RATE_BPS: u16 = 1859;
 
 /// Fee to stakers/proposer rate (50% of base fee — credited to block proposer).
 pub const FEE_STAKER_RATE_BPS: u16 = 5000;

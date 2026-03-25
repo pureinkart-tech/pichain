@@ -47,23 +47,20 @@ pub struct TokenDelta {
 /// 3000 bps = 30% max price impact.
 const MAX_SWAP_PRICE_IMPACT_BPS: u64 = 9999; // 99.99% — slippage tolerance is the real user protection
 
-/// Minimum blocks between LP deposit and removal.
+/// Minimum blocks between LP deposit and removal (π × 1000).
 /// Prevents atomic add+remove manipulation within the same or adjacent blocks.
-/// ~10 minutes at 314ms block time ≈ 1,911 blocks.
-const LP_LOCK_BLOCKS: u64 = 1_911;
+/// ~16.4 minutes at 314ms block time.
+const LP_LOCK_BLOCKS: u64 = 3_141;
 
-/// Anti-snipe cooldown: number of blocks after pool creation during which
-/// per-address cumulative swap volume is capped.
-/// ~30 seconds at 314ms block time ≈ 96 blocks.
+/// Anti-snipe cooldown (π × 100 blocks).
+/// ~98.6 seconds at 314ms block time.
 /// Prevents bots from front-running newly graduated tokens with oversized buys.
-const SNIPE_COOLDOWN_BLOCKS: u64 = 96;
+const SNIPE_COOLDOWN_BLOCKS: u64 = 314;
 
-/// Maximum cumulative swap volume PER ADDRESS during cooldown period,
-/// as basis points of the pool's initial input reserve.
-/// 1000 bps = 10% of the pool's input reserve per address during the entire cooldown.
-/// This is generous for normal users (10% of an 80 PI pool = 8 PI) while preventing
-/// any single address from cornering >10% of supply in the first 30 seconds.
-const MAX_SNIPE_VOLUME_BPS: u64 = 1000;
+/// Maximum cumulative swap volume PER ADDRESS during cooldown period.
+/// 314 bps = 3.14% of the pool's input reserve per address during cooldown.
+/// Tight enough to prevent any single address from cornering supply in the first ~100s.
+const MAX_SNIPE_VOLUME_BPS: u64 = 314;
 
 /// DEX executor — manages liquidity pools and swaps.
 pub struct DexExecutor {

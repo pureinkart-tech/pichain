@@ -80,7 +80,7 @@ struct SubscribeRequest {
 }
 
 /// Maximum concurrent WebSocket connections to prevent resource exhaustion.
-const MAX_WS_CONNECTIONS: u64 = 500;
+const MAX_WS_CONNECTIONS: u64 = 314;
 
 /// Maximum WebSocket connections per IP to prevent single-source abuse.
 const MAX_WS_PER_IP: u64 = 10;
