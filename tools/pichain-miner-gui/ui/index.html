@@ -912,8 +912,11 @@ function showMiningScreen() {
   document.getElementById('setup-screen').style.display = 'none';
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('mining-screen').style.display = 'flex';
-  document.getElementById('wallet-address').textContent = truncateAddress(walletAddress);
-  document.getElementById('wallet-address').title = walletAddress;
+  // Show full address (not truncated) so users can easily copy it
+  document.getElementById('wallet-address').textContent = walletAddress;
+  document.getElementById('wallet-address').title = 'Click to copy';
+  document.getElementById('wallet-address').style.fontSize = '11px';
+  document.getElementById('wallet-address').style.wordBreak = 'break-all';
   showQuickstartHint();
 }
 
@@ -1226,25 +1229,12 @@ function now() {
 // ---------- Wallet management ----------
 
 async function doExportKey() {
-  let password = null;
-  if (walletEncrypted) {
-    password = await showPasswordModal('export', 'Confirm Password', 'Enter your wallet password to view your wallet details.');
-    if (!password) return;
-  }
-  try {
-    const key = await invoke('export_wallet_key', { password: password });
-    document.getElementById('backup-wallet-address').textContent = key;
-    document.getElementById('backup-wallet-path').textContent = walletPath;
-    document.getElementById('backup-ack').checked = false;
-    document.getElementById('backup-proceed').disabled = true;
-    document.getElementById('backup-modal').classList.add('active');
-  } catch (e) {
-    if (typeof e === 'string' && e.includes('Wrong password')) {
-      showInfoModal('Wrong Password', 'The password you entered is incorrect.');
-    } else {
-      showToast('Export failed: ' + e, 'error');
-    }
-  }
+  // Show the full address (public info, no password needed)
+  document.getElementById('backup-wallet-address').textContent = walletAddress;
+  document.getElementById('backup-wallet-path').textContent = walletPath;
+  document.getElementById('backup-ack').checked = false;
+  document.getElementById('backup-proceed').disabled = true;
+  document.getElementById('backup-modal').classList.add('active');
 }
 
 async function doResetWallet() {
