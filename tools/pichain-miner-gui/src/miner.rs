@@ -625,19 +625,10 @@ pub async fn mining_loop(
                         if result.status == "pending" {
                             proofs_confirmed += 1;
                             total_digits += batch_digit_count as u64;
-                            let frontier_bonus: f64 = mining_status
-                                .frontier_bonus_at_next
-                                .trim_end_matches('x')
-                                .parse()
-                                .unwrap_or(1.0);
-                            let reward = (mining_status.reward_per_digit as f64
-                                * batch_digit_count as f64
-                                * frontier_bonus)
-                                / 1e9;
                             let tx_short = &result.tx_hash[..result.tx_hash.len().min(12)];
                             emit_log(
                                 &app,
-                                &format!("Proof submitted! tx:{} +{:.4} PI", tx_short, reward),
+                                &format!("Proof submitted! tx:{} ({} digits)", tx_short, batch_digit_count),
                                 "success",
                             );
                             current_nonce = current_nonce.saturating_add(1);
