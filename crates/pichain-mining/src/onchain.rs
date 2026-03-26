@@ -549,20 +549,22 @@ impl MiningProcessor {
             .registry
             .is_range_fully_computed(proof.start_position, proof.digit_count)
         {
+            // Range already computed — accept with 0 reward so miner advances
+            // its nonce and moves to the next position. Rejecting causes the miner
+            // to retry the same position in a loop.
+            warn!(
+                start = proof.start_position,
+                end = proof.start_position.saturating_add(proof.digit_count as u64),
+                "range already computed — accepting with 0 reward"
+            );
             return VerificationResult {
-                valid: false,
+                valid: true,
                 spot_checks: 0,
-                all_checks_passed: false,
+                all_checks_passed: true,
                 reward_amount: 0,
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
-                error: Some(format!(
-                    "range {}..{} already fully computed",
-                    proof.start_position,
-                    proof
-                        .start_position
-                        .saturating_add(proof.digit_count as u64)
-                )),
+                error: None,
                 epoch_remaining_budget: None,
             };
         }
