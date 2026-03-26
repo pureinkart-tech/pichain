@@ -3453,6 +3453,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -5796,7 +5797,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-bridge"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5816,7 +5817,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-cli"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "clap",
@@ -5834,7 +5835,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-consensus"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5856,7 +5857,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-crypto"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "blake3",
  "blst",
@@ -5875,7 +5876,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-execution"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5899,7 +5900,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-miner"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "clap",
@@ -5920,7 +5921,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-miner-gui"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5950,7 +5951,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-mining"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5968,7 +5969,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-network"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -5987,7 +5988,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-node"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -6013,7 +6014,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-rpc"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "axum",
@@ -6039,7 +6040,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-signer"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -6062,7 +6063,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-storage"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6080,7 +6081,7 @@ dependencies = [
 
 [[package]]
 name = "pichain-types"
-version = "0.7.10"
+version = "0.7.11"
 dependencies = [
  "blake3",
  "chrono",
@@ -6903,6 +6904,8 @@ dependencies = [
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
+ "rustls",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -6910,6 +6913,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "tower",
  "tower-http",
  "tower-service",
@@ -6917,6 +6921,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -9825,6 +9830,15 @@ dependencies = [
  "pkg-config",
  "soup3-sys",
  "system-deps",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]
