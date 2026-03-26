@@ -585,37 +585,19 @@ pub async fn mining_loop(
                 }
             };
 
-            let tx_data = TransactionData {
-                sender: address,
-                nonce: current_nonce,
-                kind: TransactionKind::MiningProof {
-                    start_position: batch_pos,
-                    digit_count: batch_digit_count,
-                    digits,
-                    proof: vec![],
-                    pow_nonce: pn,
-                    anchor_block_hash: anchor_block_hash.to_vec(),
-                },
-                gas_limit: 0, // Mining proofs are fee-exempt (PoW is anti-spam)
-                max_base_fee: 0,
-                max_priority_fee: 0,
-                chain_id: config.chain_id,
-            };
-
-            let signed = Transaction::sign_pq(tx_data, &pq_keypair);
-            let tx_hex = match serde_json::to_vec(&signed) {
-                Ok(v) => hex::encode(v),
-                Err(e) => {
-                    emit_log(&app, &format!("Serialization error: {e}"), "error");
-                    continue;
-                }
-            };
-
-            let submit_body = serde_json::json!({ "signed_tx_hex": tx_hex });
+            // Use pool-submit for instant credit (no mempool/block delay race condition).
+            let submit_body = serde_json::json!({
+                "miner_address": hex::encode(address.0),
+                "start_position": batch_pos,
+                "digit_count": batch_digit_count,
+                "digits": &digits,
+                "pow_nonce": pn,
+                "anchor_block_hash": hex::encode(anchor_block_hash)
+            });
             proofs_submitted += 1;
 
             match client
-                .post(format!("{}/api/v1/tx/submit", config.rpc_url))
+                .post(format!("{}/api/v1/mining/pool-submit", config.rpc_url))
                 .json(&submit_body)
                 .send()
                 .await
