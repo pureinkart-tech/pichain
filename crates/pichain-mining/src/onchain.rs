@@ -584,31 +584,21 @@ impl MiningProcessor {
                 }
             }
         };
-        for pos in [proof.start_position, end.saturating_sub(1)] {
-            if self.registry.is_computed(pos) {
-                return VerificationResult {
-                    valid: false,
-                    spot_checks: 0,
-                    all_checks_passed: false,
-                    reward_amount: 0,
-                    start_position: proof.start_position,
-                    digit_count: proof.digit_count,
-                    error: Some(format!("position {} already computed", pos)),
-                    epoch_remaining_budget: None,
-                };
-            }
-        }
-
-        // 2b. Pre-check overlap via registry before expensive spot-check verification
-        if self.registry.has_overlap(proof.start_position, end) {
+        // If range is already computed or overlaps, accept with 0 reward.
+        // This lets the miner's nonce advance so it moves to the next position
+        // instead of retrying the same one in a loop.
+        let already_done = self.registry.is_computed(proof.start_position)
+            || self.registry.is_computed(end.saturating_sub(1))
+            || self.registry.has_overlap(proof.start_position, end);
+        if already_done {
             return VerificationResult {
-                valid: false,
+                valid: true,
                 spot_checks: 0,
-                all_checks_passed: false,
+                all_checks_passed: true,
                 reward_amount: 0,
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
-                error: Some("digit range overlaps existing computed range".to_string()),
+                error: None,
                 epoch_remaining_budget: None,
             };
         }
