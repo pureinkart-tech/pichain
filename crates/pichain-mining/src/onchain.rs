@@ -77,9 +77,10 @@ pub fn min_batch_size(frontier: u64) -> u32 {
         let log2 = (u64::BITS - scaled.leading_zeros()).saturating_sub(1);
         (log2 as u64).max(1)
     };
-    // Cap at 500 (not 10,000) to keep browser/mobile mining viable at all frontier depths.
-    // A browser miner computing 500 digits takes ~2-5 seconds — accessible to everyone.
-    (10u64.saturating_mul(factor)).clamp(10, 500) as u32
+    // Keep minimum low so browser miners stay viable at deep frontiers.
+    // BBP gets O(position) slower per digit, so even 20 digits is slow in JS at 1M+.
+    // Base of 2 keeps it accessible: frontier 1M → 20, frontier 1B → 40.
+    (2u64.saturating_mul(factor)).clamp(20, 200) as u32
 }
 
 /// Integer square root via Newton's method. Deterministic across all platforms.
