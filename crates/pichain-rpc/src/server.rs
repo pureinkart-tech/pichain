@@ -333,6 +333,8 @@ pub struct RpcState {
     pub ws_broadcaster: Arc<crate::ws::WsBroadcaster>,
     /// Pending PoW challenges for wallet activation, keyed by challenge hex.
     activation_challenges: DashMap<String, ActivationChallenge>,
+    /// Explorer directory for live file serving (reads from disk, not compiled-in).
+    pub explorer_dir: Option<std::path::PathBuf>,
 }
 
 /// Trait for providing real state data to the RPC layer.
@@ -1010,6 +1012,7 @@ fn is_allowed_origin(origin: &str) -> bool {
 pub struct RpcServer {
     state: Arc<RpcState>,
     games_dir: Option<std::path::PathBuf>,
+    explorer_dir: Option<std::path::PathBuf>,
 }
 
 impl RpcServer {
@@ -1027,8 +1030,10 @@ impl RpcServer {
                 blocking_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
                 activation_challenges: DashMap::new(),
+                explorer_dir: None,
             }),
             games_dir: None,
+            explorer_dir: None,
         }
     }
 
@@ -1048,14 +1053,28 @@ impl RpcServer {
                 blocking_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
                 ws_broadcaster: Arc::new(crate::ws::WsBroadcaster::new(1024)),
                 activation_challenges: DashMap::new(),
+                explorer_dir: None,
             }),
             games_dir: None,
+            explorer_dir: None,
         }
     }
 
     /// Set the directory for serving game assets (models, textures, audio).
     pub fn with_games_dir(mut self, path: std::path::PathBuf) -> Self {
         self.games_dir = Some(path);
+        self
+    }
+
+    /// Set the directory for serving explorer/website files from disk.
+    /// When set, HTML pages are read from disk at request time (live updates).
+    /// When not set, falls back to compiled-in HTML (include_str!).
+    pub fn with_explorer_dir(mut self, path: std::path::PathBuf) -> Self {
+        self.explorer_dir = Some(path.clone());
+        // Set it in the state too so route handlers can access it
+        if let Some(state) = Arc::get_mut(&mut self.state) {
+            state.explorer_dir = Some(path);
+        }
         self
     }
 
@@ -1386,7 +1405,7 @@ async fn ws_upgrade(
 }
 
 /// Serve a static HTML page with cache headers.
-/// 60s browser cache + revalidation allows fast loads while picking up deploys within a minute.
+/// If explorer_dir is set, reads from disk (live edits). Otherwise uses compiled-in fallback.
 fn serve_html(html: &'static str) -> impl IntoResponse {
     (
         StatusCode::OK,
@@ -1399,27 +1418,48 @@ fn serve_html(html: &'static str) -> impl IntoResponse {
     )
 }
 
-/// Serve the PQ wallet connector JavaScript.
-async fn serve_wallet_js() -> impl IntoResponse {
+/// Serve an explorer HTML file from disk if explorer_dir is set, otherwise use compiled-in fallback.
+fn serve_explorer_file(state: &Arc<RpcState>, filename: &str, fallback: &'static str) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Some(ref dir) = state.explorer_dir {
+        let path = dir.join(filename);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return (
+                StatusCode::OK,
+                [
+                    ("content-type", if filename.ends_with(".js") { "application/javascript; charset=utf-8" } else if filename.ends_with(".json") { "application/json; charset=utf-8" } else { "text/html; charset=utf-8" }),
+                    ("cache-control", "no-cache, must-revalidate"),
+                    ("vary", "Accept-Encoding"),
+                ],
+                content,
+            ).into_response();
+        }
+    }
+    // Fallback to compiled-in
     (
         StatusCode::OK,
         [
-            ("content-type", "application/javascript; charset=utf-8"),
+            ("content-type", if filename.ends_with(".js") { "application/javascript; charset=utf-8" } else if filename.ends_with(".json") { "application/json; charset=utf-8" } else { "text/html; charset=utf-8" }),
             ("cache-control", "no-cache, must-revalidate"),
+            ("vary", "Accept-Encoding"),
         ],
-        include_str!("../../../explorer/pichain-wallet.js"),
-    )
+        fallback.to_string(),
+    ).into_response()
+}
+
+/// Serve the PQ wallet connector JavaScript.
+async fn serve_wallet_js(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "pichain-wallet.js", include_str!("../../../explorer/pichain-wallet.js"))
 }
 
 /// Serve the PIChain homepage / landing page.
-async fn serve_homepage() -> impl IntoResponse {
-    const HOME_HTML: &str = include_str!("../../../explorer/home.html");
-    serve_html(HOME_HTML)
+async fn serve_homepage(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "home.html", include_str!("../../../explorer/home.html"))
 }
 
 /// Serve the block explorer UI.
-async fn serve_explorer() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/index.html"))
+async fn serve_explorer(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "index.html", include_str!("../../../explorer/index.html"))
 }
 
 /// Redirect /mining to /mine (dashboard is now a tab inside /mine).
@@ -1428,18 +1468,18 @@ async fn redirect_mining_to_mine() -> impl IntoResponse {
 }
 
 /// Miner setup guide — instructions for external miners to join.
-async fn serve_miner_setup() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/mine.html"))
+async fn serve_miner_setup(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "mine.html", include_str!("../../../explorer/mine.html"))
 }
 
 /// Real-time mining dashboard.
-async fn serve_dashboard() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/dashboard.html"))
+async fn serve_dashboard(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "dashboard.html", include_str!("../../../explorer/dashboard.html"))
 }
 
 /// Download page — pre-built miner binaries.
-async fn serve_download_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/download.html"))
+async fn serve_download_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "download.html", include_str!("../../../explorer/download.html"))
 }
 
 /// Detailed health check with structured JSON response.
@@ -3281,23 +3321,23 @@ async fn get_swap_quote(
 
 // ─── Launch page serving ────────────────────────────────────────────────────
 
-async fn serve_launch_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/launch.html"))
+async fn serve_launch_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "launch.html", include_str!("../../../explorer/launch.html"))
 }
 
 /// Trade page — DEX swap interface.
-async fn serve_trade_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/trade.html"))
+async fn serve_trade_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "trade.html", include_str!("../../../explorer/trade.html"))
 }
 
 /// PiBot logo page — for BotFather profile picture.
-async fn serve_pibot_logo() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/pibot-logo.html"))
+async fn serve_pibot_logo(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "pibot-logo.html", include_str!("../../../explorer/pibot-logo.html"))
 }
 
 /// PiBot web terminal — browser-based trading dashboard.
-async fn serve_terminal_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/terminal.html"))
+async fn serve_terminal_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "terminal.html", include_str!("../../../explorer/terminal.html"))
 }
 
 /// Bridge page removed — redirect to home.
@@ -3306,43 +3346,43 @@ async fn redirect_bridge_to_home() -> impl IntoResponse {
 }
 
 /// Staking page — validators, delegations, rewards.
-async fn serve_staking_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/staking.html"))
+async fn serve_staking_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "staking.html", include_str!("../../../explorer/staking.html"))
 }
 
 /// Block list page — paginated block browsing.
-async fn serve_blocks_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/blocks.html"))
+async fn serve_blocks_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "blocks.html", include_str!("../../../explorer/blocks.html"))
 }
 
 /// Address detail page — balance, nonce, tx history.
-async fn serve_address_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/address.html"))
+async fn serve_address_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "address.html", include_str!("../../../explorer/address.html"))
 }
 
 /// Rich list page — top accounts by balance.
-async fn serve_richlist_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/richlist.html"))
+async fn serve_richlist_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "richlist.html", include_str!("../../../explorer/richlist.html"))
 }
 
 /// Token detail page — info and holders.
-async fn serve_token_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/token.html"))
+async fn serve_token_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "token.html", include_str!("../../../explorer/token.html"))
 }
 
 /// NFT marketplace page — collections, items, marketplace.
-async fn serve_nft_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/nft.html"))
+async fn serve_nft_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "nft.html", include_str!("../../../explorer/nft.html"))
 }
 
 /// Terms of Service page.
-async fn serve_terms_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/terms.html"))
+async fn serve_terms_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "terms.html", include_str!("../../../explorer/terms.html"))
 }
 
 /// Privacy Policy page.
-async fn serve_privacy_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/privacy.html"))
+async fn serve_privacy_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "privacy.html", include_str!("../../../explorer/privacy.html"))
 }
 
 /// Bridge deposit address request.
@@ -4863,20 +4903,20 @@ async fn get_richlist(
 
 // ======================== DEX Analytics Endpoints ========================
 
-async fn serve_dex_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/dex.html"))
+async fn serve_dex_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "dex.html", include_str!("../../../explorer/dex.html"))
 }
 
-async fn serve_betting_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/betting.html"))
+async fn serve_betting_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "betting.html", include_str!("../../../explorer/betting.html"))
 }
 
-async fn serve_crypto_bros_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/crypto-bros.html"))
+async fn serve_crypto_bros_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "crypto-bros.html", include_str!("../../../explorer/crypto-bros.html"))
 }
 
-async fn serve_music_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/music.html"))
+async fn serve_music_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "music.html", include_str!("../../../explorer/music.html"))
 }
 
 async fn serve_music_apk() -> impl IntoResponse {
@@ -4897,31 +4937,20 @@ async fn serve_music_apk() -> impl IntoResponse {
     )
 }
 
-async fn serve_music_privacy() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/music-privacy.html"))
+async fn serve_music_privacy(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "music-privacy.html", include_str!("../../../explorer/music-privacy.html"))
 }
 
-async fn serve_player_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/player.html"))
+async fn serve_player_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "player.html", include_str!("../../../explorer/player.html"))
 }
 
-async fn serve_player_sw() -> impl IntoResponse {
-    (
-        axum::http::StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/javascript")],
-        include_str!("../../../explorer/player-sw.js"),
-    )
+async fn serve_player_sw(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "player-sw.js", include_str!("../../../explorer/player-sw.js"))
 }
 
-async fn serve_player_manifest() -> impl IntoResponse {
-    (
-        axum::http::StatusCode::OK,
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "application/manifest+json",
-        )],
-        include_str!("../../../explorer/player-manifest.json"),
-    )
+async fn serve_player_manifest(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "player-manifest.json", include_str!("../../../explorer/player-manifest.json"))
 }
 
 async fn serve_player_apk() -> impl IntoResponse {
@@ -4942,8 +4971,8 @@ async fn serve_player_apk() -> impl IntoResponse {
     )
 }
 
-async fn serve_dating_page() -> impl IntoResponse {
-    serve_html(include_str!("../../../explorer/dating.html"))
+async fn serve_dating_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    serve_explorer_file(&state, "dating.html", include_str!("../../../explorer/dating.html"))
 }
 
 /// GET /api/v1/dex/pairs — All trading pairs with stats (price, volume, TVL, 24h change).
