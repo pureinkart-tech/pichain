@@ -42,7 +42,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: v075-${{ matrix.target }}
+          key: v076-${{ matrix.target }}
 
       # Build all 3 binaries: miner, signer, cli
       - name: Build pichain-miner
@@ -144,7 +144,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: gui-v075-${{ matrix.target }}
+          key: gui-v076-${{ matrix.target }}
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --locked
