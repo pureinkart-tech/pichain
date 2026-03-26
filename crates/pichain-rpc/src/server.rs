@@ -430,11 +430,11 @@ pub trait StateProvider: Send + Sync + 'static {
     }
 
     /// Get or assign a mining slot for the given address.
-    /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
+    /// Returns `(recommended_start_position, slot_index, total_active_miners, gap_fill_position)`.
     fn get_mining_slot(
         &self,
         _address: &pichain_crypto::keys::Address,
-    ) -> Option<(u64, u32, usize)> {
+    ) -> Option<(u64, u32, usize, Option<u64>)> {
         None
     }
 
@@ -2279,6 +2279,8 @@ struct MiningSlotResponse {
     recommended_position: u64,
     active_miners: usize,
     slot_range_size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gap_fill_position: Option<u64>,
 }
 
 async fn get_mining_slot(
@@ -2301,13 +2303,14 @@ async fn get_mining_slot(
     addr.0.copy_from_slice(&addr_bytes);
 
     if let Some(provider) = &state.state_provider {
-        if let Some((position, slot_index, active_miners)) = provider.get_mining_slot(&addr) {
+        if let Some((position, slot_index, active_miners, gap_fill)) = provider.get_mining_slot(&addr) {
             return Ok(Json(MiningSlotResponse {
                 address: address_hex,
                 slot_index,
                 recommended_position: position,
                 active_miners,
                 slot_range_size: pichain_mining::onchain::SLOT_RANGE_SIZE,
+                gap_fill_position: gap_fill,
             }));
         }
     }

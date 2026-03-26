@@ -553,17 +553,32 @@ async fn main() -> anyhow::Result<()> {
             // next_uncomputed_position + (slot_index * slot_range_size).
             // Use max(slot_position, local_position) so we never go backwards
             // even if other miners have computed positions ahead of us.
-            let slot_pos = match client
+            let (slot_pos, gap_fill_pos) = match client
                 .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, address_hex))
                 .send()
                 .await
             {
                 Ok(resp) => {
                     let slot: serde_json::Value = resp.json().await.unwrap_or_default();
-                    slot["recommended_position"].as_u64().unwrap_or(mining_status.next_position)
+                    let pos = slot["recommended_position"].as_u64().unwrap_or(mining_status.next_position);
+                    let gap = slot["gap_fill_position"].as_u64();
+                    (pos, gap)
                 }
-                _ => mining_status.next_position,
+                _ => (mining_status.next_position, None),
             };
+
+            // If the server detected a gap in the digit registry, override local_position
+            // to fill it. This advances the frontier so proofs aren't rejected as "too far ahead".
+            if let Some(gap_pos) = gap_fill_pos {
+                if local_position.map_or(false, |lp| lp > gap_pos) {
+                    info!(
+                        gap_position = gap_pos,
+                        local_pos = ?local_position,
+                        "Server detected gap — resetting position to fill it"
+                    );
+                    local_position = Some(gap_pos);
+                }
+            }
 
             let pos = if let Some(local_pos) = local_position {
                 // Take the FURTHER of local tracking and server recommendation
@@ -851,21 +866,22 @@ async fn main() -> anyhow::Result<()> {
                                 "Mining proof rejected"
                             );
                             local_nonce = None;
-                            local_position = None;
+                            // DON'T reset local_position — keep it at the last successful
+                            // batch so next round starts at the gap, not jumping past it
                             break;
                         }
                     }
                     Err(e) => {
                         error!("Failed to parse submit response: {e}");
                         local_nonce = None;
-                        local_position = None;
+                        // Keep local_position so next round retries from the gap
                         break;
                     }
                 },
                 Err(e) => {
                     error!("Failed to submit transaction: {e}");
                     local_nonce = None;
-                    local_position = None;
+                    // Keep local_position so next round retries from the gap
                     break;
                 }
             }
@@ -876,12 +892,14 @@ async fn main() -> anyhow::Result<()> {
             local_nonce = Some(current_nonce);
         }
 
-        // Advance local position past the batches we just submitted.
-        // This prevents re-computing the same ranges on the next round
-        // before the server has registered our proofs.
+        // Advance local position past the batches we actually submitted successfully.
+        // CRITICAL: Only count ACTUALLY SUBMITTED batches, not planned batch count.
+        // Using planned count causes gaps when a middle batch fails — local_position
+        // jumps past the failed batch, leaving a permanent hole in the digit registry.
         if current_nonce > nonce {
+            let actually_submitted = current_nonce.saturating_sub(nonce);
             let total_digits_this_round =
-                effective_batch_count as u64 * effective_batch_size as u64;
+                actually_submitted.saturating_mul(effective_batch_size as u64);
             local_position = Some(position.saturating_add(total_digits_this_round));
         }
 

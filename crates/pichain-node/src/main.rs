@@ -597,8 +597,8 @@ async fn main() -> anyhow::Result<()> {
                     )
                 })?;
                 let addr = pichain_crypto::keys::Address(addr_bytes);
-                if addr == validator_key.address() {
-                    continue; // Skip self
+                if addr == pq_block_signer.address() || addr == validator_key.address() {
+                    continue; // Skip self (check both PQ and legacy addresses)
                 }
                 let bls_hex = hex::decode(&gv.bls_public_key).map_err(|e| {
                     anyhow::anyhow!(
@@ -669,7 +669,7 @@ async fn main() -> anyhow::Result<()> {
             let validator_set = pichain_consensus::ValidatorSet::new(validators);
             let staking_manager = pichain_consensus::StakingManager::new();
             let consensus_config = pichain_consensus::ConsensusConfig {
-                validator_address: validator_key.address(),
+                validator_address: pq_block_signer.address(),
                 enable_fast_path: true,
                 pi_seed: *last_hash.as_bytes(),
                 chain_id,
@@ -693,7 +693,7 @@ async fn main() -> anyhow::Result<()> {
                 consensus_engine.lock().set_bls_secret_key(bls_sk);
             }
             info!(
-                address = %validator_key.address(),
+                address = %pq_block_signer.address(),
                 rpc_only = is_rpc_only,
                 "consensus engine initialized (Narwhal DAG + Bullshark + Avalanche fast-path)"
             );
@@ -704,11 +704,11 @@ async fn main() -> anyhow::Result<()> {
                     target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
                     max_txs_per_block: 50_000,
                     max_gas_per_block: 500_000_000,
-                    validator_address: validator_key.address(),
+                    validator_address: pq_block_signer.address(),
                 };
 
                 let block_config = pichain_execution::BlockProducerConfig {
-                    validator_address: validator_key.address(),
+                    validator_address: pq_block_signer.address(),
                     target_block_time_ms: pichain_types::TARGET_BLOCK_TIME_MS,
                     ..Default::default()
                 };
@@ -1017,7 +1017,7 @@ async fn main() -> anyhow::Result<()> {
             let inbound_consensus = consensus_engine.clone();
             let inbound_chain_id = chain_id;
             let inbound_node_state = node_state.clone();
-            let inbound_self_address = validator_key.address();
+            let inbound_self_address = pq_block_signer.address();
             let inbound_sync_broadcaster = p2p_broadcaster.clone();
             let mut inbound_handle = tokio::spawn(async move {
                 loop {
@@ -1577,7 +1577,7 @@ async fn main() -> anyhow::Result<()> {
             println!("   RPC:            http://{rpc_addr}");
             println!("   P2P:            {p2p_addr}");
             println!("   Peer ID:        {peer_id_str}");
-            println!("   Validator:      {}", validator_key.address());
+            println!("   Validator:      {}", pq_block_signer.address());
             println!("   Block Height:   {current_height}");
             println!("   State Root:     {state_root}");
             println!("   Base Fee:       {current_base_fee}");

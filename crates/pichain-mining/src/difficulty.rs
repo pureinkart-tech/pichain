@@ -622,8 +622,8 @@ mod tests {
         assert_eq!(frontier_pow_bits(10_000, 1), 11);
         // frontier 1M → scaled = 1000, log2(1000) = 9 → 8 + 9 = 17
         assert_eq!(frontier_pow_bits(1_000_000, 1), 17);
-        // frontier 1B → scaled = 1M, log2(1M) = 19 → 8 + 19 = 27
-        assert_eq!(frontier_pow_bits(1_000_000_000, 1), 27);
+        // frontier 1B → unclamped would be 27, but MAX_DIFFICULTY_BITS = 20
+        assert_eq!(frontier_pow_bits(1_000_000_000, 1), MAX_DIFFICULTY_BITS);
     }
 
     #[test]
@@ -638,9 +638,8 @@ mod tests {
 
     #[test]
     fn frontier_pow_bits_combined() {
-        // Year 10, frontier 10M: frontier_comp = log2(10000) ≈ 13, moore = (9)/2 = 4
-        // Total = 8 + 13 + 4 = 25
-        assert_eq!(frontier_pow_bits(10_000_000, 10), 25);
+        // Year 10, frontier 10M: unclamped = 8 + 13 + 4 = 25, capped to MAX_DIFFICULTY_BITS
+        assert_eq!(frontier_pow_bits(10_000_000, 10), MAX_DIFFICULTY_BITS);
     }
 
     #[test]

@@ -523,10 +523,14 @@ impl MiningProcessor {
             };
         }
 
-        // 1c. Reject proofs too far ahead of the frontier
+        // 1c. Reject proofs too far ahead of the verified frontier
+        // Use max(frontier, total_verified) as reference so miners aren't blocked
+        // when frontier is stuck behind a gap (e.g., frontier=5000 but total_verified=100000).
         let frontier = self.registry.frontier();
-        let max_dist = max_frontier_distance(frontier);
-        if proof.start_position > frontier.saturating_add(max_dist) {
+        let total_verified = self.registry.stats().total_digits_verified;
+        let reference_pos = frontier.max(total_verified);
+        let max_dist = max_frontier_distance(reference_pos);
+        if proof.start_position > reference_pos.saturating_add(max_dist) {
             return VerificationResult {
                 valid: false,
                 spot_checks: 0,
@@ -535,8 +539,8 @@ impl MiningProcessor {
                 start_position: proof.start_position,
                 digit_count: proof.digit_count,
                 error: Some(format!(
-                    "proof position {} too far ahead of frontier {} (max distance: {})",
-                    proof.start_position, frontier, max_dist
+                    "proof position {} too far ahead of frontier {} (total_verified: {}, max distance: {})",
+                    proof.start_position, frontier, total_verified, max_dist
                 )),
                 epoch_remaining_budget: None,
             };
@@ -947,6 +951,59 @@ impl MiningProcessor {
         drip
     }
 
+    /// Auto-fill any gaps in the digit registry so the frontier advances.
+    /// Called during block production. Computes missing digits server-side
+    /// and registers them directly — no miner coordination needed.
+    /// Returns the number of digits filled (0 if no gaps).
+    pub fn auto_fill_gaps(&mut self) -> u64 {
+        let frontier = self.registry.frontier();
+        let total_verified = self.registry.stats().total_digits_verified;
+
+        // No gap — frontier is caught up
+        if frontier >= total_verified {
+            return 0;
+        }
+
+        // Find the gap using the registry's gap scanner
+        let (gap_start, gap_size) = self.registry.find_next_gap();
+
+        // gap_size == u64::MAX means open-ended (no range after gap) — not a real gap
+        if gap_size == u64::MAX || gap_size == 0 || gap_start >= total_verified {
+            return 0;
+        }
+
+        // Cap at 10K digits per block to avoid blocking block production
+        let fill_count = gap_size.min(10_000) as u32;
+
+        // Compute the missing digits using BBP
+        let digits = crate::bbp::BbpComputer::compute_hex_digits(gap_start, fill_count);
+        let commitment = pichain_crypto::hash(&digits);
+
+        // Register directly in the registry (no reward — this is infrastructure fill)
+        let range = crate::registry::DigitRange {
+            start: gap_start,
+            count: fill_count,
+            commitment,
+            miner: pichain_crypto::keys::Address([0u8; 20]), // system fill
+            committed_at_height: self.current_height,
+            committed_at_ms: 0,
+        };
+
+        match self.registry.register(range) {
+            Ok(true) => {
+                tracing::info!(
+                    gap_start,
+                    fill_count,
+                    frontier_before = frontier,
+                    frontier_after = self.registry.frontier(),
+                    "auto-filled gap in digit registry"
+                );
+                fill_count as u64
+            }
+            _ => 0,
+        }
+    }
+
     /// Get or assign a mining slot for the given address.
     /// Returns `(recommended_start_position, slot_index, total_active_miners)`.
     ///
@@ -956,7 +1013,7 @@ impl MiningProcessor {
     pub fn get_or_assign_slot(
         &mut self,
         miner: &pichain_crypto::keys::Address,
-    ) -> (u64, u32, usize) {
+    ) -> (u64, u32, usize, Option<u64>) {
         // Cleanup stale miners first
         self.cleanup_stale_miners();
 
@@ -987,13 +1044,27 @@ impl MiningProcessor {
         // Use max of: next_uncomputed gap, total_verified, and frontier.
         // This ensures miners always get truly fresh positions even after
         // restarts, regardless of gaps in the computed range.
+        // IMPORTANT: If there's a gap (next_uncomputed < total_verified), direct
+        // the FIRST miner (slot 0) to fill it so the frontier advances.
+        // Other miners continue past total_verified to keep making progress.
         let next_uncomputed = self.registry.next_uncomputed_position();
         let total_verified = self.registry.stats().total_digits_verified;
         let frontier = self.registry.frontier();
-        let base = next_uncomputed.max(total_verified).max(frontier);
+        let has_gap = next_uncomputed < total_verified;
+        let base = if has_gap && slot_index == 0 {
+            // Slot 0 fills the gap to advance the frontier
+            next_uncomputed
+        } else {
+            next_uncomputed.max(total_verified).max(frontier)
+        };
         let position = base.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
         let total = self.active_miners.len();
-        (position, slot_index, total)
+        let gap_fill = if has_gap {
+            Some(next_uncomputed)
+        } else {
+            None
+        };
+        (position, slot_index, total, gap_fill)
     }
 
     /// Remove miners that haven't submitted a proof within one mining epoch.
@@ -1075,7 +1146,10 @@ impl MiningProcessor {
             epoch_miner_cap: self.epoch_emission_cap(),
             // New frontier mining fields
             min_batch_size: min_batch_size(frontier),
-            max_allowed_position: frontier.saturating_add(max_frontier_distance(frontier)),
+            max_allowed_position: {
+                let reference = frontier.max(self.registry.stats().total_digits_verified);
+                reference.saturating_add(max_frontier_distance(reference))
+            },
             frontier_bonus_at_next: {
                 let (n, d) = frontier_bonus(next_pos, frontier);
                 if d == 0 {

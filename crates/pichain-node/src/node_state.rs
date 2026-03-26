@@ -1827,7 +1827,7 @@ impl StateProvider for NodeState {
         })
     }
 
-    fn get_mining_slot(&self, address: &Address) -> Option<(u64, u32, usize)> {
+    fn get_mining_slot(&self, address: &Address) -> Option<(u64, u32, usize, Option<u64>)> {
         let mut processor = self.executor.mining_processor().lock();
         Some(processor.get_or_assign_slot(address))
     }

@@ -640,21 +640,21 @@ pub async fn mining_loop(
                                 "error",
                             );
                             local_nonce = None;
-                            local_position = None;
+                            // Keep local_position so next round retries from the gap
                             break;
                         }
                     }
                     Err(e) => {
                         emit_log(&app, &format!("Bad response: {e}"), "error");
                         local_nonce = None;
-                        local_position = None;
+                        // Keep local_position so next round retries from the gap
                         break;
                     }
                 },
                 Err(e) => {
                     emit_log(&app, &format!("Submit failed: {e}"), "error");
                     local_nonce = None;
-                    local_position = None;
+                    // Keep local_position so next round retries from the gap
                     break;
                 }
             }
@@ -664,10 +664,12 @@ pub async fn mining_loop(
             local_nonce = Some(current_nonce);
         }
 
-        // Advance local position past submitted batches to prevent self-collision
+        // Advance local position past ACTUALLY SUBMITTED batches only.
+        // Using planned batch count causes gaps when a middle batch fails.
         if current_nonce > nonce {
+            let actually_submitted = current_nonce.saturating_sub(nonce);
             let total_digits_this_round =
-                effective_batch_count as u64 * effective_batch_size as u64;
+                actually_submitted.saturating_mul(effective_batch_size as u64);
             local_position = Some(position.saturating_add(total_digits_this_round));
         }
 

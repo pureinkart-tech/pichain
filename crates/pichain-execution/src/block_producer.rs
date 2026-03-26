@@ -303,6 +303,11 @@ impl BlockProducer {
             }
         }
 
+        // 3b. Auto-fill gaps in digit registry so frontier always advances.
+        // This runs server-side during block production — no miner coordination needed.
+        // Computes missing BBP digits and registers them directly (no reward).
+        self.executor.mining_processor().lock().auto_fill_gaps();
+
         // 4. Compute transaction root (Merkle root of tx hashes)
         let tx_hashes: Vec<Hash> = transactions.iter().map(|tx| tx.hash()).collect();
         let tx_root = if tx_hashes.is_empty() {
