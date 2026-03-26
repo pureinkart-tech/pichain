@@ -1746,10 +1746,17 @@ struct PoolSubmitResponse {
 /// Pool-style mining endpoint for browser miners.
 /// Accepts raw proof data + miner address — no PQ signing needed.
 /// The node validates the proof and signs the transaction internally.
+/// Pool-submit endpoint for browser miners only.
+/// Browser miners can't sign PQ transactions, so they submit raw proofs.
+/// Rate limited to prevent abuse. App/CLI miners should use /api/v1/tx/submit.
 async fn pool_submit_proof(
     State(state): State<Arc<RpcState>>,
     Json(req): Json<PoolSubmitRequest>,
 ) -> (StatusCode, Json<PoolSubmitResponse>) {
+    // Rate limit: use the existing per-IP rate limiter
+    // Pool-submit is heavier than normal requests (writes storage)
+    state.requests_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
     let provider = match &state.state_provider {
         Some(p) => p,
         None => {
