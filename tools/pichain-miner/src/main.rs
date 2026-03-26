@@ -393,6 +393,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_default();
     let mut local_nonce: Option<u64> = None;
     let mut local_position: Option<u64> = None;
+    let mut last_gap_filled: Option<u64> = None;
 
     // Graceful shutdown via Ctrl+C
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -567,23 +568,35 @@ async fn main() -> anyhow::Result<()> {
                 _ => (mining_status.next_position, None),
             };
 
-            // If the server detected a gap in the digit registry, override local_position
-            // to fill it. This advances the frontier so proofs aren't rejected as "too far ahead".
-            if let Some(gap_pos) = gap_fill_pos {
-                if local_position.map_or(false, |lp| lp > gap_pos) {
+            // If the server detected a gap in the digit registry, fill it first.
+            // Use the gap position DIRECTLY — don't apply max() which would skip past it.
+            // Skip if we already filled this exact gap (server hasn't processed it yet).
+            let filling_gap = if let Some(gap_pos) = gap_fill_pos {
+                if last_gap_filled == Some(gap_pos) {
+                    // Already filled this gap, waiting for server to process it
+                    false
+                } else if local_position.map_or(true, |lp| lp > gap_pos) {
                     info!(
                         gap_position = gap_pos,
                         local_pos = ?local_position,
-                        "Server detected gap — resetting position to fill it"
+                        "Filling gap to advance frontier"
                     );
-                    local_position = Some(gap_pos);
+                    last_gap_filled = Some(gap_pos);
+                    true
+                } else {
+                    false
                 }
-            }
+            } else {
+                // No gap — clear the tracker
+                last_gap_filled = None;
+                false
+            };
 
-            let pos = if let Some(local_pos) = local_position {
-                // Take the FURTHER of local tracking and server recommendation
-                // Local: prevents re-mining between block inclusion
-                // Server: jumps past positions other miners already computed
+            let pos = if filling_gap {
+                // Go directly to the gap — don't max() with slot_pos
+                gap_fill_pos.unwrap()
+            } else if let Some(local_pos) = local_position {
+                // Normal: take the FURTHER of local tracking and server recommendation
                 local_pos.max(slot_pos)
             } else {
                 slot_pos

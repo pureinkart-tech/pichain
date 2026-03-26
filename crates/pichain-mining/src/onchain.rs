@@ -1038,25 +1038,15 @@ impl MiningProcessor {
             idx
         };
 
-        // Use the higher of frontier or total_verified as the base position.
-        // Frontier can lag behind when there are gaps in contiguous ranges,
-        // Position miners PAST everything that's been computed.
-        // Use max of: next_uncomputed gap, total_verified, and frontier.
-        // This ensures miners always get truly fresh positions even after
-        // restarts, regardless of gaps in the computed range.
-        // IMPORTANT: If there's a gap (next_uncomputed < total_verified), direct
-        // the FIRST miner (slot 0) to fill it so the frontier advances.
-        // Other miners continue past total_verified to keep making progress.
+        // Position miners past everything that's been computed.
+        // Use max of: next_uncomputed, total_verified, and frontier.
+        // If there's a gap, gap_fill_position tells the miner where to fill it.
+        // The miner decides whether to fill the gap or continue forward.
         let next_uncomputed = self.registry.next_uncomputed_position();
         let total_verified = self.registry.stats().total_digits_verified;
         let frontier = self.registry.frontier();
         let has_gap = next_uncomputed < total_verified;
-        let base = if has_gap && slot_index == 0 {
-            // Slot 0 fills the gap to advance the frontier
-            next_uncomputed
-        } else {
-            next_uncomputed.max(total_verified).max(frontier)
-        };
+        let base = next_uncomputed.max(total_verified).max(frontier);
         let position = base.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
         let total = self.active_miners.len();
         let gap_fill = if has_gap {

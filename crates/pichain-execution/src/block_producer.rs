@@ -303,10 +303,10 @@ impl BlockProducer {
             }
         }
 
-        // 3b. Auto-fill gaps in digit registry so frontier always advances.
-        // This runs server-side during block production — no miner coordination needed.
-        // Computes missing BBP digits and registers them directly (no reward).
-        self.executor.mining_processor().lock().auto_fill_gaps();
+        // Gap prevention is handled at the miner level:
+        // 1. local_position advances only by actually submitted batch count (no skipping)
+        // 2. Slot endpoint returns gap_fill_position to redirect miners to fill any gaps
+        // No server-side BBP computation during block production — it blocks the RPC thread.
 
         // 4. Compute transaction root (Merkle root of tx hashes)
         let tx_hashes: Vec<Hash> = transactions.iter().map(|tx| tx.hash()).collect();
