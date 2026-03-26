@@ -2134,33 +2134,49 @@ bot.command('unwatchwhale', async (ctx) => {
 bot.command('wallets', async (ctx) => {
   const wallets = multiWallet.getWallets(ctx.from.id);
   if (wallets.length === 0) {
-    // Create first wallet from existing user seed
     const u = await getUser(ctx.from.id);
-    multiWallet.importWallet(ctx.from.id, u.wallet_seed, 'Main');
-    multiWallet.switchWallet(ctx.from.id, multiWallet.getWallets(ctx.from.id)[0].id);
+    await multiWallet.createWallet(ctx.from.id, 'Main');
+    const created = multiWallet.getWallets(ctx.from.id);
+    if (created.length > 0) multiWallet.switchWallet(ctx.from.id, created[0].id);
   }
   const all = multiWallet.getWallets(ctx.from.id);
   let text = '\u{1F4B3} *Your Wallets*\n\n';
   const kb = new InlineKeyboard();
   for (const w of all) {
     const icon = w.is_active ? '\u{2705}' : '\u{26AA}';
-    text += `${icon} *${esc(w.label)}*\nPI: \`${w.pi_address.slice(0,12)}\\.\\.\\.\`\nSOL: \`${w.sol_address.slice(0,12)}\\.\\.\\.\`\n\n`;
-    if (!w.is_active) kb.text('Switch to '+w.label, 'mw_switch:'+w.id).row();
+    const piAddr = (w.pi_address || '').slice(0, 12) || 'none';
+    text += `${icon} *${esc(w.label)}*\nPI: \`${piAddr}\\.\\.\\.\`\n\n`;
+    if (!w.is_active) kb.text('Switch to ' + w.label, 'mw_switch:' + w.id).row();
+    kb.text('\u{1F5D1} Delete ' + w.label, 'mw_delete:' + w.id).row();
   }
   kb.text('\u{2795} New Wallet', 'mw_new').text('\u{1F3E0} Home', 'home').row();
   await ctx.reply(text, { parse_mode: 'MarkdownV2', reply_markup: kb });
 });
 bot.callbackQuery('mw_new', async (ctx) => {
   try {
-    const w = multiWallet.createWallet(ctx.from.id);
-    await ctx.reply(`\u{2705} Created: ${w.label}\nPI: \`${w.pi.address}\`\nSOL: \`${w.sol.publicKey}\``);
-  } catch (e) { await ctx.reply(e.message); }
+    const w = await multiWallet.createWallet(ctx.from.id);
+    const piAddr = w.pi?.address || 'created';
+    await ctx.reply(`\u{2705} Created: ${w.label}\nPI: \`${piAddr}\``);
+  } catch (e) { await ctx.reply('Error: ' + e.message); }
   await ctx.answerCallbackQuery().catch(() => {});
 });
 bot.callbackQuery(/^mw_switch:(\d+)$/, async (ctx) => {
   multiWallet.switchWallet(ctx.from.id, parseInt(ctx.match[1]));
   await ctx.answerCallbackQuery('Switched!').catch(() => {});
   await ctx.reply('Wallet switched. Use /wallets to see all.');
+});
+bot.callbackQuery(/^mw_delete:(\d+)$/, async (ctx) => {
+  try {
+    const walletId = parseInt(ctx.match[1]);
+    const wallets = multiWallet.getWallets(ctx.from.id);
+    if (wallets.length <= 1) {
+      await ctx.reply('Cannot delete your only wallet. Create a new one first.');
+    } else {
+      multiWallet.deleteWallet(ctx.from.id, walletId);
+      await ctx.reply('\u{1F5D1} Wallet deleted. Use /wallets to see remaining.');
+    }
+  } catch (e) { await ctx.reply('Error: ' + e.message); }
+  await ctx.answerCallbackQuery().catch(() => {});
 });
 
 // ── Bridge commands ────────────────────────────────────────────────────────

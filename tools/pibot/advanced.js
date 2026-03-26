@@ -489,6 +489,15 @@ class MultiWallet {
     this.stmts.activate.run(walletId, telegramId);
   }
 
+  deleteWallet(telegramId, walletId) {
+    this.stmts.delete.run(walletId, telegramId);
+    // If deleted wallet was active, activate another one
+    const remaining = this.stmts.getAll.all(telegramId);
+    if (remaining.length > 0 && !remaining.some(w => w.is_active)) {
+      this.stmts.activate.run(remaining[0].id, telegramId);
+    }
+  }
+
   getWallets(telegramId) { return this.stmts.getAll.all(telegramId); }
   getActiveWallet(telegramId) { return this.stmts.getActive.get(telegramId); }
 }
