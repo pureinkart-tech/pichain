@@ -276,13 +276,25 @@ pub async fn mining_loop(
             }
         };
 
-        // Adaptive batch: scale down based on miner count to reduce overlaps.
+        // Adaptive batch: use active_miners from slot response
         let server_min = mining_status.min_batch_size.max(10);
-        let miner_count = mining_status.unique_miners.max(1) as u32;
-        let effective_min_batch = if miner_count <= 1 {
+        let active_miners = match client
+            .get(format!("{}/api/v1/mining/slot/{}", config.rpc_url, hex::encode(address.0)))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let slot: serde_json::Value = resp.json().await.unwrap_or_default();
+                slot["active_miners"].as_u64().unwrap_or(1) as u32
+            }
+            _ => 1,
+        };
+        let effective_min_batch = if active_miners <= 1 {
             config.digits_per_batch.max(server_min)
-        } else if miner_count < 10 {
-            (config.digits_per_batch / miner_count).max(server_min)
+        } else if active_miners <= 5 {
+            (config.digits_per_batch / 2).max(server_min)
+        } else if active_miners <= 20 {
+            (config.digits_per_batch / 4).max(server_min)
         } else {
             server_min
         };

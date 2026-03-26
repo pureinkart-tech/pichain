@@ -510,21 +510,30 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Adaptive batch size: scale down based on miner count to reduce overlaps.
-        // More miners = smaller batches = faster submission = less overlap.
+        // Use configured batch size, enforce server minimum
+        // Adaptive batch: query ACTIVE miners from slot endpoint (not historical unique_miners)
         let server_min = mining_status.min_batch_size.max(10);
-        let miner_count = mining_status.unique_miners.max(1);
-        // With 1 miner: use full base_batch_size
-        // With 5 miners: use base/2
-        // With 10+ miners: use server minimum
-        let adaptive_batch = if miner_count <= 1 {
-            base_batch_size
-        } else if miner_count < 10 {
-            (base_batch_size / miner_count as u32).max(server_min)
+        let active_miners = match client
+            .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, address_hex))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let slot: serde_json::Value = resp.json().await.unwrap_or_default();
+                slot["active_miners"].as_u64().unwrap_or(1) as u32
+            }
+            _ => 1,
+        };
+        // Scale: 1 miner=full, 2-5=half, 6-20=quarter, 21+=minimum
+        let effective_min_batch = if active_miners <= 1 {
+            base_batch_size.max(server_min)
+        } else if active_miners <= 5 {
+            (base_batch_size / 2).max(server_min)
+        } else if active_miners <= 20 {
+            (base_batch_size / 4).max(server_min)
         } else {
             server_min
         };
-        let effective_min_batch = adaptive_batch.max(server_min);
 
         // Calculate position and effective batch size.
         //
@@ -809,7 +818,7 @@ async fn main() -> anyhow::Result<()> {
                                 digits = batch_digit_count,
                                 total_digits = total_digits_computed,
                                 accepted = proofs_accepted,
-                                batch = adaptive_batch,
+                                batch = effective_min_batch,
                                 "Mining proof submitted successfully"
                             );
                             current_nonce = current_nonce.saturating_add(1);
