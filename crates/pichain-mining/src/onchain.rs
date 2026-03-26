@@ -983,11 +983,15 @@ impl MiningProcessor {
 
         // Use the higher of frontier or total_verified as the base position.
         // Frontier can lag behind when there are gaps in contiguous ranges,
-        // Find the ACTUAL next uncomputed position in the registry.
-        // This skips past ALL computed ranges (including scattered ones)
-        // to find truly fresh positions for miners.
+        // Position miners PAST everything that's been computed.
+        // Use max of: next_uncomputed gap, total_verified, and frontier.
+        // This ensures miners always get truly fresh positions even after
+        // restarts, regardless of gaps in the computed range.
         let next_uncomputed = self.registry.next_uncomputed_position();
-        let position = next_uncomputed.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
+        let total_verified = self.registry.stats().total_digits_verified;
+        let frontier = self.registry.frontier();
+        let base = next_uncomputed.max(total_verified).max(frontier);
+        let position = base.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
         let total = self.active_miners.len();
         (position, slot_index, total)
     }

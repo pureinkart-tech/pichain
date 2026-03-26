@@ -548,17 +548,34 @@ async fn main() -> anyhow::Result<()> {
             let pos = start.saturating_add(loop_count.saturating_mul(effective_min_batch as u64));
             (pos, effective_min_batch)
         } else {
-            // Always start from server's next_position (first unmined gap from frontier).
-            // Use local_position only to avoid re-mining the same gap within a round
-            // (server won't update until proof is in a block), but cap how far ahead.
-            let server_pos = mining_status.next_position;
-            let pos = if let Some(local_pos) = local_position {
-                // Use local tracking but never go too far ahead of frontier
-                let capped = local_pos.min(server_pos.saturating_add(max_local_ahead));
-                capped.max(server_pos) // Never go behind server
-            } else {
-                server_pos
+            // Query our assigned slot for a position unique to this miner.
+            // The slot system gives each miner a non-overlapping range based on
+            // next_uncomputed_position + (slot_index * slot_range_size).
+            // Use max(slot_position, local_position) so we never go backwards
+            // even if other miners have computed positions ahead of us.
+            let slot_pos = match client
+                .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, address_hex))
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    let slot: serde_json::Value = resp.json().await.unwrap_or_default();
+                    slot["recommended_position"].as_u64().unwrap_or(mining_status.next_position)
+                }
+                _ => mining_status.next_position,
             };
+
+            let pos = if let Some(local_pos) = local_position {
+                // Take the FURTHER of local tracking and server recommendation
+                // Local: prevents re-mining between block inclusion
+                // Server: jumps past positions other miners already computed
+                local_pos.max(slot_pos)
+            } else {
+                slot_pos
+            };
+
+            // Cap at max_allowed_position
+            let pos = pos.min(mining_status.max_allowed_position.max(pos));
 
             // Enforce max_allowed_position from frontier distance limit
             let pos = if mining_status.max_allowed_position > 0 {
@@ -570,16 +587,17 @@ async fn main() -> anyhow::Result<()> {
             // If we've hit the cap (too far ahead of frontier), wait for
             // frontier to catch up instead of wasting compute on positions
             // that may never advance the frontier.
-            if local_position.is_some() && pos >= server_pos.saturating_add(max_local_ahead) {
+            if local_position.is_some() && pos >= slot_pos.saturating_add(max_local_ahead) {
                 info!(
                     local_pos = ?local_position,
                     frontier = mining_status.frontier_position,
-                    server_next = server_pos,
+                    server_next = slot_pos,
                     max_ahead = max_local_ahead,
                     "Waiting for frontier to catch up (proofs pending in blocks)..."
                 );
-                local_position = None; // Reset to re-query next round
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                // DON'T reset local_position — keep it so we don't re-mine same range
+                // Just wait for blocks to catch up
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 continue;
             }
 
@@ -822,6 +840,9 @@ async fn main() -> anyhow::Result<()> {
                                 "Mining proof submitted successfully"
                             );
                             current_nonce = current_nonce.saturating_add(1);
+                            // CRITICAL: advance local position past what we just submitted
+                            // so we don't re-mine the same range while waiting for block inclusion
+                            local_position = Some(batch_pos.saturating_add(batch_digit_count as u64));
                         } else {
                             error!(
                                 status = %result.status,

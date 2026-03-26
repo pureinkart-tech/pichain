@@ -302,19 +302,10 @@ pub async fn mining_loop(
         // FRONTIER-FIRST MINING: Always mine at or near the server's
         // next_position. Local tracking prevents re-mining the same gap
         // within a round, but is capped to prevent racing far ahead.
-        let max_local_ahead = effective_min_batch as u64 * config.concurrent_batches as u64 * 5;
-        let (position, effective_batch_size) = if let Some(local_pos) = local_position {
-            let capped = local_pos.min(mining_status.next_position.saturating_add(max_local_ahead));
-            let pos = capped.max(mining_status.next_position);
-            // If we've hit the cap, wait for frontier to catch up
-            if local_pos >= mining_status.next_position.saturating_add(max_local_ahead) {
-                emit_log(&app, "Waiting for frontier to catch up...", "info");
-                local_position = None;
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                continue;
-            }
-            (pos, effective_min_batch)
-        } else {
+        
+        let (position, effective_batch_size) = {
+            // Always query slot for server-recommended position
+            // This ensures we jump past positions other miners computed
             // Query slot endpoint for server-assigned position
             let slot_position = match client
                 .get(format!(
@@ -342,24 +333,14 @@ pub async fn mining_loop(
                 Err(_) => None,
             };
 
-            let pos = if let Some(slot_pos) = slot_position {
-                slot_pos
+            let server_pos = slot_position.unwrap_or(mining_status.next_position);
+            // Use the FURTHER of local tracking and server recommendation
+            // Local: prevents re-mining between block inclusion
+            // Server: jumps past positions other miners already computed
+            let pos = if let Some(local_pos) = local_position {
+                local_pos.max(server_pos)
             } else {
-                // Fallback: old-style offset from address
-                let stride = effective_min_batch as u64 * config.concurrent_batches as u64;
-                let offset = if stride > 0 {
-                    let addr_seed = u32::from_le_bytes([
-                        address.0[0],
-                        address.0[1],
-                        address.0[2],
-                        address.0[3],
-                    ]);
-                    let slot = (addr_seed as u64) % 8;
-                    slot.saturating_mul(stride)
-                } else {
-                    0
-                };
-                mining_status.next_position.saturating_add(offset)
+                server_pos
             };
 
             // Enforce max_allowed_position from frontier distance limit
@@ -647,6 +628,8 @@ pub async fn mining_loop(
                                 "success",
                             );
                             current_nonce = current_nonce.saturating_add(1);
+                            // Advance local position past submitted range
+                            local_position = Some(batch_pos.saturating_add(batch_digit_count as u64));
                         } else {
                             emit_log(
                                 &app,
