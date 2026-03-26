@@ -20,7 +20,9 @@ pub const DIFFICULTY_ADJUSTMENT_DENOM: u64 = 1000;
 pub const MAX_DIFFICULTY_ADJUSTMENT: f64 = 2.0; // Max 2x change per adjustment
 pub const ADJUSTMENT_INTERVAL: usize = 10; // Adjust every 10 proofs
 pub const MIN_DIFFICULTY_BITS: u32 = 8; // Minimum difficulty (easiest)
-pub const MAX_DIFFICULTY_BITS: u32 = 240; // Maximum difficulty (hardest)
+/// Max PoW difficulty. Capped at 20 bits (~1M nonce attempts) because PoW is
+/// anti-spam only — the real work is computing PI digits via BBP algorithm.
+pub const MAX_DIFFICULTY_BITS: u32 = 20;
 
 /// Initial difficulty target — easy enough for devnet solo mining.
 /// Leading zeros required: 1 byte (8 bits) = ~256 nonce attempts on average.
