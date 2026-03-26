@@ -1262,7 +1262,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_duplicate_range() {
+    fn duplicate_range_accepted_with_zero_reward() {
         let mut processor = configured_processor();
 
         // Submit first proof
@@ -1270,17 +1270,14 @@ mod tests {
         let proof = MiningProof::new(0, digits, Address([1; 20]), 42);
         let r1 = processor.process_proof(&proof, &[0u8; 32]);
         assert!(r1.valid);
+        assert!(r1.reward_amount > 0);
 
-        // Submit same range again — rejected by the full-range pre-check
+        // Submit same range again — accepted with 0 reward (nonce advances)
         let digits2 = BbpComputer::compute_hex_digits(0, 200);
         let proof2 = MiningProof::new(0, digits2, Address([2; 20]), 43);
         let r2 = processor.process_proof(&proof2, &[0u8; 32]);
-        assert!(!r2.valid);
-        let err = r2.error.unwrap();
-        assert!(
-            err.contains("already"),
-            "error should indicate range already computed: {err}"
-        );
+        assert!(r2.valid, "duplicate should be accepted");
+        assert_eq!(r2.reward_amount, 0, "duplicate should get 0 reward");
     }
 
     #[test]
@@ -1493,21 +1490,14 @@ mod tests {
         let r1 = processor.process_proof(&proof1, &[0u8; 32]);
         assert!(r1.valid, "first proof should be valid");
 
-        // Submit exact same range again — should be rejected at pre-check
-        // (0 spot checks) because the full range is already computed.
+        // Submit exact same range again — accepted with 0 reward at pre-check
+        // (0 spot checks) so miner nonce advances and moves on.
         let digits2 = BbpComputer::compute_hex_digits(0, 200);
         let proof2 = MiningProof::new(0, digits2, Address([2; 20]), 43);
         let r2 = processor.process_proof(&proof2, &[0u8; 32]);
-        assert!(!r2.valid, "duplicate range should be rejected");
-        assert_eq!(
-            r2.spot_checks, 0,
-            "rejection should happen before spot-checking"
-        );
-        assert!(
-            r2.error.as_ref().unwrap().contains("already"),
-            "error should mention range already computed: {:?}",
-            r2.error
-        );
+        assert!(r2.valid, "duplicate should be accepted with 0 reward");
+        assert_eq!(r2.spot_checks, 0, "should skip spot-checking for duplicates");
+        assert_eq!(r2.reward_amount, 0, "duplicate should get 0 reward");
     }
 
     #[test]

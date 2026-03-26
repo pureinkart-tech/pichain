@@ -276,11 +276,15 @@ pub async fn mining_loop(
             }
         };
 
-        // Enforce server-reported minimum batch size (frontier-scaled)
-        let effective_min_batch = if mining_status.min_batch_size > 0 {
-            config.digits_per_batch.max(mining_status.min_batch_size)
+        // Adaptive batch: scale down based on miner count to reduce overlaps.
+        let server_min = mining_status.min_batch_size.max(10);
+        let miner_count = mining_status.unique_miners.max(1) as u32;
+        let effective_min_batch = if miner_count <= 1 {
+            config.digits_per_batch.max(server_min)
+        } else if miner_count < 10 {
+            (config.digits_per_batch / miner_count).max(server_min)
         } else {
-            config.digits_per_batch
+            server_min
         };
 
         // FRONTIER-FIRST MINING: Always mine at or near the server's

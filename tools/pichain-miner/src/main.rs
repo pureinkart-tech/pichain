@@ -419,8 +419,14 @@ async fn main() -> anyhow::Result<()> {
     // Resolve mining configuration from profile + overrides
     let config = MiningConfig::from_args(&args);
     let num_threads = config.threads;
-    let batch_size = config.digits_per_batch;
+    let base_batch_size = config.digits_per_batch;
     let batch_count = config.concurrent_batches;
+
+    // Adaptive batch sizing: scale down when getting 0-reward overlaps,
+    // scale up when earning rewards. Smaller batches = faster submission
+    // = less chance of overlap with other miners.
+    
+    
 
     // Configure rayon thread pool
     rayon::ThreadPoolBuilder::new()
@@ -459,7 +465,7 @@ async fn main() -> anyhow::Result<()> {
     info!(
         rpc = %args.rpc_url,
         profile = profile_name,
-        digits_per_batch = batch_size,
+        digits_per_batch = base_batch_size,
         chain_id = args.chain_id,
         position_offset = args.position_offset,
         threads = num_threads,
@@ -504,12 +510,21 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Enforce server-reported minimum batch size (frontier-scaled)
-        let effective_min_batch = if mining_status.min_batch_size > 0 {
-            (batch_size).max(mining_status.min_batch_size)
+        // Adaptive batch size: scale down based on miner count to reduce overlaps.
+        // More miners = smaller batches = faster submission = less overlap.
+        let server_min = mining_status.min_batch_size.max(10);
+        let miner_count = mining_status.unique_miners.max(1);
+        // With 1 miner: use full base_batch_size
+        // With 5 miners: use base/2
+        // With 10+ miners: use server minimum
+        let adaptive_batch = if miner_count <= 1 {
+            base_batch_size
+        } else if miner_count < 10 {
+            (base_batch_size / miner_count as u32).max(server_min)
         } else {
-            batch_size
+            server_min
         };
+        let effective_min_batch = adaptive_batch.max(server_min);
 
         // Calculate position and effective batch size.
         //
@@ -621,7 +636,7 @@ async fn main() -> anyhow::Result<()> {
             reward_per_digit = mining_status.reward_per_digit,
             difficulty_bits = mining_status.difficulty_bits,
             bonus = %mining_status.frontier_bonus_at_next,
-            batch_size = effective_batch_size,
+            base_batch_size = effective_batch_size,
             "Mining round {}",
             loop_count + 1,
         );
@@ -662,9 +677,9 @@ async fn main() -> anyhow::Result<()> {
         // 3. Compute PI digits (parallel across CPU cores)
         let compute_start = std::time::Instant::now();
 
-        // When the gap is smaller than batch_size * batch_count, reduce to 1 batch
+        // When the gap is smaller than base_batch_size * batch_count, reduce to 1 batch
         // to avoid submitting at positions that overlap with existing ranges.
-        let effective_batch_count = if effective_batch_size < batch_size {
+        let effective_batch_count = if effective_batch_size < base_batch_size {
             1 // Gap is constrained — only submit one batch at the gap
         } else {
             batch_count
@@ -794,6 +809,7 @@ async fn main() -> anyhow::Result<()> {
                                 digits = batch_digit_count,
                                 total_digits = total_digits_computed,
                                 accepted = proofs_accepted,
+                                batch = adaptive_batch,
                                 "Mining proof submitted successfully"
                             );
                             current_nonce = current_nonce.saturating_add(1);
