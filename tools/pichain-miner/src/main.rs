@@ -37,10 +37,18 @@ struct Args {
     #[arg(long, default_value = "https://pichain.net")]
     rpc_url: String,
 
-    /// Path to the keypair file (hex-encoded secret key).
-    /// File should contain a JSON object: {"secret_key": "hex..."}
+    /// Path to the keypair file (PQ wallet JSON).
+    /// Required for block-pipeline mining (signs transactions locally).
+    /// Not needed if --address is used (pool-submit mode).
     #[arg(long)]
-    keypair: PathBuf,
+    keypair: Option<PathBuf>,
+
+    /// Mine to this address without a wallet file (pool-submit mode).
+    /// The node signs on your behalf — no private keys needed on this machine.
+    /// Use your PiBot address, desktop app address, or any PIChain address.
+    /// Example: --address Pi314abc123...
+    #[arg(long)]
+    address: Option<String>,
 
     /// Hardware profile — auto-configures threads, batch size, and concurrency.
     ///
@@ -332,7 +340,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Handle keypair generation
     if args.generate_keypair {
-        let result = generate_and_save_keypair(&args.keypair);
+        let keypair_path = args.keypair.clone().unwrap_or_else(|| std::path::PathBuf::from("wallet.json"));
+        let result = generate_and_save_keypair(&keypair_path);
         if result.is_err() {
             eprintln!("\nError: {}", result.as_ref().unwrap_err());
             wait_for_key_on_windows();
@@ -340,50 +349,88 @@ async fn main() -> anyhow::Result<()> {
         return result;
     }
 
-    // Check if wallet file exists — give helpful message if not
-    if !std::path::Path::new(&args.keypair.to_string_lossy().to_string()).exists() {
+    // Determine mining mode: --address (pool-submit) or --keypair (block pipeline)
+    let use_pool_submit;
+    let address: pichain_crypto::keys::Address;
+    let address_hex: String;
+    let loaded: Option<LoadedWallet>;
+
+    if let Some(ref addr_str) = args.address {
+        // Pool-submit mode: mine to any address, no wallet needed
+        let mut hex = addr_str.clone();
+        if hex.starts_with("Pi314") { hex = hex[5..].to_string(); }
+        if hex.starts_with("pi314") { hex = hex[5..].to_string(); }
+        let addr_bytes = hex::decode(&hex).map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
+        if addr_bytes.len() != 20 {
+            anyhow::bail!("address must be 20 bytes (40 hex chars), got {}", addr_bytes.len());
+        }
+        let mut arr = [0u8; 20];
+        arr.copy_from_slice(&addr_bytes);
+        address = pichain_crypto::keys::Address(arr);
+        address_hex = hex.to_lowercase();
+        loaded = None;
+        use_pool_submit = true;
+        info!(%address, "Pool-submit mode — mining to address (no wallet file needed)");
+    } else if let Some(ref keypair_path) = args.keypair {
+        // Block pipeline mode: sign transactions locally
+        if !keypair_path.exists() {
+            eprintln!();
+            eprintln!("  ╔══════════════════════════════════════════════════════╗");
+            eprintln!("  ║           PIChain Miner — Getting Started            ║");
+            eprintln!("  ╠══════════════════════════════════════════════════════╣");
+            eprintln!("  ║                                                      ║");
+            eprintln!("  ║  No wallet found at '{}'", keypair_path.display());
+            eprintln!("  ║                                                      ║");
+            eprintln!("  ║  Option A: Create a new wallet                       ║");
+            eprintln!("  ║    pichain-miner --keypair wallet.json \\              ║");
+            eprintln!("  ║      --generate-keypair                              ║");
+            eprintln!("  ║                                                      ║");
+            eprintln!("  ║  Option B: Mine to an existing address (no wallet)   ║");
+            eprintln!("  ║    pichain-miner --address Pi314your_address_here     ║");
+            eprintln!("  ║                                                      ║");
+            eprintln!("  ║  Use your PiBot, desktop app, or any PIChain address ║");
+            eprintln!("  ║  with --address to start mining immediately.         ║");
+            eprintln!("  ║                                                      ║");
+            eprintln!("  ╚══════════════════════════════════════════════════════╝");
+            eprintln!();
+            wait_for_key_on_windows();
+            std::process::exit(1);
+        }
+        let w = match load_wallet(keypair_path) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("\nError loading wallet: {e}");
+                wait_for_key_on_windows();
+                return Err(e);
+            }
+        };
+        address = w.address();
+        address_hex = hex::encode(address.0);
+        loaded = Some(w);
+        use_pool_submit = false;
+        info!(%address, "Post-quantum wallet loaded (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
+    } else {
         eprintln!();
-        eprintln!("  ╔══════════════════════════════════════════════╗");
-        eprintln!("  ║         PIChain Miner — Getting Started      ║");
-        eprintln!("  ╠══════════════════════════════════════════════╣");
-        eprintln!("  ║                                              ║");
-        eprintln!("  ║  No wallet found at '{}'", args.keypair.display());
-        eprintln!("  ║                                              ║");
-        eprintln!("  ║  Step 1: Open a terminal (PowerShell/CMD)    ║");
-        eprintln!("  ║  Step 2: Navigate to this folder             ║");
-        eprintln!("  ║  Step 3: Run:                                ║");
-        eprintln!("  ║                                              ║");
-        #[cfg(target_os = "windows")]
-        eprintln!("  ║  .\\pichain-miner-windows-x86_64.exe `        ║");
-        #[cfg(not(target_os = "windows"))]
-        eprintln!("  ║  ./pichain-miner \\                           ║");
-        eprintln!("  ║    --keypair wallet.json --generate-keypair  ║");
-        eprintln!("  ║                                              ║");
-        eprintln!("  ║  Then run the miner:                         ║");
-        #[cfg(target_os = "windows")]
-        eprintln!("  ║  .\\pichain-miner-windows-x86_64.exe `        ║");
-        #[cfg(not(target_os = "windows"))]
-        eprintln!("  ║  ./pichain-miner \\                           ║");
-        eprintln!("  ║    --keypair wallet.json                     ║");
-        eprintln!("  ║                                              ║");
-        eprintln!("  ╚══════════════════════════════════════════════╝");
+        eprintln!("  ╔══════════════════════════════════════════════════════╗");
+        eprintln!("  ║           PIChain Miner — Getting Started            ║");
+        eprintln!("  ╠══════════════════════════════════════════════════════╣");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ║  Choose how to mine:                                 ║");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ║  1. Mine to an existing address (easiest):           ║");
+        eprintln!("  ║     pichain-miner --address Pi314your_address_here   ║");
+        eprintln!("  ║     (use your PiBot or desktop app address)          ║");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ║  2. Create a new wallet + mine:                      ║");
+        eprintln!("  ║     pichain-miner --keypair wallet.json \\             ║");
+        eprintln!("  ║       --generate-keypair                             ║");
+        eprintln!("  ║     pichain-miner --keypair wallet.json              ║");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ╚══════════════════════════════════════════════════════╝");
         eprintln!();
         wait_for_key_on_windows();
         std::process::exit(1);
     }
-
-    // Load PQ wallet
-    let loaded = match load_wallet(&args.keypair) {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("\nError loading wallet: {e}");
-            wait_for_key_on_windows();
-            return Err(e);
-        }
-    };
-    let address = loaded.address();
-    let address_hex = hex::encode(address.0);
-    info!(%address, "Post-quantum wallet loaded (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
     info!(%address, "Miner wallet loaded");
 
     let client = reqwest::Client::builder()
@@ -824,31 +871,50 @@ async fn main() -> anyhow::Result<()> {
                 }
             };
 
-            // Submit through block pipeline (fee-exempt, all nodes verify)
-            let tx_data = TransactionData {
-                sender: address,
-                nonce: current_nonce,
-                kind: TransactionKind::MiningProof {
-                    start_position: batch_pos,
-                    digit_count: batch_digit_count,
-                    digits,
-                    proof: vec![],
-                    pow_nonce: pn,
-                    anchor_block_hash: anchor_block_hash.to_vec(),
-                },
-                gas_limit: 0,
-                max_base_fee: 0,
-                max_priority_fee: 0,
-                chain_id: args.chain_id,
+            // Submit proof — either via block pipeline (signed) or pool-submit (address only)
+            let (submit_url, submit_body) = if use_pool_submit {
+                // Pool-submit: node signs on our behalf
+                (
+                    format!("{}/api/v1/mining/pool-submit", args.rpc_url),
+                    serde_json::json!({
+                        "miner_address": address_hex,
+                        "start_position": batch_pos,
+                        "digit_count": batch_digit_count,
+                        "digits": hex::encode(&digits),
+                        "pow_nonce": pn,
+                        "anchor_block_hash": hex::encode(&anchor_block_hash),
+                    }),
+                )
+            } else {
+                // Block pipeline: sign locally with PQ keypair
+                let tx_data = TransactionData {
+                    sender: address,
+                    nonce: current_nonce,
+                    kind: TransactionKind::MiningProof {
+                        start_position: batch_pos,
+                        digit_count: batch_digit_count,
+                        digits,
+                        proof: vec![],
+                        pow_nonce: pn,
+                        anchor_block_hash: anchor_block_hash.to_vec(),
+                    },
+                    gas_limit: 0,
+                    max_base_fee: 0,
+                    max_priority_fee: 0,
+                    chain_id: args.chain_id,
+                };
+                let signed = Transaction::sign_pq(tx_data, &loaded.as_ref().unwrap().pq_keypair);
+                let tx_hex = hex::encode(serde_json::to_vec(&signed)?);
+                (
+                    format!("{}/api/v1/tx/submit", args.rpc_url),
+                    serde_json::json!({ "signed_tx_hex": tx_hex }),
+                )
             };
-            let signed = Transaction::sign_pq(tx_data, &loaded.pq_keypair);
-            let tx_hex = hex::encode(serde_json::to_vec(&signed)?);
-            let submit_body = serde_json::json!({ "signed_tx_hex": tx_hex });
 
             proofs_submitted += 1;
 
             match client
-                .post(format!("{}/api/v1/tx/submit", args.rpc_url))
+                .post(&submit_url)
                 .json(&submit_body)
                 .send()
                 .await
