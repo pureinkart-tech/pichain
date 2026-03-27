@@ -209,7 +209,7 @@ a{color:var(--accent-light);text-decoration:none;}
     <div class="progress-stats">
       <span>Mined: <strong id="d-total-mined">0</strong> PI</span>
       <span>Remaining: <strong id="d-remaining">0</strong> PI</span>
-      <span>Total Supply: <strong>2,670,353,884.757 PI</strong></span>
+      <span>Total Supply: <strong>3,141,592,653 PI</strong></span>
     </div>
   </div>
 
@@ -313,7 +313,7 @@ async function refreshDashboard(){
     document.getElementById('d-year').textContent=mining.emission_year;
 
     // Mining pool progress
-    const totalPool=2670353884757000000; // total emission in base units
+    const totalPool=3141592653000000000; // total emission in base units (100% of supply)
     const mined=Number(mining.total_mined);
     const remaining=Number(mining.remaining_pool);
     const pct=(mined/totalPool*100);

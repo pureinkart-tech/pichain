@@ -762,7 +762,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
         <div class="pool-bar-inner" id="dash-pool-bar" style="width:0%">0%</div>
       </div>
       <div class="sub" style="margin-top:10px">
-        <span id="dash-pool-mined">0</span> PI mined of ~2,670,353,755 PI total mining pool (85% of supply)
+        <span id="dash-pool-mined">0</span> PI mined of 3,141,592,653 PI total mining pool (100% of supply)
       </div>
     </div>
 
@@ -802,7 +802,7 @@ curl https://pichain.net/api/v1/account/YOUR_ADDRESS</pre>
       <div class="info-panel">
         <h3>Emission Schedule &mdash; &pi;-Smooth Decay</h3>
         <p>
-          The mining pool contains <strong>~2,670,353,755 PI</strong> (85% of total supply).
+          The entire supply of <strong>3,141,592,653 PI</strong> (100%) goes to miners.
           Emission decays smoothly with a half-life of &pi; years (~3.14). No cliff halvings:
         </p>
         <p>
@@ -1839,7 +1839,7 @@ async function refreshDashboard(){
     document.getElementById('dash-staking-pool').textContent=stakingPool.toFixed(2)+' PI';
     const rpd=mining.reward_per_digit/1e9;
     document.getElementById('dash-reward').textContent=rpd.toFixed(9)+' PI';
-    const totalPool=2670353755;
+    const totalPool=3141592653;
     const remaining=mining.remaining_pool/1e9;
     const mined=totalPool-remaining;
     const pct=(mined/totalPool*100);

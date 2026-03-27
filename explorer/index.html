@@ -553,7 +553,7 @@ async function refreshMining() {
     document.getElementById('mine-digits').textContent = fmtNum(m.total_digits_verified);
     document.getElementById('mine-miners').textContent = fmtNum(m.unique_miners);
     document.getElementById('mine-reward').textContent = fmtNum(m.reward_per_digit);
-    const totalPool = 2670353755 * 1e9;
+    const totalPool = 3141592653 * 1e9;
     const remaining = m.remaining_pool || 0;
     const pct = totalPool > 0 ? (remaining / totalPool * 100) : 100;
     document.getElementById('mine-pool-text').textContent = fmtPI(remaining) + ' remaining (' + pct.toFixed(2) + '%)';
