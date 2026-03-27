@@ -224,12 +224,12 @@ section { padding: 100px 24px; position: relative; }
 .token-ring {
   width: 320px; height: 320px; border-radius: 50%;
   background: conic-gradient(
-    var(--accent) 0deg 306deg,
-    var(--cyan) 306deg 342deg,
-    var(--green) 342deg 360deg
+    var(--green) 0deg var(--mined-deg, 0deg),
+    var(--accent) var(--mined-deg, 0deg) 360deg
   );
   mask: radial-gradient(farthest-side, transparent 60%, black 61%);
   -webkit-mask: radial-gradient(farthest-side, transparent 60%, black 61%);
+  transition: background 1s ease;
 }
 .token-center {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -499,20 +499,26 @@ section { padding: 100px 24px; position: relative; }
     </div>
     <div class="tokenomics-layout">
       <div class="token-chart">
-        <div class="token-ring"></div>
+        <div class="token-ring" id="token-ring"></div>
         <div class="token-center">
-          <div class="amount">3.14B</div>
-          <div class="label">Total Supply</div>
+          <div class="amount" id="token-remaining">3.14B</div>
+          <div class="label">Remaining</div>
         </div>
       </div>
       <div>
         <ul class="token-legend">
           <li>
             <span class="token-dot" style="background: var(--accent)"></span>
-            <span>Mining Pool <span class="val">&mdash; &pi;-smooth decay (half-life = &pi; years), replenished by fees. No pre-mine, no reserves.</span></span>
-            <span class="pct">100%</span>
+            <span>Remaining <span class="val">&mdash; unmined PI available to earn</span></span>
+            <span class="pct" id="token-pct-remaining">100%</span>
+          </li>
+          <li>
+            <span class="token-dot" style="background: var(--green)"></span>
+            <span>Mined <span class="val">&mdash; earned by computing PI digits</span></span>
+            <span class="pct" id="token-pct-mined">0%</span>
           </li>
         </ul>
+        <p style="color:var(--dim);font-size:12px;margin-top:12px;">100% to miners. No pre-mine, no team, no reserves. Half-life = &pi; years.</p>
       </div>
     </div>
   </div>
@@ -675,6 +681,25 @@ async function loadStats() {
     document.getElementById('h-height').textContent = Number(info.block_height).toLocaleString();
     document.getElementById('h-digits').textContent = Number(mining.total_digits_verified).toLocaleString();
     document.getElementById('h-miners').textContent = mining.unique_miners;
+
+    // Update tokenomics ring
+    const totalSupply = 3141592653;
+    const mined = (mining.total_mined || 0) / 1e9;
+    const remaining = totalSupply - mined;
+    const minedPct = (mined / totalSupply) * 100;
+    const minedDeg = (minedPct / 100) * 360;
+
+    const ring = document.getElementById('token-ring');
+    if (ring) ring.style.setProperty('--mined-deg', minedDeg.toFixed(1) + 'deg');
+
+    const remEl = document.getElementById('token-remaining');
+    if (remEl) remEl.textContent = remaining >= 1e9 ? (remaining / 1e9).toFixed(2) + 'B' : (remaining / 1e6).toFixed(1) + 'M';
+
+    const pctRem = document.getElementById('token-pct-remaining');
+    if (pctRem) pctRem.textContent = (100 - minedPct).toFixed(4) + '%';
+
+    const pctMin = document.getElementById('token-pct-mined');
+    if (pctMin) pctMin.textContent = minedPct.toFixed(4) + '%';
   } catch(e) {
     // Stats unavailable — leave defaults
   }
