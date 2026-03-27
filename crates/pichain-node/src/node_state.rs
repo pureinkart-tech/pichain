@@ -1087,7 +1087,7 @@ impl NodeState {
             // exceed the mining pool, reject the block rather than persisting an
             // invalid state. Previously this check ran after commit, making it a
             // detection-only log that couldn't prevent the violation.
-            let mining_pool_128 = pichain_types::TOTAL_SUPPLY * 85 / 100;
+            let mining_pool_128 = pichain_types::TOTAL_SUPPLY; // 100% to miners
             let mining_pool_base = u64::try_from(mining_pool_128).unwrap_or(u64::MAX);
             if new_total_minted > mining_pool_base {
                 error!(

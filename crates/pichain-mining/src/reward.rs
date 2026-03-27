@@ -18,12 +18,13 @@
 
 use pichain_types::{PiAmount, BASE_UNITS_PER_PI, TOTAL_SUPPLY};
 
-/// Total mining pool in base units: exactly 85% of TOTAL_SUPPLY.
+/// Total mining pool in base units: 100% of TOTAL_SUPPLY.
 ///
-/// Satoshi-style launch: 85% to miners, no team/treasury allocations.
-/// Miners earn this pool over time via π-smooth decay, supplemented
-/// by transaction fee income (18.59% of base fees flow back).
-const MINING_POOL_BASE: u128 = TOTAL_SUPPLY * 85 / 100;
+/// Pure Satoshi launch: 100% to miners, no pre-mine, no team, no treasury.
+/// The full 3,141,592,653 PI (exactly PI billion) is earned by computing PI digits.
+/// π-smooth emission with half-life = π years, supplemented by transaction
+/// fee income (18.59% of base fees flow back).
+const MINING_POOL_BASE: u128 = TOTAL_SUPPLY;
 
 /// Compile-time assertion: MINING_POOL_BASE must fit in u64.
 const _: () = assert!(
@@ -35,7 +36,7 @@ const _: () = assert!(
 const MINING_POOL_U64: u64 = MINING_POOL_BASE as u64;
 
 /// Total mining pool in whole PI (for display / documentation only).
-/// 85% of 3,141,592,653 PI ≈ 2,670,353,755 PI.
+/// 100% of 3,141,592,653 PI = exactly PI billion.
 #[allow(dead_code)]
 const MINING_POOL_PI: u64 = (MINING_POOL_BASE / BASE_UNITS_PER_PI as u128) as u64;
 
@@ -269,16 +270,16 @@ mod tests {
         // Year 1 = POOL × (1 - 0.801974) = POOL × 0.198026
         let expected = (MINING_POOL_BASE * (PPM - ANNUAL_RETAIN_PPM) / PPM) as u64;
         assert_eq!(emission, expected);
-        // ~528M PI (19.8% of pool)
+        // ~622M PI (19.8% of pool = 100% of total supply)
         let emission_pi = emission / BASE_UNITS_PER_PI;
-        assert!(emission_pi > 500_000_000, "year 1 should be >500M PI");
-        assert!(emission_pi < 550_000_000, "year 1 should be <550M PI");
+        assert!(emission_pi > 600_000_000, "year 1 should be >600M PI");
+        assert!(emission_pi < 650_000_000, "year 1 should be <650M PI");
     }
 
     #[test]
     fn mining_pool_consistent_with_total_supply() {
-        let node_pool = pichain_types::TOTAL_SUPPLY * 85 / 100;
-        assert_eq!(MINING_POOL_BASE, node_pool);
+        // 100% of total supply goes to miners — pure Satoshi launch
+        assert_eq!(MINING_POOL_BASE, pichain_types::TOTAL_SUPPLY);
     }
 
     #[test]

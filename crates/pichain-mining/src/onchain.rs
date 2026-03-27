@@ -1417,8 +1417,8 @@ mod tests {
     fn supply_cap_prevents_infinite_mining() {
         let mut processor = configured_processor();
 
-        // Simulate near-exhaustion of mining pool (85% of TOTAL_SUPPLY)
-        let cap = pichain_types::TOTAL_SUPPLY * 85 / 100;
+        // Simulate near-exhaustion of mining pool (100% of TOTAL_SUPPLY)
+        let cap = pichain_types::TOTAL_SUPPLY;
         processor.set_total_mined((cap - 100) as u64);
 
         let digits = BbpComputer::compute_hex_digits(0, 200);
