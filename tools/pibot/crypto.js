@@ -164,6 +164,16 @@ async function exportWallet(userId) {
   return result.wallet;
 }
 
+/**
+ * Import a PQ wallet into the vault for a user.
+ * @param {string} userId - Unique user identifier
+ * @param {Object} walletExport - PQ wallet export (from CLI miner or desktop app)
+ * @returns {Promise<{address: string}>}
+ */
+async function importWallet(userId, walletExport) {
+  return vaultRequest('/vault/import', { user_id: String(userId), wallet: walletExport });
+}
+
 // ── PoW solver for wallet activation ───────────────────────────────────────
 async function solveActivationPoW(challengeBytes, diffBits) {
   const { createHash } = require('crypto');
@@ -200,7 +210,7 @@ module.exports = {
   BLAKE3, hexEncode, hexDecode, u64LE, u32LE, concatBytes,
   NATIVE_PI_MINT,
   // Vault API (PQ-native)
-  createWallet, getAddress, signTransaction, exportWallet,
+  createWallet, getAddress, signTransaction, exportWallet, importWallet,
   isVaultAvailable, solveActivationPoW,
   // Legacy (throws errors)
   walletFromSeed, buildSignedTxJson,

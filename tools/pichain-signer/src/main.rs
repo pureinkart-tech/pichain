@@ -375,6 +375,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/vault/address", post(vault::vault_address))
             .route("/vault/sign", post(vault::vault_sign))
             .route("/vault/export", post(vault::vault_export))
+            .route("/vault/import", post(vault::vault_import))
             .with_state(vault_state);
         app = app.merge(vault_router);
         info!(vault_dir = %args.vault_dir, "vault mode enabled — multi-wallet custodial signing");

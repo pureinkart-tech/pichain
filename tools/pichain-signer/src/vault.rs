@@ -230,6 +230,47 @@ impl VaultState {
     ) -> Result<pichain_crypto::pq_wallet::PqWalletExport, String> {
         self.load_wallet(user_id)
     }
+
+    /// Import an existing PQ wallet into the vault for a user.
+    /// Validates the wallet keys before storing.
+    pub fn import_wallet(
+        &self,
+        user_id: &str,
+        export: &pichain_crypto::pq_wallet::PqWalletExport,
+    ) -> Result<String, String> {
+        let path = self.wallet_path(user_id);
+        if path.exists() {
+            return Err("wallet already exists for this user — delete it first".to_string());
+        }
+
+        // Validate the wallet by restoring the keypair
+        let kp = pichain_crypto::restore_pq_wallet(export)
+            .map_err(|e| format!("invalid wallet: {e}"))?;
+        let address = format!("{}", kp.address());
+
+        // Verify address matches the export
+        if !export.address.is_empty() && export.address != address {
+            return Err(format!(
+                "address mismatch: export says {} but keys derive {}",
+                export.address, address
+            ));
+        }
+
+        // Encrypt and store
+        let json = serde_json::to_vec(export).map_err(|e| format!("serialization error: {e}"))?;
+        let key = self.derive_user_key(user_id);
+        let encrypted = encrypt_data(&json, &key);
+        std::fs::write(&path, &encrypted).map_err(|e| format!("failed to write wallet: {e}"))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+
+        info!(user_id, %address, "vault: imported PQ wallet");
+        Ok(address)
+    }
 }
 
 impl Drop for VaultState {
@@ -372,5 +413,21 @@ pub async fn vault_export(
     match state.export_wallet(&req.user_id) {
         Ok(export) => (StatusCode::OK, Json(serde_json::json!({"wallet": export}))),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct VaultImportRequest {
+    user_id: String,
+    wallet: pichain_crypto::pq_wallet::PqWalletExport,
+}
+
+pub async fn vault_import(
+    State(state): State<Arc<VaultState>>,
+    Json(req): Json<VaultImportRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match state.import_wallet(&req.user_id, &req.wallet) {
+        Ok(address) => (StatusCode::OK, Json(serde_json::json!({"address": address}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
     }
 }

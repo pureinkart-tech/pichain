@@ -990,7 +990,7 @@ bot.command('export', async (ctx) => {
   // Also delete the user's /export command message
   ctx.deleteMessage().catch(() => {});
 });
-bot.command('import', (ctx) => { ctx.session.awaitingInput = 'import_key'; ctx.reply('Send your 64-character hex private key:'); });
+bot.command('import', (ctx) => { ctx.session.awaitingInput = 'import_key'; ctx.reply('Paste the contents of your PQ wallet JSON file (from the desktop app or CLI miner).\n\nYou can find it by opening the wallet .json file in a text editor and copying everything.'); });
 bot.command('portfolio', async (ctx) => { await showPortfolio(ctx, await getUser(ctx.from.id)); });
 bot.command('settings', async (ctx) => { await showSettings(ctx, await getUser(ctx.from.id)); });
 bot.command('tokens', async (ctx) => { const u = await getUser(ctx.from.id); await showTokens(ctx, u.chain); });
@@ -1102,13 +1102,53 @@ bot.on('message:text', async (ctx, next) => {
     ctx.session.awaitingInput = null;
     // Auto-delete the user's key message for security
     ctx.deleteMessage().catch(() => {});
-    // Ed25519 seed import no longer supported — PIChain uses PQ wallets
-    await ctx.reply(
-      '\u{26A0}\u{FE0F} Ed25519 key import is no longer supported.\n\n' +
-      'PIChain now uses post-quantum wallets (ML-DSA + SLH-DSA).\n' +
-      'Your wallet was automatically created when you first used the bot.\n' +
-      'Use /wallet to see your PQ address.'
-    );
+    try {
+      // Try to parse as PQ wallet JSON
+      let walletData;
+      try {
+        walletData = JSON.parse(text);
+      } catch {
+        // If it's a 64-char hex string, it's an old Ed25519 key
+        if (/^[0-9a-fA-F]{64}$/.test(text.trim())) {
+          await ctx.reply(
+            '\u{26A0}\u{FE0F} That looks like an Ed25519 private key.\n\n' +
+            'PIChain now uses post-quantum wallets. Ed25519 keys cannot be imported.\n' +
+            'Use /wallet to see your PQ address, or /import to import a PQ wallet JSON file.'
+          );
+          return;
+        }
+        await ctx.reply('\u{274C} Invalid format. Please paste the full contents of a PQ wallet JSON file.');
+        return;
+      }
+
+      // Check if it's a PQ wallet (has ml_dsa_secret_key field)
+      const pqExport = walletData.pq_wallet || walletData;
+      if (!pqExport.ml_dsa_secret_key) {
+        await ctx.reply('\u{274C} Not a valid PQ wallet file. It must contain ml_dsa_secret_key, ml_dsa_public_key, slh_dsa_secret_key, and slh_dsa_public_key.');
+        return;
+      }
+
+      // Import into vault
+      const userId = String(ctx.from.id);
+      // Delete existing wallet first if it exists
+      try { await C.getAddress(userId); } catch {}
+      const result = await C.importWallet(userId, pqExport);
+      const addr = result.address;
+
+      // Update user record
+      const db = require('better-sqlite3')('./pibot.db');
+      db.prepare('UPDATE users SET wallet_seed = ?, pi_address = ?, wallet_address = ?, address = ? WHERE telegram_id = ?')
+        .run('vault:' + userId, addr, addr, addr, ctx.from.id);
+      db.close();
+
+      await ctx.reply(
+        '\u{2705} PQ wallet imported successfully!\n\n' +
+        'Address: ' + addr + '\n\n' +
+        'Your wallet is now managed by the vault. Use /wallet to view.'
+      );
+    } catch (e) {
+      await ctx.reply('\u{274C} Import failed: ' + (e.message || e));
+    }
     return;
   }
 
@@ -1397,7 +1437,7 @@ bot.callbackQuery('xkey', async (ctx) => {
   await ctx.reply(text);
   await ctx.answerCallbackQuery('Keys sent').catch(() => {});
 });
-bot.callbackQuery('ikey', async (ctx) => { ctx.session.awaitingInput = 'import_key'; await ctx.reply('Send your 64-character hex private key:'); await ctx.answerCallbackQuery().catch(() => {}); });
+bot.callbackQuery('ikey', async (ctx) => { ctx.session.awaitingInput = 'import_key'; await ctx.reply('Paste the contents of your PQ wallet JSON file (from the desktop app or CLI miner).\n\nOpen the wallet .json file in a text editor and copy everything.'); await ctx.answerCallbackQuery().catch(() => {}); });
 bot.callbackQuery('cmd_buy', async (ctx) => { const u = await getUser(ctx.from.id); const isPi = u.chain==='pi'; await ctx.editMessageText(isPi ? 'Paste a *token mint ID* \\(64 hex chars\\) to buy\\.' : 'Paste a *Solana token address* to buy\\.', { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2190} Home','home') }).catch(()=>{}); await ctx.answerCallbackQuery().catch(() => {}); });
 bot.callbackQuery('cmd_wallets', async (ctx) => { const u = await getUser(ctx.from.id); const wallets = multiWallet.getWallets(u.telegram_id); if(wallets.length===0){await multiWallet.createWallet(u.telegram_id,'Main');multiWallet.switchWallet(u.telegram_id,multiWallet.getWallets(u.telegram_id)[0].id);} const all=multiWallet.getWallets(u.telegram_id); let text='\u{1F4B3} *Wallets*\n\n'; const kb=new InlineKeyboard(); for(const w of all){text+=`${w.is_active?'\u{2705}':'\u{26AA}'} *${esc(w.label)}*\n`;if(!w.is_active)kb.text('Switch '+w.label,'mw_switch:'+w.id).row();} kb.text('\u{2795} New Wallet','mw_new').text('\u{2190} Home','home').row(); await ctx.editMessageText(text,{parse_mode:'MarkdownV2',reply_markup:kb}).catch(()=>ctx.reply(text,{parse_mode:'MarkdownV2',reply_markup:kb})); await ctx.answerCallbackQuery().catch(() => {}); });
 bot.callbackQuery('cmd_sell', async (ctx) => { ctx.answerCallbackQuery().catch(() => {}); await showPortfolio(ctx, await getUser(ctx.from.id)); });
