@@ -305,7 +305,7 @@ pre .c { color: var(--dim); }
         <div>
           <strong>Browser mining is great for getting started.</strong> For 10-50x more speed,
           download the <a onclick="switchTab('cli');return false;">desktop app or terminal miner</a>.
-          Terminal mining with <code>--profile server</code> is the fastest option.
+          Terminal mining with <code>--profile max</code> is the fastest option.
           Monitor activity on the <a onclick="switchTab('dashboard');return false;" style="cursor:pointer;">live dashboard</a>.
         </div>
       </div>
@@ -477,9 +477,9 @@ chmod +x pichain-miner-linux-x86_64</pre>
         <pre><span class="c"># Generate wallet (one time)</span>
 ./pichain-miner-linux-x86_64 --keypair wallet.json --generate-keypair
 
-<span class="c"># Start mining (use --profile server or max for fastest)</span>
-./pichain-miner-linux-x86_64 --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
-        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
+<span class="c"># Start mining (use --profile max or max for fastest)</span>
+./pichain-miner-linux-x86_64 --keypair wallet.json --rpc-url https://pichain.net --profile max</pre>
+        <p style="margin-top:8px;">Profiles: <strong>low</strong> (2 threads) | <strong>normal</strong> (half cores) | <strong>max</strong> (all cores) | <strong>auto</strong> (auto-detect)</p>
       </div>
     </div>
 
@@ -523,9 +523,9 @@ chmod +x pichain-miner-macos-x86_64 && xattr -cr pichain-miner-macos-x86_64</pre
         <pre><span class="c"># Generate wallet (one time)</span>
 ./pichain-miner-macos-arm64 --keypair wallet.json --generate-keypair
 
-<span class="c"># Start mining (use --profile server or max for fastest)</span>
-./pichain-miner-macos-arm64 --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
-        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
+<span class="c"># Start mining (use --profile max or max for fastest)</span>
+./pichain-miner-macos-arm64 --keypair wallet.json --rpc-url https://pichain.net --profile max</pre>
+        <p style="margin-top:8px;">Profiles: <strong>low</strong> (2 threads) | <strong>normal</strong> (half cores) | <strong>max</strong> (all cores) | <strong>auto</strong> (auto-detect)</p>
       </div>
     </div>
 
@@ -555,9 +555,9 @@ chmod +x pichain-miner-macos-x86_64 && xattr -cr pichain-miner-macos-x86_64</pre
         <pre><span class="c"># Generate wallet (one time)</span>
 .\pichain-miner.exe --keypair wallet.json --generate-keypair
 
-<span class="c"># Start mining (use --profile server or max for fastest)</span>
-.\pichain-miner.exe --keypair wallet.json --rpc-url https://pichain.net --profile server</pre>
-        <p style="margin-top:8px;">Profiles: <strong>laptop</strong> (2 threads) | <strong>desktop</strong> (half cores) | <strong>server</strong> (all cores) | <strong>max</strong> (all cores + large batches)</p>
+<span class="c"># Start mining (use --profile max or max for fastest)</span>
+.\pichain-miner.exe --keypair wallet.json --rpc-url https://pichain.net --profile max</pre>
+        <p style="margin-top:8px;">Profiles: <strong>low</strong> (2 threads) | <strong>normal</strong> (half cores) | <strong>max</strong> (all cores) | <strong>auto</strong> (auto-detect)</p>
       </div>
     </div>
 
@@ -602,7 +602,7 @@ cargo build --release -p pichain-miner
 ./target/release/pichain-miner \
   --keypair wallet.json \
   --rpc-url https://pichain.net \
-  --profile server</pre>
+  --profile max</pre>
       </div>
 
       <!-- macOS Build -->
@@ -636,7 +636,7 @@ cargo build --release -p pichain-miner
 ./target/release/pichain-miner \
   --keypair wallet.json \
   --rpc-url https://pichain.net \
-  --profile server</pre>
+  --profile max</pre>
         <div class="note" style="margin-top:12px;">
           <strong>Common macOS issues:</strong><br>
           &bull; <em>"exit status 69"</em> &mdash; Run <code style="color:var(--cyan);">sudo xcodebuild -license</code> and accept<br>
@@ -674,7 +674,7 @@ cargo build --release -p pichain-miner
 .\target\release\pichain-miner.exe `
   --keypair wallet.json `
   --rpc-url https://pichain.net `
-  --profile server</pre>
+  --profile max</pre>
         <div class="note" style="margin-top:12px;">
           <strong>Common Windows issues:</strong><br>
           &bull; <em>"link.exe not found"</em> &mdash; Install Visual Studio Build Tools with "Desktop development with C++"<br>
@@ -689,10 +689,10 @@ cargo build --release -p pichain-miner
       <h3>Miner Configuration</h3>
       <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">Fine-tune your miner for your hardware.</p>
       <pre><span class="c"># Performance profiles (choose one)</span>
---profile laptop    <span class="c"># 2 threads, gentle on battery</span>
---profile desktop   <span class="c"># Half your CPU cores</span>
---profile server    <span class="c"># All CPU cores</span>
---profile max       <span class="c"># All cores + large batches</span>
+--profile auto      <span class="c"># Auto-detect best settings</span>
+--profile low       <span class="c"># 2 threads, gentle on battery</span>
+--profile normal    <span class="c"># Half your CPU cores</span>
+--profile max       <span class="c"># All cores, maximum speed</span>
 
 <span class="c"># Limit CPU usage (combine with any profile)</span>
 --max-cpu 50        <span class="c"># Cap at 50% CPU</span>
