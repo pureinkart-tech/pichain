@@ -245,7 +245,8 @@ a:hover { text-decoration: underline; }
 <div class="toast" id="toast"></div>
 
 <div class="wmodal-bg" id="walletModal" onclick="if(event.target===this)this.classList.remove('show')">
-  <div class="wmodal">
+  <div class="wmodal" style="position:relative;">
+    <button onclick="document.getElementById('walletModal').classList.remove('show')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;">&times;</button>
     <div id="wmStep1">
       <h3>Connect Wallet</h3>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to swap, trade, and manage tokens.</p>
@@ -253,6 +254,16 @@ a:hover { text-decoration: underline; }
         <span style="display:flex;align-items:center;justify-content:center;gap:8px;">&#x1F510; Connect PIChain Signer</span>
       </button></div>
       <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer (desktop app installs it automatically)</div>
+      <details style="margin:12px 0;cursor:pointer;">
+        <summary style="color:var(--accent);font-size:12px;font-weight:600;">What is PIChain Signer?</summary>
+        <div style="color:var(--muted);font-size:12px;line-height:1.7;margin-top:8px;padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;">
+          PIChain Signer is a small app that runs on your computer and securely signs transactions. It keeps your private keys safe — they never leave your machine.<br><br>
+          <strong>How to get it:</strong><br>
+          1. <a href="/mine" style="color:var(--cyan);">Download the PIChain Miner app</a> — it includes the signer automatically<br>
+          2. Or download pichain-signer separately from the <a href="/mine" style="color:var(--cyan);">Download page</a><br>
+          3. Open the app, create a wallet, and click "Connect" here
+        </div>
+      </details>
       <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
       <div class="wm-row"><label style="color:var(--muted);font-size:12px;">Or enter your address (view only — no trading)</label>
         <input type="text" id="wmImportInput" placeholder="Pi314..." spellcheck="false" style="font-family:monospace;font-size:12px;">
@@ -265,6 +276,7 @@ a:hover { text-decoration: underline; }
         <div id="wmSpinner" style="display:inline-block;width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px;"></div>
         <div id="wmStatus" style="color:var(--muted);font-size:13px;">Connecting to PIChain Signer...</div>
       </div>
+      <button onclick="document.getElementById('wmStep3').style.display='none';document.getElementById('wmStep1').style.display=''" class="w-btn-out" style="width:100%;padding:10px;margin-top:12px;">Back</button>
     </div>
   </div>
 </div>

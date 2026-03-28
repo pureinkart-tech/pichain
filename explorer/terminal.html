@@ -83,7 +83,17 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <h3 style="margin-bottom:16px">Connect Wallet</h3>
         <p style="color:var(--dim);font-size:13px;margin-bottom:16px">Connect your PIChain wallet to trade from the web terminal.</p>
         <button onclick="connectSignerWallet()" style="width:100%;padding:14px;font-size:15px;margin-bottom:8px;">&#x1F510; Connect PIChain Signer</button>
-        <p style="color:var(--dim);font-size:11px;margin-bottom:16px">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</p>
+        <p style="color:var(--dim);font-size:11px;margin-bottom:8px">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</p>
+        <details style="margin:8px 0 16px;cursor:pointer;">
+          <summary style="color:var(--accent);font-size:12px;font-weight:600;">What is PIChain Signer?</summary>
+          <div style="color:var(--muted);font-size:12px;line-height:1.7;margin-top:8px;padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;">
+            PIChain Signer is a small app that runs on your computer and securely signs transactions. It keeps your private keys safe — they never leave your machine.<br><br>
+            <strong>How to get it:</strong><br>
+            1. <a href="/mine" style="color:var(--cyan);">Download the PIChain Miner app</a> — it includes the signer automatically<br>
+            2. Or download pichain-signer separately from the <a href="/mine" style="color:var(--cyan);">Download page</a><br>
+            3. Open the app, create a wallet, and click "Connect" here
+          </div>
+        </details>
         <div style="border-top:1px solid var(--border);margin:12px 0;"></div>
         <p style="color:var(--dim);font-size:12px;margin-bottom:8px">Or enter your address (view only)</p>
         <input type="text" id="keyInput" placeholder="Pi314..." spellcheck="false">
