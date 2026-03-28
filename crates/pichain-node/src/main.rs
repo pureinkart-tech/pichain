@@ -445,8 +445,9 @@ async fn main() -> anyhow::Result<()> {
             // --- 7. Resume From Last Block ---
             node_state.resume_from_storage()?;
 
-            // --- 7b. Bootstrap bridge wrapped tokens + liquidity pools (idempotent) ---
-            node_state.bootstrap_bridge_tokens()?;
+            // --- 7b. Bridge bootstrap disabled for Satoshi launch (100% mined, 0% premined).
+            // Bridge tokens will be added when cross-chain bridges go live.
+            // node_state.bootstrap_bridge_tokens()?;
 
             let current_height = node_state.height();
             let last_hash = node_state.last_hash();

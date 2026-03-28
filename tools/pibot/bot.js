@@ -1150,20 +1150,25 @@ bot.callbackQuery('confirm_buypi', async (ctx) => {
       throw new Error('Price changed >5% since quote. Please try again.');
     }
 
-    // 1. Transfer SOL from buyer to fee wallet
+    // 1. Transfer PI from treasury to buyer FIRST (before updating pool).
+    //    If this fails, no pool state changes — prevents "sold but never delivered" bug.
+    if (!PI_TREASURY_USER || !PI_TREASURY_ADDR) {
+      throw new Error('PI treasury not configured');
+    }
+    const piTransferResult = await pi.transfer(PI_TREASURY_USER, PI_TREASURY_ADDR, pending.piAddr, freshQuote.piOut);
+    if (!piTransferResult || piTransferResult.status === 'error') {
+      throw new Error('PI transfer failed: ' + (piTransferResult?.error || 'unknown'));
+    }
+
+    // 2. Transfer SOL from buyer to fee wallet
     if (SOL_FEE_ADDR && u.solWallet) {
       await sol.transfer(u.solWallet, SOL_FEE_ADDR, pending.solInLamports);
     }
 
-    // 2. Execute AMM swap (updates pool reserves)
+    // 3. Update AMM pool reserves (only after PI was delivered successfully)
     const result = ammPool.executeBuy(pending.solInLamports);
 
-    // 3. Transfer PI from treasury to buyer
-    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
-      await pi.transfer(PI_TREASURY_USER, PI_TREASURY_ADDR, pending.piAddr, result.piOut);
-    }
-
-    const piOutDisplay = (result.piOut / 1e9).toFixed(2);
+    const piOutDisplay = (freshQuote.piOut / 1e9).toFixed(2);
     const newPriceUsd = ammPool.priceInUsd(cachedSolPrice || 90);
 
     await ctx.editMessageText(
@@ -1251,22 +1256,21 @@ bot.callbackQuery('confirm_sellpi', async (ctx) => {
     // SECURITY: Verify user has PI balance
     const piAddr = pending.piAddr;
     if (!piAddr) throw new Error('No PIChain wallet');
+    if (!PI_TREASURY_USER || !PI_TREASURY_ADDR) throw new Error('PI treasury not configured');
 
-    // 1. Transfer PI from seller to treasury
-    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
-      await pi.transfer(String(ctx.from.id), piAddr, PI_TREASURY_ADDR, pending.piInBase);
+    // 1. Transfer PI from seller to treasury FIRST (before updating pool).
+    //    If this fails, no pool state changes.
+    const piTransferResult = await pi.transfer(String(ctx.from.id), piAddr, PI_TREASURY_ADDR, pending.piInBase);
+    if (!piTransferResult || piTransferResult.status === 'error') {
+      throw new Error('PI transfer failed: ' + (piTransferResult?.error || 'unknown'));
     }
 
-    // 2. Execute AMM swap (updates pool reserves)
+    // 2. Update AMM pool reserves (only after PI was received)
     const result = ammPool.executeSell(pending.piInBase);
 
     // 3. Transfer SOL from fee wallet to seller
-    // NOTE: This requires the fee wallet to have SOL. In production,
-    // the SOL pool reserves should be held in a dedicated Solana wallet.
-    if (SOL_FEE_ADDR && u.solWallet) {
-      // For now, the SOL is sent from the fee address
-      // In a full implementation, this would be a pool wallet
-    }
+    // TODO: In production, SOL pool reserves should be in a dedicated wallet
+    // and SOL should be sent to the seller here.
 
     const solOutDisplay = (result.solOut / 1e9).toFixed(6);
     const newPriceUsd = ammPool.priceInUsd(cachedSolPrice || 90);

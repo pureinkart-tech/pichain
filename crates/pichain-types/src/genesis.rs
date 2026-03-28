@@ -54,109 +54,53 @@ impl GenesisConfig {
     /// Create the official PIChain genesis configuration.
     /// Total supply: 3,141,592,653 PI = 3.14B tokens.
     ///
-    /// Satoshi model: no team, no foundation, no treasury.
-    /// 85% Mining Pool — earned by computing Pi digits (π-smooth emission, half-life = π years)
-    /// 10% Validator Staking — secures BFT consensus
-    ///  5% Initial Liquidity — DEX bootstrapping
+    /// Pure Satoshi launch: no team, no foundation, no treasury, no premine.
+    /// 100% Mining Pool — every PI is earned by computing Pi digits.
     pub fn pichain_mainnet() -> Self {
-        let mining = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
-        let validators = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
-        let liquidity = (TOTAL_SUPPLY as PiAmount) - mining - validators; // remainder = exact 5%
-
         Self {
             chain_id: 314159, // digits of PI
             timestamp_ms: 0,  // set at actual genesis ceremony
             allocations: vec![
                 GenesisAllocation {
                     address: Address::ZERO, // virtual — no real balance created
-                    amount: mining,
-                    label: "Mining Pool (85%)".to_string(),
-                    virtual_pool: true, // AUDIT-FIX: tracked in RewardCalculator, minted over time
-                },
-                GenesisAllocation {
-                    address: Address::ZERO, // placeholder — validator staking reserve
-                    amount: validators,
-                    label: "Validator Staking Reserve (10%)".to_string(),
-                    virtual_pool: false,
-                },
-                GenesisAllocation {
-                    address: Address::ZERO, // placeholder — initial DEX liquidity
-                    amount: liquidity,
-                    label: "Initial Liquidity (5%)".to_string(),
-                    virtual_pool: false,
+                    amount: TOTAL_SUPPLY as PiAmount,
+                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
+                    virtual_pool: true, // tracked in RewardCalculator, minted over time
                 },
             ],
             validators: vec![],
         }
     }
 
-    /// Create mainnet genesis with real addresses from the genesis ceremony.
-    /// This replaces the Address::ZERO placeholders with actual custodial addresses.
-    pub fn pichain_mainnet_with_addresses(
-        staking_address: Address,
-        liquidity_address: Address,
+    /// Create mainnet genesis with validators from the genesis ceremony.
+    /// Pure Satoshi launch: 100% mining pool, no premined allocations.
+    pub fn pichain_mainnet_with_validators(
         validators: Vec<GenesisValidator>,
         timestamp_ms: u64,
     ) -> Self {
-        let mining = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
-        let validator_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
-        let liquidity = (TOTAL_SUPPLY as PiAmount) - mining - validator_amount;
-
         Self {
             chain_id: 314159,
             timestamp_ms,
             allocations: vec![
                 GenesisAllocation {
                     address: Address::ZERO, // virtual — minted over time
-                    amount: mining,
-                    label: "Mining Pool (85%)".to_string(),
+                    amount: TOTAL_SUPPLY as PiAmount,
+                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
                     virtual_pool: true,
-                },
-                GenesisAllocation {
-                    address: staking_address,
-                    amount: validator_amount,
-                    label: "Validator Staking Reserve (10%)".to_string(),
-                    virtual_pool: false,
-                },
-                GenesisAllocation {
-                    address: liquidity_address,
-                    amount: liquidity,
-                    label: "Initial Liquidity (5%)".to_string(),
-                    virtual_pool: false,
                 },
             ],
             validators,
         }
     }
 
-    /// Create a devnet genesis mirroring mainnet 85/10/5 distribution.
-    /// Allocates the full TOTAL_SUPPLY to ensure supply validation passes.
+    /// Create a devnet genesis — pure Satoshi launch (100% mined, 0% premined).
+    /// The entire supply is earned through mining. No team, no foundation, no treasury.
     pub fn devnet() -> Self {
-        // Mining pool address for devnet
+        // Mining pool address for devnet (virtual — no real balance created)
         let mining_hash = pichain_crypto::hash(b"pichain-devnet-mining-pool");
         let mut mining_bytes = [0u8; 20];
         mining_bytes.copy_from_slice(&mining_hash.as_bytes()[..20]);
         let mining_address = Address(mining_bytes);
-
-        // Validator staking address for devnet
-        let validator_hash = pichain_crypto::hash(b"pichain-devnet-validators");
-        let mut validator_bytes = [0u8; 20];
-        validator_bytes.copy_from_slice(&validator_hash.as_bytes()[..20]);
-        let validator_address = Address(validator_bytes);
-
-        // Liquidity address for devnet
-        let liquidity_hash = pichain_crypto::hash(b"pichain-devnet-liquidity");
-        let mut liquidity_bytes = [0u8; 20];
-        liquidity_bytes.copy_from_slice(&liquidity_hash.as_bytes()[..20]);
-        let liquidity_address = Address(liquidity_bytes);
-
-        // Must sum to exactly TOTAL_SUPPLY (3,141,592,653 PI):
-        //   Mining Pool:      85% (virtual — minted over time via mining rewards)
-        //   Staking Reserve:  10% (secures BFT consensus)
-        //   Liquidity:         5% (DEX bootstrapping)
-        let mining_amount = (TOTAL_SUPPLY * 85 / 100) as PiAmount;
-        let staking_amount = (TOTAL_SUPPLY * 10 / 100) as PiAmount;
-        let liquidity_amount = (TOTAL_SUPPLY as PiAmount) - mining_amount - staking_amount;
 
         Self {
             chain_id: 31415,
@@ -164,21 +108,9 @@ impl GenesisConfig {
             allocations: vec![
                 GenesisAllocation {
                     address: mining_address,
-                    amount: mining_amount,
-                    label: "Devnet Mining Pool (85%)".to_string(),
-                    virtual_pool: true, // AUDIT-FIX: virtual — minted over time
-                },
-                GenesisAllocation {
-                    address: validator_address,
-                    amount: staking_amount,
-                    label: "Devnet Validator Staking Reserve (10%)".to_string(),
-                    virtual_pool: false,
-                },
-                GenesisAllocation {
-                    address: liquidity_address,
-                    amount: liquidity_amount,
-                    label: "Devnet Initial Liquidity (5%)".to_string(),
-                    virtual_pool: false,
+                    amount: TOTAL_SUPPLY as PiAmount,
+                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
+                    virtual_pool: true, // virtual — minted over time via mining rewards
                 },
             ],
             validators: vec![],
