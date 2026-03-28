@@ -31,6 +31,10 @@ aes-gcm = "0.10"
 rand = "0.8"
 sha2.workspace = true
 
+# Signing proxy (localhost:8315 for website wallet connection)
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+
 # Tauri plugins
 tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"

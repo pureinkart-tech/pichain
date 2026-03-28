@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 /// Cached PQ key material for the current session.
 /// All four key components are needed to reconstruct the PqKeypair.
 /// Secret keys are zeroized on drop to prevent memory dump exposure.
+#[derive(Clone)]
 struct CachedPqKeys {
     ml_dsa_sk: Vec<u8>,
     ml_dsa_pk: Vec<u8>,
@@ -600,6 +601,127 @@ async fn get_autostart_status(app: tauri::AppHandle) -> Result<bool, String> {
         .map_err(|e| format!("Failed to check autostart: {e}"))
 }
 
+// ---------- Signing proxy (port 8315) ----------
+// Lets pichain.net connect to the wallet when the desktop app is open.
+// Only serves /status and /sign — no private keys are exposed.
+
+async fn start_signing_proxy(app: tauri::AppHandle) {
+    use axum::{Router, routing::{get, post}, Json, http::StatusCode};
+    use tower_http::cors::{CorsLayer, Any};
+
+    // Share PQ keys with proxy via Arc — keys are populated when wallet is loaded
+    let proxy_keys: Arc<tokio::sync::Mutex<Option<CachedPqKeys>>> = Arc::new(tokio::sync::Mutex::new(None));
+
+    // Sync keys from AppState periodically
+    let keys_sync = proxy_keys.clone();
+    let app_sync = app.clone();
+    tokio::spawn(async move {
+        loop {
+            {
+                let state = app_sync.state::<AppState>();
+                let app_keys = state.cached_pq_keys.lock().await;
+                let mut proxy = keys_sync.lock().await;
+                *proxy = app_keys.clone();
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        }
+    });
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let keys_status = proxy_keys.clone();
+    let status_handler = move || {
+        let keys_ref = keys_status.clone();
+        async move {
+            let keys = keys_ref.lock().await;
+            if let Some(ref k) = *keys {
+                let addr = {
+                    let export = pichain_crypto::pq_wallet::PqWalletExport {
+                        version: 1, crypto_version: 1, address: String::new(),
+                        ml_dsa_secret_key: hex::encode(&k.ml_dsa_sk),
+                        ml_dsa_public_key: hex::encode(&k.ml_dsa_pk),
+                        slh_dsa_secret_key: hex::encode(&k.slh_dsa_sk),
+                        slh_dsa_public_key: hex::encode(&k.slh_dsa_pk),
+                    };
+                    match pichain_crypto::restore_pq_wallet(&export) {
+                        Ok(kp) => format!("{}", kp.address()),
+                        Err(_) => String::new(),
+                    }
+                };
+                if !addr.is_empty() {
+                    return (StatusCode::OK, Json(serde_json::json!({
+                        "connected": true,
+                        "address": addr,
+                    })));
+                }
+            }
+            (StatusCode::OK, Json(serde_json::json!({
+                "connected": false,
+            })))
+        }
+    };
+
+    let keys_sign = proxy_keys.clone();
+    let sign_handler = move |Json(body): Json<serde_json::Value>| {
+        let keys_ref = keys_sign.clone();
+        async move {
+            let keys = keys_ref.lock().await;
+            let Some(ref k) = *keys else {
+                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "No wallet loaded"})));
+            };
+
+            let tx_data_value = body.get("tx_data").cloned().unwrap_or_default();
+            let tx_data: pichain_types::transaction::TransactionData = match serde_json::from_value(tx_data_value) {
+                Ok(td) => td,
+                Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid tx_data: {e}")}))),
+            };
+
+            let export = pichain_crypto::pq_wallet::PqWalletExport {
+                version: 1,
+                crypto_version: 1,
+                address: String::new(),
+                ml_dsa_secret_key: hex::encode(&k.ml_dsa_sk),
+                ml_dsa_public_key: hex::encode(&k.ml_dsa_pk),
+                slh_dsa_secret_key: hex::encode(&k.slh_dsa_sk),
+                slh_dsa_public_key: hex::encode(&k.slh_dsa_pk),
+            };
+            let kp = match pichain_crypto::restore_pq_wallet(&export) {
+                Ok(kp) => kp,
+                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("Key restore failed: {e}")}))),
+            };
+
+            let signed = pichain_types::transaction::Transaction::sign_pq(tx_data, &kp);
+            let tx_hash = hex::encode(signed.hash().as_bytes());
+            let signed_json = serde_json::to_value(&signed).unwrap_or_default();
+
+            (StatusCode::OK, Json(serde_json::json!({
+                "signed_tx": signed_json,
+                "tx_hash": tx_hash,
+            })))
+        }
+    };
+
+    let router = Router::new()
+        .route("/status", get(status_handler))
+        .route("/sign", post(sign_handler))
+        .layer(cors);
+
+    // Try port 8315, silently fail if already in use (another signer running)
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 8315));
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => {
+            log::info!("Signing proxy listening on http://127.0.0.1:8315");
+            let _ = axum::serve(listener, router).await;
+        }
+        Err(e) => {
+            log::warn!("Could not start signing proxy on 8315 (may already be running): {e}");
+        }
+    }
+}
+
 // ---------- Entry point ----------
 
 fn main() {
@@ -689,6 +811,18 @@ fn main() {
                 .build(app)?;
 
             log::info!("PIChain Miner v{} started", env!("CARGO_PKG_VERSION"));
+
+            // Start signing proxy on port 8315 so the website can connect
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(async {
+                    start_signing_proxy(app_handle).await;
+                });
+            });
 
             Ok(())
         })
