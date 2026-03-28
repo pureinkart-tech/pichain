@@ -522,11 +522,11 @@ async function mainMenu(ctx, u) {
   text += `\n\nPaste a *token ${isPi ? 'mint ID' : 'address'}* to trade\\!`;
 
   const kb = new InlineKeyboard()
-    .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('Buy', 'cmd_buy').text('Sell & Manage', 'positions').row()
+    .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').text('\u{1F4CA} PI Price', 'piprice_btn').row()
+    .text('Buy Tokens', 'cmd_buy').text('Sell & Manage', 'positions').row()
     .text(isPi ? '\u{1F7E2} Switch Solana' : '\u{1F7E3} Switch PIChain', 'switch_chain').text('Change Wallet', 'cmd_wallets').row()
     .text(isPi ? 'Launches' : 'Trending', isPi ? 'launches' : 'sol_trending').text('Tokens', 'tokens').text('Alerts', 'cmd_alerts').row()
     .text('Wallet', 'wallet').text('Settings', 'settings').text('Refer Friends', 'referrals').row()
-    .text('DCA Orders', 'cmd_dca').text('Limit Orders', 'cmd_limits').row()
     .text('Send', 'cmd_send').text('Refresh', 'refresh');
 
   const opts = { parse_mode: 'MarkdownV2', reply_markup: kb };
@@ -1367,6 +1367,29 @@ bot.on('message:text', async (ctx, next) => {
     return;
   }
 
+  // Custom sell PI amount
+  if (ctx.session.awaitingInput === 'sellpi_amount') {
+    ctx.session.awaitingInput = null;
+    const amount = parseFloat(text);
+    if (!amount || amount <= 0) { await ctx.reply('Invalid amount.'); return; }
+    const u = await getUser(ctx.from.id);
+    const piInBase = Math.floor(amount * 1e9);
+    const quote = ammPool.quoteSellPI(piInBase);
+    if (!quote) { await ctx.reply('Insufficient liquidity.'); return; }
+    const solOut = quote.solOut / 1e9;
+    const solPrice = cachedSolPrice || 90;
+    const piAddr = u.wallet_address || u.pi_address || u.address || '';
+    ctx.session.pendingSell = { piInBase, solOut: quote.solOut, piIn: amount, solOutDisplay: solOut, priceImpact: quote.priceImpact, piAddr };
+    await ctx.reply(
+      `\u{1F7E2} *Sell ${amount.toLocaleString()} PI*\n\n` +
+      `Receive: *${solOut.toFixed(6)} SOL* ($${(solOut * solPrice).toFixed(2)})\n` +
+      `Impact: ${quote.priceImpact.toFixed(2)}%\n` +
+      `Fee: 0.3%`,
+      { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_sellpi').text('\u{274C} Cancel', 'cancel_sellpi') }
+    );
+    return;
+  }
+
   // Custom buy PI amount
   if (ctx.session.awaitingInput === 'buypi_amount') {
     ctx.session.awaitingInput = null;
@@ -1743,9 +1766,66 @@ bot.callbackQuery(/^buypi_sol:(.+)$/, async (ctx) => {
 
 bot.callbackQuery('sellpi_menu', async (ctx) => {
   if (!ammPool.isInitialized()) { await ctx.editMessageText('Pool not initialized.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+  const solPrice = cachedSolPrice || 90;
+  const stats = ammPool.stats(solPrice);
+  const kb = new InlineKeyboard()
+    .text('100 PI', 'sellpi_amt:100').text('500 PI', 'sellpi_amt:500').text('1,000 PI', 'sellpi_amt:1000').row()
+    .text('5,000 PI', 'sellpi_amt:5000').text('10,000 PI', 'sellpi_amt:10000').row()
+    .text('Custom Amount', 'sellpi_custom').row()
+    .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{2190} Home', 'home');
   await ctx.editMessageText(
-    `\u{1F7E2} *Sell PI for SOL*\n\nType \`/sellpi <amount>\` to sell\\.\nExample: \`/sellpi 1000\``,
-    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2190} Back', 'buy_pi_menu') }
+    `\u{1F7E2} *Sell PI for SOL*\n\n` +
+    `Price: *\\$${esc(stats.priceUsd.toFixed(6))}* per PI\n` +
+    `1 PI \\= ${esc(stats.priceSol.toFixed(8))} SOL\n\n` +
+    `Select PI amount to sell:`,
+    { parse_mode: 'MarkdownV2', reply_markup: kb }
+  ).catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery(/^sellpi_amt:(\d+)$/, async (ctx) => {
+  const piIn = parseInt(ctx.match[1]);
+  if (!piIn || !ammPool.isInitialized()) { await ctx.answerCallbackQuery('Pool not ready').catch(() => {}); return; }
+  const u = await getUser(ctx.from.id);
+  const solPrice = cachedSolPrice || 90;
+  const piInBase = Math.floor(piIn * 1e9);
+  const quote = ammPool.quoteSellPI(piInBase);
+  if (!quote) { await ctx.editMessageText('Insufficient liquidity.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+
+  const solOut = quote.solOut / 1e9;
+  const piAddr = u.wallet_address || u.pi_address || u.address || '';
+
+  ctx.session.pendingSell = { piInBase, solOut: quote.solOut, piIn, solOutDisplay: solOut, priceImpact: quote.priceImpact, piAddr };
+
+  await ctx.editMessageText(
+    `\u{1F7E2} *Sell ${esc(piIn.toLocaleString())} PI*\n\n` +
+    `Receive: *${esc(solOut.toFixed(6))} SOL* \\(\\$${esc((solOut * solPrice).toFixed(2))}\\)\n` +
+    `Impact: ${esc(quote.priceImpact.toFixed(2))}%\n` +
+    `Fee: 0\\.3%`,
+    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_sellpi').text('\u{274C} Back', 'sellpi_menu') }
+  ).catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('sellpi_custom', async (ctx) => {
+  ctx.session.awaitingInput = 'sellpi_amount';
+  await ctx.editMessageText('Enter the amount of PI you want to sell:').catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('piprice_btn', async (ctx) => {
+  if (!ammPool.isInitialized()) { await ctx.editMessageText('Pool not initialized.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+  const solPrice = cachedSolPrice || 90;
+  const stats = ammPool.stats(solPrice);
+  await ctx.editMessageText(
+    `\u{1F4CA} *PI Price*\n\n` +
+    `\\$${esc(stats.priceUsd.toFixed(6))} per PI\n` +
+    `1 SOL \\= ${esc(Math.floor(1/stats.priceSol).toLocaleString())} PI\n` +
+    `1 PI \\= ${esc(stats.priceSol.toFixed(8))} SOL\n\n` +
+    `*Pool:* ${esc(stats.piReserve.toFixed(0))} PI / ${esc(stats.solReserve.toFixed(4))} SOL\n` +
+    `*TVL:* \\$${esc(stats.tvlUsd.toFixed(2))}\n` +
+    `*Trades:* ${stats.totalTrades}`,
+    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').row().text('\u{2190} Home', 'home') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
