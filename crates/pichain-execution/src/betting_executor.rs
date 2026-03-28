@@ -790,12 +790,12 @@ mod tests {
         assert!(matches!(resolve_result.status, TransactionStatus::Success));
 
         // Total pot = 2 * 1e9 = 2e9
-        // House fee = 2e9 * 200 / 10000 = 40_000_000
-        // Winner gets 2e9 - 40_000_000 = 1_960_000_000
-        assert_eq!(resolve_result.house_fee_burn, 40_000_000);
+        // House fee = 0% (fees collected off-chain)
+        // Winner gets full pot = 2_000_000_000
+        assert_eq!(resolve_result.house_fee_burn, 0);
         assert_eq!(resolve_result.credits.len(), 1);
         assert_eq!(resolve_result.credits[0].0, addr(2));
-        assert_eq!(resolve_result.credits[0].1, 1_960_000_000);
+        assert_eq!(resolve_result.credits[0].1, 2_000_000_000);
     }
 
     #[test]
