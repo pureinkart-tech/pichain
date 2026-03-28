@@ -2763,30 +2763,107 @@ async function getMatchNonce(addressHex){
 // MODE TOGGLE
 // =====================================================================
 function toggleMode(){
-  if(DEMO_MODE&&!walletKeypair){
-    // Trying to switch to real mode but no wallet — show wallet modal
-    showWalletModal();
-    // After wallet is connected, auto-switch to real mode
+  if(DEMO_MODE&&!walletKeypair&&!phantomConnected){
+    // Trying to switch to real mode but no wallet — show chain choice
+    showRealModeChoice();
+    return;
+  }
+  if(DEMO_MODE&&!walletKeypair&&phantomConnected){
+    // Phantom connected, good enough for SOL betting
+    DEMO_MODE=false;
+    const sw=document.getElementById('modeSwitch');
+    sw.classList.toggle('real',true);
+    document.getElementById('modeLabel').textContent='Real Mode (SOL)';
+    showToast('Real mode — wagers use SOL from Phantom','success');
+    loadPokerTables();
+    return;
+  }
+  if(DEMO_MODE&&walletKeypair){
+    // PI wallet connected
+    DEMO_MODE=false;
+    const sw=document.getElementById('modeSwitch');
+    sw.classList.toggle('real',true);
+    document.getElementById('modeLabel').textContent='Real Mode';
+    showToast('Real mode — wagers use PI from your wallet','success');
+    loadPokerTables();
+    return;
+  }
+  // Toggle back to demo
+  DEMO_MODE=true;
+  const sw2=document.getElementById('modeSwitch');
+  sw2.classList.toggle('real',false);
+  document.getElementById('modeLabel').textContent='Demo Mode';
+  showToast('Demo mode — play without wagering','info');
+  loadPokerTables();
+}
+
+function showRealModeChoice(){
+  const modal=document.getElementById('walletModal');
+  const step1=document.getElementById('walletStep1');
+  // Show choice: PI or SOL
+  step1.innerHTML=`
+    <h3>Choose Betting Wallet</h3>
+    <button onclick="document.getElementById('walletModal').classList.remove('show')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Select which wallet to use for real-money betting.</p>
+    <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-bottom:12px;background:linear-gradient(135deg,var(--accent),#8b5cf6);" onclick="showPiWalletConnect()">
+      &#x1F7E3; Bet with PI (PIChain)
+    </button>
+    <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;background:linear-gradient(135deg,#9945FF,#14F195);" onclick="connectPhantomForBetting()">
+      &#x1F7E2; Bet with SOL (Phantom)
+    </button>
+    <p style="color:var(--dim);font-size:11px;text-align:center;margin-top:12px;">PI betting uses PIChain Signer. SOL betting uses Phantom wallet.</p>
+  `;
+  step1.style.display='block';
+  const step3=document.getElementById('walletStep3');
+  if(step3)step3.style.display='none';
+  modal.classList.add('show');
+}
+
+function showPiWalletConnect(){
+  const step1=document.getElementById('walletStep1');
+  step1.innerHTML=`
+    <h3>Connect PIChain Wallet</h3>
+    <button onclick="document.getElementById('walletModal').classList.remove('show')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to bet with PI.</p>
+    <div class="form-row">
+      <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
+    </div>
+    <details style="margin:12px 0;cursor:pointer;">
+      <summary style="color:var(--accent);font-size:12px;font-weight:600;">What is PIChain Signer?</summary>
+      <div style="color:var(--muted);font-size:12px;line-height:1.7;margin-top:8px;padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;">
+        PIChain Signer is a small app that runs on your computer and securely signs transactions.<br><br>
+        <strong>How to get it:</strong><br>
+        1. <a href="/mine" style="color:var(--cyan);">Download the PIChain Miner app</a> — it includes the signer<br>
+        2. Open the app, create a wallet, and click Connect here
+      </div>
+    </details>
+    <div style="border-top:1px solid var(--border);margin:12px 0;"></div>
+    <button class="btn btn-outline" style="width:100%;" onclick="showRealModeChoice()">&#x2190; Back to wallet choice</button>
+  `;
+}
+
+function connectPhantomForBetting(){
+  document.getElementById('walletModal').classList.remove('show');
+  if(typeof connectPhantom==='function'){
+    connectPhantom();
     const check=setInterval(()=>{
-      if(walletKeypair){
+      if(phantomConnected){
         clearInterval(check);
         DEMO_MODE=false;
         const sw=document.getElementById('modeSwitch');
         sw.classList.toggle('real',true);
-        document.getElementById('modeLabel').textContent='Real Mode';
-        showToast('Real mode — wagers use PI from your wallet','success');
+        document.getElementById('modeLabel').textContent='Real Mode (SOL)';
+        showToast('Real mode — wagers use SOL from Phantom','success');
+        loadPokerTables();
       }
     },500);
     setTimeout(()=>clearInterval(check),60000);
-    return;
+  }else{
+    showToast('Phantom wallet not detected. Install it from phantom.app','error');
   }
-  DEMO_MODE=!DEMO_MODE;
-  const sw=document.getElementById('modeSwitch');
-  sw.classList.toggle('real',!DEMO_MODE);
-  document.getElementById('modeLabel').textContent=DEMO_MODE?'Demo Mode':'Real Mode';
-  showToast(DEMO_MODE?'Demo mode — play without wagering':'Real mode — wagers use PI from your wallet',DEMO_MODE?'info':'success');
-  loadPokerTables();
 }
+
+// (legacy toggle code removed — replaced by showRealModeChoice above)
 
 // =====================================================================
 // TAB SWITCHING
