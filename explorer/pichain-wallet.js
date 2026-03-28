@@ -24,11 +24,31 @@
 const PROXY_URL = 'http://127.0.0.1:8315';
 const CONNECT_TIMEOUT = 3000;
 
-// ─── Global wallet state (same variable names pages already use) ───
+// ─── Synchronous wallet restore (MUST run before page scripts) ───
+// Pages check walletAddressHex/walletKeypair during init.
+// If we don't set these synchronously, pages see empty values.
 
 window.pqProxyConnected = false;
 window.pqProxyAddress = null;
-window.pqWalletProvider = 'none'; // 'proxy' | 'extension' | 'none'
+window.pqWalletProvider = 'none';
+
+(function syncRestore() {
+  if (localStorage.getItem('pichain_disconnected') === '1') return;
+  var addr = localStorage.getItem('pichain_connected_address');
+  var tid = localStorage.getItem('pichain_pibot_tid');
+  if (!addr) return;
+  var hex = addr;
+  if (hex.indexOf('Pi314') === 0) hex = hex.slice(5);
+  hex = hex.toLowerCase();
+  window.walletAddressHex = hex;
+  try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(function(b) { return parseInt(b, 16); })); } catch(e) {}
+  window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+  window.pqProxyAddress = addr;
+  if (tid) {
+    window.pqProxyConnected = true;
+    window.pqWalletProvider = 'pibot';
+  }
+})();
 
 // ─── Connection ───
 

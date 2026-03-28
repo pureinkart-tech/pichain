@@ -514,6 +514,13 @@ function initWallet(seed,skipClose){
 
 async function loadDexWallet(){
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Check if pichain-wallet.js already restored a session
+  if(window.walletAddressHex && window.pqProxyConnected){
+    walletAddressHex=window.walletAddressHex;
+    walletAddress=hexDecode(walletAddressHex);
+    onWalletConnected();
+    return;
+  }
   // Try PQ signer proxy first
   try {
     const result = await connectPQProxy();

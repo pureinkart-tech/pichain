@@ -2656,6 +2656,15 @@ async function updateBalance(){
 
 function loadWallet(){
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Check if pichain-wallet.js already restored a session
+  if(window.walletAddressHex && window.pqProxyConnected){
+    walletAddressHex=window.walletAddressHex;
+    walletAddress=hexDecode(walletAddressHex);
+    walletKeypair={publicKey:walletAddress};
+    updateWalletUI();
+    updateBalance();
+    return;
+  }
   connectPQProxy().then(function(result){
     if(result.connected){
       let hex=result.address;

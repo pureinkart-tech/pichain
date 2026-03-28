@@ -747,7 +747,15 @@ async function solveActivationPoW(challenge,diffBits){
 
 function loadWallet() {
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
-  // Try PQ proxy connection first (replaces old Ed25519 seed from localStorage)
+  // Check if pichain-wallet.js already restored a session
+  if(window.walletAddressHex && window.pqProxyConnected){
+    walletAddressHex=window.walletAddressHex;
+    walletAddress=hexDecode(walletAddressHex);
+    walletKeypair={publicKey:walletAddress};
+    updateWalletUI();
+    return;
+  }
+  // Try PQ proxy connection first
   initWalletPQ().catch(() => {
     // If proxy not available, check if we have a saved PQ address for display
     const savedAddr = localStorage.getItem('pichain_pq_address');
