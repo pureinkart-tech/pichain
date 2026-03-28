@@ -526,11 +526,7 @@ async function mainMenu(ctx, u) {
           if (valueUsd > 0) posText += `Value: \\$${esc(valueUsd.toFixed(2))} / ${esc(valueSol.toFixed(4))} SOL\n`;
           posText += `Balance: ${esc(balRound)} ${esc(sym)}${supplyPct ? ', ' + esc(supplyPct) + '% Supply' : ''}\n`;
           if (mcap > 0) posText += `Mcap: \\$${esc(mcapStr)} @ ${esc(priceStr)}\n`;
-          if (dex) {
-            posText += `5m: *${esc(fmt(m5))}*, 1h: *${esc(fmt(h1))}*, 6h: *${esc(fmt(h6))}*, 24h: *${esc(fmt(h24))}*\n`;
-          } else if (price > 0) {
-            posText += `Price: *\\$${esc(price >= 0.001 ? price.toFixed(4) : price.toFixed(8))}*\n`;
-          }
+          posText += `5m: *${esc(fmt(m5))}*, 1h: *${esc(fmt(h1))}*, 6h: *${esc(fmt(h6))}*, 24h: *${esc(fmt(h24))}*\n`;
         }
       }
 
