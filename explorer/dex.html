@@ -549,10 +549,10 @@ async function loadDexWallet(){
 function showWalletModal(){resetWalletModal();document.getElementById('walletModal').classList.add('show');}
 
 function resetWalletModal(){
-  document.getElementById('wmStep1').style.display='block';
-  document.getElementById('wmStep2').style.display='none';
-  document.getElementById('wmStep3').style.display='none';
-  const s=document.getElementById('wmStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
+  const s1=document.getElementById('wmStep1');if(s1)s1.style.display='block';
+  const s2=document.getElementById('wmStep2');if(s2)s2.style.display='none';
+  const s3=document.getElementById('wmStep3');if(s3)s3.style.display='none';
+  const s=document.getElementById('wmStatus');if(s){s.textContent='Connecting...';s.style.color='var(--muted)';}
   const sp=document.getElementById('wmSpinner');if(sp)sp.style.display='inline-block';
 }
 

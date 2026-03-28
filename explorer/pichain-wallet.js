@@ -44,10 +44,11 @@ window.pqWalletProvider = 'none';
   try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(function(b) { return parseInt(b, 16); })); } catch(e) {}
   window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
   window.pqProxyAddress = addr;
-  if (tid) {
-    window.pqProxyConnected = true;
-    window.pqWalletProvider = 'pibot';
-  }
+  // Always mark as connected if we have a persisted address.
+  // If signing fails later (signer not running), user gets error at sign time.
+  // This is how MetaMask works — shows connected even if node is down.
+  window.pqProxyConnected = true;
+  window.pqWalletProvider = tid ? 'pibot' : 'proxy';
 })();
 
 // ─── Connection ───
@@ -203,6 +204,10 @@ function persistWalletConnection(address) {
   if (address) {
     localStorage.setItem('pichain_connected_address', address);
     localStorage.removeItem('pichain_disconnected');
+    // Clear per-page disconnect flags so all pages reconnect
+    ['dex','trade','launch','betting','staking','terminal','mine'].forEach(function(p) {
+      localStorage.removeItem('pichain_disconnected_' + p);
+    });
   }
 }
 
@@ -210,9 +215,16 @@ function clearWalletConnection() {
   localStorage.removeItem('pichain_connected_address');
   localStorage.removeItem('pichain_pibot_tid');
   localStorage.setItem('pichain_disconnected', '1');
+  // Also clear per-page disconnect flags
+  ['dex','trade','launch','betting','staking','terminal','mine'].forEach(function(p) {
+    localStorage.removeItem('pichain_disconnected_' + p);
+  });
   window.pqProxyConnected = false;
   window.pqProxyAddress = null;
   window.pqWalletProvider = 'none';
+  window.walletAddressHex = '';
+  window.walletAddress = null;
+  window.walletKeypair = null;
 }
 
 /**
