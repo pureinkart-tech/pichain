@@ -427,7 +427,13 @@ pub async fn vault_import(
     Json(req): Json<VaultImportRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     match state.import_wallet(&req.user_id, &req.wallet) {
-        Ok(address) => (StatusCode::OK, Json(serde_json::json!({"address": address}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(address) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"address": address})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }

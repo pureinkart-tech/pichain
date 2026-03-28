@@ -174,7 +174,10 @@ async fn send_pi(
     chain_id: u64,
 ) -> Result<serde_json::Value, String> {
     // Parse recipient
-    let to_hex = to_address.trim().strip_prefix("Pi314").unwrap_or(to_address.trim());
+    let to_hex = to_address
+        .trim()
+        .strip_prefix("Pi314")
+        .unwrap_or(to_address.trim());
     if to_hex.len() != 40 {
         return Err("Recipient address must be 40 hex chars (or Pi314... format)".to_string());
     }
@@ -193,16 +196,22 @@ async fn send_pi(
     let pq_keys = state.cached_pq_keys.lock().await;
     let keys = pq_keys.as_ref().ok_or("No wallet loaded")?;
     let kp = pichain_crypto::PqKeypair::from_bytes(
-        &keys.ml_dsa_sk, &keys.ml_dsa_pk, &keys.slh_dsa_sk, &keys.slh_dsa_pk,
-    ).map_err(|e| format!("Key error: {e}"))?;
+        &keys.ml_dsa_sk,
+        &keys.ml_dsa_pk,
+        &keys.slh_dsa_sk,
+        &keys.slh_dsa_pk,
+    )
+    .map_err(|e| format!("Key error: {e}"))?;
     let sender = kp.address();
     drop(pq_keys);
 
     // Get sender nonce
     let sender_hex = hex::encode(sender.0);
-    let acct_resp = state.http_client
+    let acct_resp = state
+        .http_client
         .get(format!("{}/api/v1/account/{}", rpc_url, sender_hex))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Network error: {e}"))?;
     let acct: serde_json::Value = acct_resp.json().await.unwrap_or_default();
     let nonce = acct["nonce"].as_u64().unwrap_or(0);
@@ -223,7 +232,10 @@ async fn send_pi(
     let tx_data = pichain_types::TransactionData {
         sender,
         nonce,
-        kind: pichain_types::TransactionKind::Transfer { recipient, amount: base_units },
+        kind: pichain_types::TransactionKind::Transfer {
+            recipient,
+            amount: base_units,
+        },
         gas_limit: 21_000,
         max_base_fee: 10_000,
         max_priority_fee: 100,
@@ -234,10 +246,12 @@ async fn send_pi(
     let tx_hex = hex::encode(&tx_json);
 
     // Submit
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .post(format!("{}/api/v1/tx/submit", rpc_url))
         .json(&serde_json::json!({"signed_tx_hex": tx_hex}))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Network error: {e}"))?;
     let result: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
 
@@ -606,11 +620,16 @@ async fn get_autostart_status(app: tauri::AppHandle) -> Result<bool, String> {
 // Only serves /status and /sign — no private keys are exposed.
 
 async fn start_signing_proxy(app: tauri::AppHandle) {
-    use axum::{Router, routing::{get, post}, Json, http::StatusCode};
-    use tower_http::cors::{CorsLayer, Any};
+    use axum::{
+        http::StatusCode,
+        routing::{get, post},
+        Json, Router,
+    };
+    use tower_http::cors::{Any, CorsLayer};
 
     // Share PQ keys with proxy via Arc — keys are populated when wallet is loaded
-    let proxy_keys: Arc<tokio::sync::Mutex<Option<CachedPqKeys>>> = Arc::new(tokio::sync::Mutex::new(None));
+    let proxy_keys: Arc<tokio::sync::Mutex<Option<CachedPqKeys>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
 
     // Sync keys from AppState periodically
     let keys_sync = proxy_keys.clone();
@@ -640,7 +659,9 @@ async fn start_signing_proxy(app: tauri::AppHandle) {
             if let Some(ref k) = *keys {
                 let addr = {
                     let export = pichain_crypto::pq_wallet::PqWalletExport {
-                        version: 1, crypto_version: 1, address: String::new(),
+                        version: 1,
+                        crypto_version: 1,
+                        address: String::new(),
                         ml_dsa_secret_key: hex::encode(&k.ml_dsa_sk),
                         ml_dsa_public_key: hex::encode(&k.ml_dsa_pk),
                         slh_dsa_secret_key: hex::encode(&k.slh_dsa_sk),
@@ -652,15 +673,21 @@ async fn start_signing_proxy(app: tauri::AppHandle) {
                     }
                 };
                 if !addr.is_empty() {
-                    return (StatusCode::OK, Json(serde_json::json!({
-                        "connected": true,
-                        "address": addr,
-                    })));
+                    return (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "connected": true,
+                            "address": addr,
+                        })),
+                    );
                 }
             }
-            (StatusCode::OK, Json(serde_json::json!({
-                "connected": false,
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "connected": false,
+                })),
+            )
         }
     };
 
@@ -670,14 +697,23 @@ async fn start_signing_proxy(app: tauri::AppHandle) {
         async move {
             let keys = keys_ref.lock().await;
             let Some(ref k) = *keys else {
-                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "No wallet loaded"})));
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": "No wallet loaded"})),
+                );
             };
 
             let tx_data_value = body.get("tx_data").cloned().unwrap_or_default();
-            let tx_data: pichain_types::transaction::TransactionData = match serde_json::from_value(tx_data_value) {
-                Ok(td) => td,
-                Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid tx_data: {e}")}))),
-            };
+            let tx_data: pichain_types::transaction::TransactionData =
+                match serde_json::from_value(tx_data_value) {
+                    Ok(td) => td,
+                    Err(e) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({"error": format!("Invalid tx_data: {e}")})),
+                        )
+                    }
+                };
 
             let export = pichain_crypto::pq_wallet::PqWalletExport {
                 version: 1,
@@ -690,17 +726,25 @@ async fn start_signing_proxy(app: tauri::AppHandle) {
             };
             let kp = match pichain_crypto::restore_pq_wallet(&export) {
                 Ok(kp) => kp,
-                Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("Key restore failed: {e}")}))),
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": format!("Key restore failed: {e}")})),
+                    )
+                }
             };
 
             let signed = pichain_types::transaction::Transaction::sign_pq(tx_data, &kp);
             let tx_hash = hex::encode(signed.hash().as_bytes());
             let signed_json = serde_json::to_value(&signed).unwrap_or_default();
 
-            (StatusCode::OK, Json(serde_json::json!({
-                "signed_tx": signed_json,
-                "tx_hash": tx_hash,
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "signed_tx": signed_json,
+                    "tx_hash": tx_hash,
+                })),
+            )
         }
     };
 

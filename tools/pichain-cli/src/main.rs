@@ -82,7 +82,10 @@ enum Commands {
 fn parse_address(input: &str) -> Result<[u8; 20], String> {
     let hex_str = input.trim().strip_prefix("Pi314").unwrap_or(input.trim());
     if hex_str.len() != 40 {
-        return Err(format!("address must be 40 hex chars, got {}", hex_str.len()));
+        return Err(format!(
+            "address must be 40 hex chars, got {}",
+            hex_str.len()
+        ));
     }
     let bytes = hex::decode(hex_str).map_err(|e| format!("invalid hex: {e}"))?;
     let mut arr = [0u8; 20];
@@ -93,8 +96,8 @@ fn parse_address(input: &str) -> Result<[u8; 20], String> {
 fn load_pq_wallet(path: &str) -> Result<pichain_crypto::PqKeypair, String> {
     let contents = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read wallet '{}': {e}", path))?;
-    let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
-        .map_err(|e| format!("invalid wallet JSON: {e}"))?;
+    let export: pichain_crypto::pq_wallet::PqWalletExport =
+        serde_json::from_str(&contents).map_err(|e| format!("invalid wallet JSON: {e}"))?;
     pichain_crypto::restore_pq_wallet(&export)
         .map_err(|e| format!("failed to restore PQ keypair: {e}"))
 }
@@ -144,8 +147,8 @@ async fn main() {
                 eprintln!("Failed to read '{}': {}", path, e);
                 std::process::exit(1);
             });
-            let export: pichain_crypto::pq_wallet::PqWalletExport =
-                serde_json::from_str(&contents).unwrap_or_else(|e| {
+            let export: pichain_crypto::pq_wallet::PqWalletExport = serde_json::from_str(&contents)
+                .unwrap_or_else(|e| {
                     eprintln!("Invalid wallet JSON: {}", e);
                     std::process::exit(1);
                 });
@@ -208,15 +211,21 @@ async fn main() {
             let (nonce, balance) = match client.get(&acct_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                    (body["nonce"].as_u64().unwrap_or(0), body["balance"].as_u64().unwrap_or(0))
+                    (
+                        body["nonce"].as_u64().unwrap_or(0),
+                        body["balance"].as_u64().unwrap_or(0),
+                    )
                 }
                 _ => (0, 0),
             };
 
             // Check balance before submitting
             if balance < base_units {
-                eprintln!("ERROR: insufficient balance: have {:.4} PI, trying to send {:.4} PI",
-                    balance as f64 / 1e9, amount);
+                eprintln!(
+                    "ERROR: insufficient balance: have {:.4} PI, trying to send {:.4} PI",
+                    balance as f64 / 1e9,
+                    amount
+                );
                 std::process::exit(1);
             }
 

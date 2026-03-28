@@ -279,7 +279,11 @@ pub async fn mining_loop(
         // Adaptive batch: use active_miners from slot response
         let server_min = mining_status.min_batch_size.max(10);
         let active_miners = match client
-            .get(format!("{}/api/v1/mining/slot/{}", config.rpc_url, hex::encode(address.0)))
+            .get(format!(
+                "{}/api/v1/mining/slot/{}",
+                config.rpc_url,
+                hex::encode(address.0)
+            ))
             .send()
             .await
         {
@@ -302,7 +306,7 @@ pub async fn mining_loop(
         // FRONTIER-FIRST MINING: Always mine at or near the server's
         // next_position. Local tracking prevents re-mining the same gap
         // within a round, but is capped to prevent racing far ahead.
-        
+
         let (position, effective_batch_size) = {
             // Always query slot for server-recommended position
             // This ensures we jump past positions other miners computed
@@ -624,12 +628,16 @@ pub async fn mining_loop(
                             let tx_short = &result.tx_hash[..result.tx_hash.len().min(12)];
                             emit_log(
                                 &app,
-                                &format!("Proof submitted! tx:{} ({} digits)", tx_short, batch_digit_count),
+                                &format!(
+                                    "Proof submitted! tx:{} ({} digits)",
+                                    tx_short, batch_digit_count
+                                ),
                                 "success",
                             );
                             current_nonce = current_nonce.saturating_add(1);
                             // Advance local position past submitted range
-                            local_position = Some(batch_pos.saturating_add(batch_digit_count as u64));
+                            local_position =
+                                Some(batch_pos.saturating_add(batch_digit_count as u64));
                         } else {
                             emit_log(
                                 &app,
