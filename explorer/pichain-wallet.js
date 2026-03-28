@@ -352,45 +352,65 @@ async function autoConnect() {
   // Don't auto-connect if user explicitly disconnected
   if (localStorage.getItem('pichain_disconnected') === '1') return;
 
-  // Try live signer proxy first
-  try {
-    const result = await connectPQProxy();
-    if (result.connected) {
-      persistWalletConnection(result.address);
-      updatePQBadge();
-      return;
-    }
-  } catch {}
-
-  // Check for PiBot session (can sign via vault)
-  const pibotTid = localStorage.getItem('pichain_pibot_tid');
-  const savedAddr = getPersistedAddress();
-  if (pibotTid && savedAddr) {
-    let hex = savedAddr;
+  // Check if already connected via PiBot FIRST (before trying signer which resets state)
+  const earlyTid = localStorage.getItem('pichain_pibot_tid');
+  const earlyAddr = getPersistedAddress();
+  if (earlyTid && earlyAddr) {
+    // PiBot session exists — use it, don't try signer proxy
+    let hex = earlyAddr;
     if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyConnected = true;
-    window.pqProxyAddress = savedAddr;
+    window.pqProxyAddress = earlyAddr;
     window.pqWalletProvider = 'pibot';
     window.walletAddressHex = hex.toLowerCase();
     try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
     window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
-    // Trigger UI updates after DOM is ready
     setTimeout(() => {
       if (typeof updateWalletUI === 'function') updateWalletUI();
       if (typeof onWalletConnected === 'function') onWalletConnected();
       if (typeof updateBalance === 'function') updateBalance();
       if (typeof updateWalletBalance === 'function') updateWalletBalance();
+      updatePQBadge();
     }, 500);
     return;
   }
 
-  // Fall back to persisted address (view-only)
+  // Try live signer proxy (only if no PiBot session)
+  try {
+    const result = await connectPQProxy();
+    if (result.connected) {
+      persistWalletConnection(result.address);
+      let hex = result.address;
+      if (hex.startsWith('Pi314')) hex = hex.slice(5);
+      window.walletAddressHex = hex.toLowerCase();
+      try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
+      window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+      setTimeout(() => {
+        if (typeof updateWalletUI === 'function') updateWalletUI();
+        if (typeof onWalletConnected === 'function') onWalletConnected();
+        if (typeof updateBalance === 'function') updateBalance();
+        if (typeof updateWalletBalance === 'function') updateWalletBalance();
+        updatePQBadge();
+      }, 500);
+      return;
+    }
+  } catch {}
+
+  // Fall back to persisted address (view-only, no signing)
+  const savedAddr = getPersistedAddress();
   if (savedAddr) {
     let hex = savedAddr;
     if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyAddress = savedAddr;
     window.walletAddressHex = hex.toLowerCase();
     try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
+    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+    setTimeout(() => {
+      if (typeof updateWalletUI === 'function') updateWalletUI();
+      if (typeof onWalletConnected === 'function') onWalletConnected();
+      if (typeof updateBalance === 'function') updateBalance();
+      if (typeof updateWalletBalance === 'function') updateWalletBalance();
+    }, 500);
   }
 }
 
