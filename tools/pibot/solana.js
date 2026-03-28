@@ -325,7 +325,7 @@ class SolanaClient {
 
   // ── Token price from Jupiter ─────────────────────────────────────────
   async getPrice(mintAddress) {
-    // Try price API
+    // Try Jupiter price API
     for (const base of ['https://api.jup.ag', 'https://lite-api.jup.ag']) {
       try {
         const res = await fetch(`${base}/price/v2?ids=${mintAddress}`, { signal: AbortSignal.timeout(3000) });
@@ -336,14 +336,26 @@ class SolanaClient {
         }
       } catch {}
     }
-    // Fallback: derive from quote (1 SOL -> USDC to get SOL price, then token -> SOL)
+    // Try Raydium price API (good for graduated pump.fun tokens)
+    try {
+      const res = await fetch(`https://api-v3.raydium.io/mint/price?mints=${mintAddress}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const data = await res.json();
+        const p = parseFloat(data.data?.[mintAddress] || '0');
+        if (p > 0) return p;
+      }
+    } catch {}
+    // Fallback: derive from quote
     try {
       if (mintAddress === SOL_MINT) {
         const q = await this.getQuote(SOL_MINT, USDC_MINT, LAMPORTS_PER_SOL, 100);
-        return parseInt(q.outAmount) / 1e6; // USDC has 6 decimals
+        return parseInt(q.outAmount) / 1e6;
       }
-      // For other tokens: get token/SOL price, multiply by SOL/USD
-      const q = await this.getQuote(mintAddress, SOL_MINT, 1e9, 100); // 1 token worth of SOL
+      // Get token decimals first for accurate quoting
+      const info = await this.getTokenInfo(mintAddress).catch(() => ({ decimals: 6 }));
+      const decimals = info.decimals || 6;
+      const oneToken = Math.pow(10, decimals); // 1 token in smallest units
+      const q = await this.getQuote(mintAddress, SOL_MINT, oneToken, 100);
       const solPerToken = parseInt(q.outAmount) / LAMPORTS_PER_SOL;
       const solPrice = await this.getPrice(SOL_MINT);
       return solPerToken * solPrice;
