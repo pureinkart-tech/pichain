@@ -208,52 +208,24 @@ a:hover { text-decoration: underline; }
   <div class="modal" id="walletModalContent">
     <div id="walletStep1">
       <h3>Connect Wallet</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to trade tokens.</p>
       <div class="form-row">
-        <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWalletStep1()">Create New Wallet</button>
+        <button class="btn" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
       </div>
+      <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
       <div class="form-row">
-        <label>Or import private key (64 hex chars)</label>
-        <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex private key..." maxlength="64" spellcheck="false" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;">
+        <label style="color:var(--muted);font-size:12px;">Or enter your address (view only)</label>
+        <input type="text" id="importSeedInput" placeholder="Pi314..." spellcheck="false" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-family:monospace;font-size:13px;">
       </div>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
-      <div style="margin-top:16px;text-align:center;">
-        <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
-      </div>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="connectViewOnly()">View Wallet</button>
     </div>
-    <div id="walletStep2" style="display:none;">
-      <h3 style="color:var(--gold);">Save Your Private Key</h3>
-      <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px;margin-bottom:16px;">
-        <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:6px;">This is the ONLY way to recover your wallet.</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.5;">If you lose this key, your funds are gone forever. Copy it now and store it somewhere safe.</div>
-      </div>
-      <div class="form-row">
-        <label>Your Private Key</label>
-        <div style="position:relative;">
-          <input type="text" id="newWalletSeed" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:12px;padding:12px 70px 12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);user-select:all;">
-          <button class="btn btn-sm" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);" id="copyKeyBtn">Copy</button>
-        </div>
-      </div>
-      <div class="form-row">
-        <label>Your Address</label>
-        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="width:100%;font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--cyan);">
-      </div>
-      <div class="form-row" style="margin-top:4px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text);font-size:13px;">
-          <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked;" style="width:16px;height:16px;accent-color:var(--accent);">
-          I have saved my private key in a safe place
-        </label>
-      </div>
-      <button class="btn" style="width:100%;padding:14px;margin-top:8px;" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Continue</button>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
-    </div>
-    <!-- Step 3: PoW Captcha verification -->
     <div id="walletStep3" style="display:none;">
-      <h3>Verifying Wallet</h3>
+      <h3>Connecting...</h3>
       <div style="text-align:center;padding:24px 0;">
         <div id="captchaSpinner" style="display:inline-block;width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
         <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
-        <div id="captchaStatus" style="color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
-        <div style="color:var(--dim);font-size:12px;margin-top:8px;">This verifies you're human and grants 3.14 PI for gas fees</div>
+        <div id="captchaStatus" style="color:var(--muted);font-size:14px;">Connecting to PIChain Signer...</div>
       </div>
     </div>
   </div>
@@ -630,66 +602,59 @@ function initWallet(seed, skipModalClose) {
   showWalletModal();
 }
 
-function createWalletStep1() {
-  // Show instructions to download pichain-signer instead of creating in-browser
-  const step1 = document.getElementById('walletStep1');
-  const step2 = document.getElementById('walletStep2');
-  if (step1) step1.style.display = 'none';
-  if (step2) {
-    step2.style.display = 'block';
-    step2.innerHTML = '<div style="padding:20px;text-align:center;">' +
-      '<h3 style="color:var(--accent-light);margin-bottom:16px;">Post-Quantum Wallet</h3>' +
-      '<p style="color:var(--muted);margin-bottom:16px;">PIChain uses quantum-resistant signatures (ML-DSA + SLH-DSA). Wallet keys are managed by the PIChain Signer app.</p>' +
-      '<p style="margin-bottom:20px;"><strong>1.</strong> Download <a href="/download" style="color:var(--cyan);">pichain-signer</a></p>' +
-      '<p style="margin-bottom:20px;"><strong>2.</strong> Run: <code style="color:var(--cyan);">pichain-signer --wallet wallet.json --generate</code></p>' +
-      '<p style="margin-bottom:20px;"><strong>3.</strong> Click "Connect Wallet" on this page</p>' +
-      '<button class="btn" onclick="tryConnectPQ()" style="margin-top:8px;">Connect to Signer</button> ' +
-      '<button class="btn btn-dim" onclick="cancelNewWallet()" style="margin-top:8px;">Cancel</button>' +
-      '</div>';
+async function connectSignerWallet() {
+  document.getElementById('walletStep1').style.display = 'none';
+  document.getElementById('walletStep3').style.display = 'block';
+  const status = document.getElementById('captchaStatus');
+  status.textContent = 'Connecting to PIChain Signer...';
+  try {
+    const result = await connectPQProxy();
+    if (result.connected) {
+      let hex = result.address;
+      if (hex.startsWith('Pi314')) hex = hex.slice(5);
+      walletAddressHex = hex.toLowerCase();
+      walletAddress = hexDecode(walletAddressHex);
+      walletKeypair = { publicKey: walletAddress }; // compat
+      persistWalletConnection(result.address);
+      document.getElementById('walletModal').classList.remove('show');
+      resetWalletModal();
+      updateWalletUI();
+      showToast('Wallet connected: Pi314' + walletAddressHex.slice(0, 8) + '...', 'success');
+    } else {
+      status.textContent = 'Could not connect. Make sure PIChain Signer or the desktop app is running.';
+      status.style.color = 'var(--rose)';
+      document.getElementById('captchaSpinner').style.display = 'none';
+    }
+  } catch (e) {
+    status.textContent = 'Connection failed: ' + e.message;
+    status.style.color = 'var(--rose)';
+    document.getElementById('captchaSpinner').style.display = 'none';
   }
 }
 
-async function tryConnectPQ() {
-  const ok = await initWalletPQ();
-  if (ok) {
-    document.getElementById('walletModal').classList.remove('show');
-    showToast('PQ wallet connected!', 'success');
-  } else {
-    showToast('Could not connect to pichain-signer. Make sure it is running on port 8315.', 'error');
-  }
-}
-
-function confirmNewWallet() { createWalletStep1(); }
-
-function showCaptchaStep() {
-  // No captcha needed for PQ wallets — activation is handled by the signer
-}
-
-function cancelNewWallet() {
-  pendingNewSeed = null;
+function connectViewOnly() {
+  let input = document.getElementById('importSeedInput').value.trim();
+  if (!input) { showToast('Please enter a PIChain address', 'error'); return; }
+  let hex = input;
+  if (hex.startsWith('Pi314')) hex = hex.slice(5);
+  if (hex.startsWith('pi314')) hex = hex.slice(5);
+  if (!/^[0-9a-fA-F]{40}$/.test(hex)) { showToast('Invalid address. Must be Pi314... or 40 hex chars.', 'error'); return; }
+  walletAddressHex = hex.toLowerCase();
+  walletAddress = hexDecode(walletAddressHex);
+  walletKeypair = { publicKey: walletAddress }; // compat
+  persistWalletConnection('Pi314' + walletAddressHex);
+  document.getElementById('walletModal').classList.remove('show');
   resetWalletModal();
+  updateWalletUI();
+  showToast('Viewing wallet (read-only)', 'success');
 }
 
 function resetWalletModal() {
   document.getElementById('walletStep1').style.display = 'block';
-  const s2 = document.getElementById('walletStep2'); if(s2) s2.style.display = 'none';
-  const s3 = document.getElementById('walletStep3'); if(s3) s3.style.display = 'none';
-}
-
-function copyNewKey() {
-  const input = document.getElementById('newWalletSeed');
-  navigator.clipboard.writeText(input.value).then(() => {
-    const btn = document.getElementById('copyKeyBtn');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
-}
-
-function importWallet() {
-  const seed = document.getElementById('importSeedInput').value.trim();
-  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
-  initWallet(hexDecode(seed), true);
-  showCaptchaStep();
+  const s3 = document.getElementById('walletStep3'); if (s3) s3.style.display = 'none';
+  const status = document.getElementById('captchaStatus');
+  if (status) { status.textContent = 'Connecting to PIChain Signer...'; status.style.color = 'var(--muted)'; }
+  const sp = document.getElementById('captchaSpinner'); if (sp) sp.style.display = 'inline-block';
 }
 
 async function activateWallet(){

@@ -265,47 +265,19 @@ a:hover { text-decoration: underline; }
 <!-- Wallet Modal -->
 <div class="modal-overlay" id="walletModal">
   <div class="modal" id="walletModalContent">
-    <!-- Step 1: Create or Import -->
     <div id="walletStep1">
       <h3>Connect Wallet</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to launch and trade tokens.</p>
       <div class="form-row">
-        <button class="btn" style="width:100%;margin-bottom:12px;" onclick="createWalletStep1()">Create New Wallet</button>
+        <button class="btn" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
       </div>
+      <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
       <div class="form-row">
-        <label>Or import private key (64 hex chars)</label>
-        <input type="text" id="importSeedInput" placeholder="Paste your 64-char hex private key..." maxlength="64" spellcheck="false">
+        <label style="color:var(--muted);font-size:12px;">Or enter your address (view only)</label>
+        <input type="text" id="importSeedInput" placeholder="Pi314..." spellcheck="false" style="font-family:monospace;font-size:13px;">
       </div>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="importWallet()">Import Wallet</button>
-      <div style="margin-top:16px;text-align:center;">
-        <span style="font-size:12px;color:var(--dim);">Your wallet is stored locally in this browser.</span>
-      </div>
-    </div>
-    <!-- Step 2: Save your private key warning -->
-    <div id="walletStep2" style="display:none;">
-      <h3 style="color:var(--gold);">Save Your Private Key</h3>
-      <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px;margin-bottom:16px;">
-        <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:6px;">This is the ONLY way to recover your wallet.</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.5;">If you lose this key, your funds are gone forever. No one can recover it for you. Copy it now and store it somewhere safe.</div>
-      </div>
-      <div class="form-row">
-        <label>Your Private Key</label>
-        <div style="position:relative;">
-          <input type="text" id="newWalletSeed" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:12px;padding-right:70px;background:var(--bg);user-select:all;">
-          <button class="btn btn-sm" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);" id="copyKeyBtn">Copy</button>
-        </div>
-      </div>
-      <div class="form-row">
-        <label>Your Address</label>
-        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="font-family:'SF Mono',monospace;font-size:13px;background:var(--bg);color:var(--cyan);">
-      </div>
-      <div class="form-row" style="margin-top:4px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text);font-size:13px;">
-          <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked;" style="width:16px;height:16px;accent-color:var(--accent);">
-          I have saved my private key in a safe place
-        </label>
-      </div>
-      <button class="btn" style="width:100%;padding:14px;margin-top:8px;" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Continue</button>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="connectViewOnly()">View Wallet</button>
     </div>
     <!-- Step 3: PoW Captcha verification -->
     <div id="walletStep3" style="display:none;">
@@ -624,44 +596,62 @@ function confirmNewWallet() {
   showCaptchaStep();
 }
 
-function showCaptchaStep() {
+async function connectSignerWallet() {
   document.getElementById('walletStep1').style.display = 'none';
-  document.getElementById('walletStep2').style.display = 'none';
   document.getElementById('walletStep3').style.display = 'block';
   document.getElementById('walletModal').classList.add('show');
-  activateWallet();
+  const status = document.getElementById('captchaStatus');
+  status.textContent = 'Connecting to PIChain Signer...';
+  try {
+    const result = await connectPQProxy();
+    if (result.connected) {
+      let hex = result.address;
+      if (hex.startsWith('Pi314')) hex = hex.slice(5);
+      walletAddressHex = hex.toLowerCase();
+      walletAddress = hexDecode(walletAddressHex);
+      walletKeypair = { publicKey: walletAddress };
+      persistWalletConnection(result.address);
+      document.getElementById('walletModal').classList.remove('show');
+      resetWalletModal();
+      updateWalletUI();
+      updateBalance();
+      showToast('Wallet connected: Pi314' + walletAddressHex.slice(0, 8) + '...', 'success');
+    } else {
+      status.textContent = 'Could not connect. Make sure PIChain Signer or the desktop app is running.';
+      status.style.color = 'var(--rose)';
+      document.getElementById('captchaSpinner').style.display = 'none';
+    }
+  } catch (e) {
+    status.textContent = 'Connection failed: ' + e.message;
+    status.style.color = 'var(--rose)';
+    document.getElementById('captchaSpinner').style.display = 'none';
+  }
 }
 
-function cancelNewWallet() {
-  pendingNewSeed = null;
+function connectViewOnly() {
+  let input = document.getElementById('importSeedInput').value.trim();
+  if (!input) { showToast('Please enter a PIChain address', 'error'); return; }
+  let hex = input;
+  if (hex.startsWith('Pi314')) hex = hex.slice(5);
+  if (hex.startsWith('pi314')) hex = hex.slice(5);
+  if (!/^[0-9a-fA-F]{40}$/.test(hex)) { showToast('Invalid address.', 'error'); return; }
+  walletAddressHex = hex.toLowerCase();
+  walletAddress = hexDecode(walletAddressHex);
+  walletKeypair = { publicKey: walletAddress };
+  persistWalletConnection('Pi314' + walletAddressHex);
+  document.getElementById('walletModal').classList.remove('show');
   resetWalletModal();
+  updateWalletUI();
+  updateBalance();
+  showToast('Viewing wallet (read-only)', 'success');
 }
 
 function resetWalletModal() {
   document.getElementById('walletStep1').style.display = 'block';
-  document.getElementById('walletStep2').style.display = 'none';
   document.getElementById('walletStep3').style.display = 'none';
-  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
-  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
-  document.getElementById('newWalletSeed').value = '';
-  document.getElementById('newWalletAddr').value = '';
-  document.getElementById('savedKeyCheck').checked = false;
-}
-
-function copyNewKey() {
-  const input = document.getElementById('newWalletSeed');
-  navigator.clipboard.writeText(input.value).then(() => {
-    const btn = document.getElementById('copyKeyBtn');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
-}
-
-function importWallet() {
-  const seed = document.getElementById('importSeedInput').value.trim();
-  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
-  initWallet(hexDecode(seed), true);
-  showCaptchaStep();
+  const s = document.getElementById('captchaStatus');
+  if (s) { s.textContent = 'Connecting to PIChain Signer...'; s.style.color = 'var(--muted)'; }
+  const sp = document.getElementById('captchaSpinner'); if (sp) sp.style.display = 'inline-block';
 }
 
 async function activateWallet(){
