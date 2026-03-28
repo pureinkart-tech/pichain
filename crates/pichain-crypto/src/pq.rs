@@ -685,11 +685,12 @@ pub fn pq_address(ml_pk: &MlDsaPublicKey, slh_pk: &SlhDsaPublicKey) -> crate::ke
 ///
 /// PIChain uses post-quantum dual signatures exclusively.
 /// New PQ schemes can be added via governance without hard forks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CryptoVersion {
     /// Dual PQ: ML-DSA-65 + SLH-DSA-SHAKE-128f (post-quantum).
     /// Both signatures must verify.
+    #[default]
     PqDualV1 = 1,
 }
 
@@ -701,12 +702,6 @@ impl CryptoVersion {
             0 | 1 => Some(Self::PqDualV1),
             _ => None,
         }
-    }
-}
-
-impl Default for CryptoVersion {
-    fn default() -> Self {
-        Self::PqDualV1
     }
 }
 

@@ -462,7 +462,7 @@ impl NodeState {
         let mut lo = upper / 2;
         let mut hi = upper;
         while lo < hi {
-            let mid = lo + (hi - lo + 1) / 2;
+            let mid = lo + (hi - lo).div_ceil(2);
             if store.get_block(mid).ok().flatten().is_some() {
                 lo = mid;
             } else {
@@ -607,6 +607,8 @@ impl NodeState {
     /// Creates wETH, wSOL, wBTC, wUSDT mints with the bridge operator as mint_authority,
     /// then creates PI/wXXX pools seeded with initial liquidity from the 5% reserve.
     /// Idempotent: skips if the first wrapped mint already exists.
+    /// Currently disabled for Satoshi launch — re-enable when bridges go live.
+    #[allow(dead_code)]
     pub fn bootstrap_bridge_tokens(&self) -> anyhow::Result<()> {
         use pichain_types::dex::{isqrt, LiquidityPool, PoolId};
         use pichain_types::token::{token_account_key, MintId, TokenAccount, TokenMint};

@@ -34,15 +34,11 @@ const PQ_CHAIN_ID_DOMAIN: &[u8] = b":chain_id=";
 /// PQ consensus version for certificates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum PqConsensusVersion {
     /// ML-DSA-65 per-validator signatures (post-quantum).
+    #[default]
     MlDsaV1 = 1,
-}
-
-impl Default for PqConsensusVersion {
-    fn default() -> Self {
-        Self::MlDsaV1
-    }
 }
 
 /// Map from validator address to their ML-DSA public key.
@@ -252,7 +248,7 @@ mod tests {
 
         // 4 validators: f=1, need 3
         let mut sigs = PqConsensusSignatures::new();
-        for i in 0..3 {
+        for _i in 0..3 {
             let (addr, sk, _) = make_validator();
             let sig = sign_consensus(1, b"data", 31415, &sk, addr);
             sigs.add(addr, sig.signature);

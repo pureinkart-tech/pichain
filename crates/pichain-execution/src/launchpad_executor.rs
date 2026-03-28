@@ -1007,7 +1007,7 @@ mod tests {
         let launch = executor.get_launch_by_mint(&mint).unwrap();
         assert_eq!(launch.tokens_sold, 0);
         assert_eq!(launch.pi_raised, 0);
-        assert!(launch.contributions.get(&buyer).is_none());
+        assert!(!launch.contributions.contains_key(&buyer));
         assert_eq!(launch.state, LaunchState::Active);
     }
 }

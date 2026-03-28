@@ -509,7 +509,7 @@ impl StateStore {
         // GC stale JMT nodes BEFORE the atomic write, so that a crash after the write
         // leaves the JMT with at-worst extra stale nodes (harmless and cleaned next GC),
         // rather than missing nodes that would cause state root mismatch.
-        if height % 10 == 0 {
+        if height.is_multiple_of(10) {
             self.jmt.gc_stale_nodes();
         }
 

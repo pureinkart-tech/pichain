@@ -1380,8 +1380,8 @@ mod tests {
 
         // Create proof with wrong digits — corrupt 50%+ to guarantee spot-check detection
         let mut digits = BbpComputer::compute_hex_digits(0, 200);
-        for i in 0..120 {
-            digits[i] = (digits[i] + 1) % 16;
+        for d in digits.iter_mut().take(120) {
+            *d = (*d + 1) % 16;
         }
         // Recreate the proof with the corrupted digits (fresh commitment)
         let proof = MiningProof::new(0, digits, Address([1; 20]), 42);

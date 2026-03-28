@@ -94,12 +94,7 @@ pub fn run_native_messaging(pq_keypair: &PqKeypair, chain_id: u64) {
     let mut msg_timestamps: Vec<u64> = Vec::new();
     const MAX_MSGS_PER_SECOND: usize = 10;
 
-    loop {
-        let req = match read_message() {
-            Ok(r) => r,
-            Err(_) => break, // stdin closed — extension disconnected
-        };
-
+    while let Ok(req) = read_message() {
         // Rate limit: max 10 messages/second to prevent DoS
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -135,7 +130,7 @@ pub fn run_native_messaging(pq_keypair: &PqKeypair, chain_id: u64) {
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             },
 
-            "sign" => match handle_sign(&pq_keypair, &address_hex, chain_id, req.tx_data) {
+            "sign" => match handle_sign(pq_keypair, &address_hex, chain_id, req.tx_data) {
                 Ok((signed_tx, tx_hash)) => NativeResponse {
                     id: req.id,
                     address: None,

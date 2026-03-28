@@ -244,7 +244,7 @@ impl PiChainDB {
             count += 1;
 
             // Flush in batches of 10000 to avoid huge memory use
-            if count % 10_000 == 0 {
+            if count.is_multiple_of(10_000) {
                 self.db.write(std::mem::take(&mut batch))?;
             }
         }

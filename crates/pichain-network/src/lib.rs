@@ -88,6 +88,7 @@ pub enum PeerSyncMessage {
 
 /// Messages that flow through the P2P network.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkMessage {
     /// New transaction to be propagated.
     Transaction(SignedTransaction),

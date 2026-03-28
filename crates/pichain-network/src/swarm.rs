@@ -1045,7 +1045,7 @@ mod tests {
     fn min_safe_peer_count_is_reasonable() {
         // Fix 194: Minimum must be at least 8 to make eclipse attacks expensive.
         // An attacker must control >= MIN_SAFE_PEER_COUNT Sybil nodes.
-        assert!(
+        const _: () = assert!(
             MIN_SAFE_PEER_COUNT >= 8,
             "MIN_SAFE_PEER_COUNT must be >= 8 for eclipse resistance"
         );

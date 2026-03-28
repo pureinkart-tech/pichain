@@ -1294,9 +1294,8 @@ mod tests {
             .slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0)
             .unwrap();
         // Correlated slashing: first slash in epoch → N=1, effective_rate = 3300 + 1*3333 = 6633
-        let effective_rate: u32 =
-            SLASH_DOUBLE_SIGN_BPS as u32 + 1 * CORRELATED_SLASH_MULTIPLIER_BPS;
-        let expected_slash = ((stake as u128 * effective_rate as u128 + 9_999) / 10_000) as u64;
+        let effective_rate: u32 = SLASH_DOUBLE_SIGN_BPS as u32 + CORRELATED_SLASH_MULTIPLIER_BPS;
+        let expected_slash = (stake as u128 * effective_rate as u128).div_ceil(10_000) as u64;
         assert_eq!(event.amount_slashed, expected_slash);
 
         let entry = mgr.get_validator(&addr(1)).unwrap();
@@ -1819,8 +1818,8 @@ mod tests {
         let e1 = mgr
             .slash(addr(1), SlashReason::DoubleSigning, Hash::ZERO, 0)
             .unwrap();
-        let rate1 = SLASH_DOUBLE_SIGN_BPS as u32 + 1 * CORRELATED_SLASH_MULTIPLIER_BPS;
-        let exp1 = ((stake as u128 * rate1 as u128 + 9_999) / 10_000) as u64;
+        let rate1 = SLASH_DOUBLE_SIGN_BPS as u32 + CORRELATED_SLASH_MULTIPLIER_BPS;
+        let exp1 = (stake as u128 * rate1 as u128).div_ceil(10_000) as u64;
         assert_eq!(e1.amount_slashed, exp1);
 
         // Slash validator 2 (N=2): rate = 3300 + 2*3333 = 9966 bps
@@ -1829,7 +1828,7 @@ mod tests {
             .unwrap();
         let rate2 =
             (SLASH_DOUBLE_SIGN_BPS as u32 + 2 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
-        let exp2 = ((stake as u128 * rate2 as u128 + 9_999) / 10_000) as u64;
+        let exp2 = (stake as u128 * rate2 as u128).div_ceil(10_000) as u64;
         assert_eq!(e2.amount_slashed, exp2);
 
         // Slash validator 3 (N=3): rate = 3300 + 3*3333 = 13299 → capped at 10000
@@ -1839,7 +1838,7 @@ mod tests {
         let rate3 =
             (SLASH_DOUBLE_SIGN_BPS as u32 + 3 * CORRELATED_SLASH_MULTIPLIER_BPS).min(10_000);
         assert_eq!(rate3, 10_000); // 100% wipeout
-        let exp3 = ((stake as u128 * rate3 as u128 + 9_999) / 10_000) as u64;
+        let exp3 = (stake as u128 * rate3 as u128).div_ceil(10_000) as u64;
         assert_eq!(e3.amount_slashed, exp3);
 
         // Verify escalation: e1 < e2 < e3
@@ -1893,7 +1892,7 @@ mod tests {
         let mut mgr = StakingManager::new();
         // Register MAX_ACTIVE_VALIDATORS validators
         for i in 0..MAX_ACTIVE_VALIDATORS {
-            let a = Address([(i & 0xFF) as u8; 20]);
+            let _a = Address([(i & 0xFF) as u8; 20]);
             // Use unique addresses by varying bytes
             let mut bytes = [0u8; 20];
             bytes[0] = (i >> 8) as u8;

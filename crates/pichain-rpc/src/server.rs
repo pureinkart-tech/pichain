@@ -1406,6 +1406,7 @@ async fn ws_upgrade(
 
 /// Serve a static HTML page with cache headers.
 /// If explorer_dir is set, reads from disk (live edits). Otherwise uses compiled-in fallback.
+#[allow(dead_code)]
 fn serve_html(html: &'static str) -> impl IntoResponse {
     (
         StatusCode::OK,
@@ -5233,7 +5234,7 @@ async fn pibot_proxy_sign(
 }
 
 /// Serve AMM pool state (read-only public data: reserves, price, volume).
-async fn serve_amm_pool(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+async fn serve_amm_pool(State(_state): State<Arc<RpcState>>) -> impl IntoResponse {
     // Read pool state from pibot's amm-pool.json
     let pool_path = std::path::Path::new("tools/pibot/amm-pool.json");
     if let Ok(content) = std::fs::read_to_string(pool_path) {
@@ -6439,7 +6440,7 @@ async fn start_quake_session(
                             existing.players.insert(wallet_q3, addr.clone());
                         }
                         // Track registration order (unique addrs only)
-                        if !existing.registration_order.contains(&addr) {
+                        if !existing.registration_order.contains(addr) {
                             existing.registration_order.push(addr.clone());
                         }
                     }
@@ -6635,8 +6636,8 @@ async fn start_quake_session(
                 let mut slots_to_force: Vec<String> = Vec::new();
                 for line in new_content.lines() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("ClientUserinfoChanged:") {
-                        let rest = trimmed["ClientUserinfoChanged:".len()..].trim_start();
+                    if let Some(rest) = trimmed.strip_prefix("ClientUserinfoChanged:") {
+                        let rest = rest.trim_start();
                         if let Some(sp) = rest.find(' ') {
                             let slot = rest[..sp].to_string();
                             let info = rest[sp..].to_lowercase();
@@ -6655,8 +6656,8 @@ async fn start_quake_session(
                             }
                         }
                     }
-                    if trimmed.starts_with("ClientDisconnect:") {
-                        let rest = trimmed["ClientDisconnect:".len()..].trim();
+                    if let Some(rest) = trimmed.strip_prefix("ClientDisconnect:") {
+                        let rest = rest.trim();
                         disconnected_slots.insert(rest.to_string());
                         forced_slots.remove(rest);
                     }
@@ -6741,13 +6742,12 @@ async fn get_quake_session(
                     let trimmed = line.trim();
 
                     // "ClientUserinfoChanged: N n\PlayerName\t\0\..."
-                    if trimmed.starts_with("ClientUserinfoChanged:") {
-                        let rest = &trimmed["ClientUserinfoChanged:".len()..].trim_start();
+                    if let Some(rest) = trimmed.strip_prefix("ClientUserinfoChanged:") {
+                        let rest = rest.trim_start();
                         if let Some(sp) = rest.find(' ') {
                             let slot = rest[..sp].to_string();
                             let info = &rest[sp + 1..];
-                            if info.starts_with("n\\") {
-                                let name_part = &info[2..];
+                            if let Some(name_part) = info.strip_prefix("n\\") {
                                 let name = if let Some(end) = name_part.find('\\') {
                                     name_part[..end].to_string()
                                 } else {
@@ -6766,8 +6766,8 @@ async fn get_quake_session(
                     }
 
                     // "ClientBegin: N" — player has fully entered the game
-                    if trimmed.starts_with("ClientBegin:") {
-                        let slot = trimmed["ClientBegin:".len()..].trim().to_string();
+                    if let Some(rest) = trimmed.strip_prefix("ClientBegin:") {
+                        let slot = rest.trim().to_string();
                         // Skip spectators — they don't count as players
                         let is_spectator = slot_names
                             .get(&slot)
@@ -6796,8 +6796,8 @@ async fn get_quake_session(
                     }
 
                     // "ClientDisconnect: N" — player left
-                    if trimmed.starts_with("ClientDisconnect:") {
-                        let slot = trimmed["ClientDisconnect:".len()..].trim().to_string();
+                    if let Some(rest) = trimmed.strip_prefix("ClientDisconnect:") {
+                        let slot = rest.trim().to_string();
                         if !eliminated_slots.contains(&slot) {
                             disconnected_slots.insert(slot.clone());
                             if let Some(name) = slot_names.get(&slot) {
@@ -6808,16 +6808,16 @@ async fn get_quake_session(
 
                     // "Kill: X Y Z: KillerName killed VictimName by MOD_XXX"
                     // X = killer slot, Y = victim slot, Z = means of death
-                    if trimmed.starts_with("Kill:") {
-                        let nums_and_rest = &trimmed[5..].trim_start();
+                    if let Some(rest) = trimmed.strip_prefix("Kill:") {
+                        let nums_and_rest = rest.trim_start();
                         // Parse slot numbers from "X Y Z: ..."
                         let parts: Vec<&str> = nums_and_rest.splitn(2, ':').collect();
-                        let slot_nums: Vec<&str> = if parts.len() >= 1 {
-                            parts[0].trim().split_whitespace().collect()
+                        let slot_nums: Vec<&str> = if !parts.is_empty() {
+                            parts[0].split_whitespace().collect()
                         } else {
                             vec![]
                         };
-                        let killer_slot = if slot_nums.len() >= 1 {
+                        let killer_slot = if !slot_nums.is_empty() {
                             slot_nums[0].to_string()
                         } else {
                             String::new()
@@ -7140,12 +7140,12 @@ async fn get_quake_session(
             if s.registration_order.len() == 2
                 && game_ended
                 && game_end_reason == "opponent_disconnected"
+                && !winner_addr.is_empty()
+                && disconnected_addrs.is_empty()
             {
-                if !winner_addr.is_empty() && disconnected_addrs.is_empty() {
-                    let reg = &s.registration_order;
-                    if let Some(da) = reg.iter().find(|a| a.as_str() != winner_addr).cloned() {
-                        disconnected_addrs.push(da);
-                    }
+                let reg = &s.registration_order;
+                if let Some(da) = reg.iter().find(|a| a.as_str() != winner_addr).cloned() {
+                    disconnected_addrs.push(da);
                 }
             }
 
@@ -7562,7 +7562,7 @@ async fn relay_quake_ws(
             interval.tick().await;
             let mut tx = client_tx_ping.lock().await;
             if tx
-                .send(AxumWsMessage::Ping(vec![b'q', b'3'].into()))
+                .send(AxumWsMessage::Ping(vec![b'q', b'3']))
                 .await
                 .is_err()
             {
@@ -7613,10 +7613,10 @@ async fn relay_quake_ws(
                 }
             };
             let mapped = match msg {
-                TungsteniteMessage::Text(t) => AxumWsMessage::Text(t.into()),
-                TungsteniteMessage::Binary(b) => AxumWsMessage::Binary(b.into()),
-                TungsteniteMessage::Ping(b) => AxumWsMessage::Ping(b.into()),
-                TungsteniteMessage::Pong(b) => AxumWsMessage::Pong(b.into()),
+                TungsteniteMessage::Text(t) => AxumWsMessage::Text(t),
+                TungsteniteMessage::Binary(b) => AxumWsMessage::Binary(b),
+                TungsteniteMessage::Ping(b) => AxumWsMessage::Ping(b),
+                TungsteniteMessage::Pong(b) => AxumWsMessage::Pong(b),
                 TungsteniteMessage::Close(cf) => {
                     let close = cf.map(|c| axum::extract::ws::CloseFrame {
                         code: c.code.into(),

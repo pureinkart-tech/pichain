@@ -303,7 +303,7 @@ impl DagMempool {
         // Verify it has enough unique parent references (2f+1)
         // Skip parent validation for the first certificate after a restart —
         // the DAG is empty so there are no parent certs to reference.
-        let is_resume_round = self.resume_round.map_or(false, |r| round == r);
+        let is_resume_round = self.resume_round == Some(round);
         // SECURITY: Clear resume exemption immediately when a cert at the resume round
         // is processed, regardless of whether it passes validation. Without this, a
         // rejected cert (e.g., bad signature) leaves the exemption active, allowing
@@ -543,7 +543,7 @@ impl DagMempool {
     /// referenced by 2f+1 certificates in the next round.
     pub fn try_commit(&mut self, round: u64, leader: &Address) -> Option<Vec<Certificate>> {
         // Bullshark only commits on even rounds
-        if round % 2 != 0 {
+        if !round.is_multiple_of(2) {
             return None;
         }
 

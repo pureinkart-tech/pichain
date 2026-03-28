@@ -3859,7 +3859,7 @@ mod tests {
     /// Total = 200 PI, each address = 5% < 10%, each validator = 40 PI (20%) < 33.33%.
     fn bootstrap_staking(executor: &TransactionExecutor) -> (Vec<PqKeypair>, Vec<Address>) {
         let stakers: Vec<PqKeypair> = (0..20).map(|_| PqKeypair::generate()).collect();
-        let validators: Vec<Address> = (0..5).map(|i| make_validator_addr(i)).collect();
+        let validators: Vec<Address> = (0..5).map(make_validator_addr).collect();
         // Pre-populate state: each staker has 200k PI balance with 2,500 PI staked.
         // 20 stakers / 5 validators = 4 stakers per validator × 2,500 PI = 10,000 PI per validator.
         // This meets MIN_VALIDATOR_STAKE (10,000 PI) so caps are properly enforced.

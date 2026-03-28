@@ -33,8 +33,8 @@ struct RegisterAddressesRequest {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct HealthResponse {
-    #[allow(dead_code)]
     #[serde(default)]
     pub height: u64,
 }

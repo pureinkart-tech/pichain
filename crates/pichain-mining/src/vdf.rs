@@ -144,7 +144,7 @@ pub fn required_iterations_with_age(frontier: u64, block_height: u64) -> u64 {
 
     // Factor 2: Chain age (progressive strengthening over time)
     let age_years = if block_height > 0 {
-        (block_height / VDF_BLOCKS_PER_YEAR) as u64
+        block_height / VDF_BLOCKS_PER_YEAR
     } else {
         0
     };

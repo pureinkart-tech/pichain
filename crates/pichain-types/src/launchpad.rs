@@ -575,7 +575,7 @@ mod tests {
         let cost = launch.calculate_cost(two_percent_base).unwrap();
         // Should be roughly 1-2 PI (1e9 to 2e9 base PI)
         assert!(
-            cost >= 500_000_000 && cost <= 3_000_000_000,
+            (500_000_000..=3_000_000_000).contains(&cost),
             "2% should cost ~1 PI, got {} ({:.3} PI)",
             cost,
             cost as f64 / 1e9
@@ -589,7 +589,7 @@ mod tests {
         let total_cost = launch.calculate_cost(launch.tokens_for_sale).unwrap();
         // Should be roughly 50-150 PI (target_pi = 100 PI)
         assert!(
-            total_cost >= 30_000_000_000 && total_cost <= 200_000_000_000,
+            (30_000_000_000..=200_000_000_000).contains(&total_cost),
             "total cost should be ~100 PI, got {} ({:.1} PI)",
             total_cost,
             total_cost as f64 / 1e9
@@ -604,7 +604,7 @@ mod tests {
         let tokens = launch.tokens_for_pi(one_pi);
         let pct = tokens as f64 / launch.tokens_for_sale as f64 * 100.0;
         assert!(
-            pct >= 0.5 && pct <= 5.0,
+            (0.5..=5.0).contains(&pct),
             "1 PI should buy ~2% of tokens, got {:.2}% ({} tokens)",
             pct,
             tokens

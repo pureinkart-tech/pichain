@@ -157,7 +157,7 @@ pub fn compute_tx_commitment(tx_hashes: &[[u8; 32]]) -> [u8; 32] {
     // Simple binary Merkle tree with domain separation
     let mut layer: Vec<[u8; 32]> = tx_hashes.to_vec();
     while layer.len() > 1 {
-        let mut next = Vec::with_capacity((layer.len() + 1) / 2);
+        let mut next = Vec::with_capacity(layer.len().div_ceil(2));
         for chunk in layer.chunks(2) {
             if chunk.len() == 2 {
                 let h = crate::hash_concat(&[

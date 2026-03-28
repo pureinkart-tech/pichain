@@ -1132,11 +1132,11 @@ mod tests {
 
         // The disconnected headers must NOT have been inserted
         assert!(
-            mgr.pending_headers.get(&2).is_none(),
+            !mgr.pending_headers.contains_key(&2),
             "height 2 must be rejected: parent_hash doesn't chain to height 1"
         );
         assert!(
-            mgr.pending_headers.get(&3).is_none(),
+            !mgr.pending_headers.contains_key(&3),
             "height 3 must be rejected along with its batch"
         );
 
@@ -1157,7 +1157,7 @@ mod tests {
 
         // This one should be accepted
         assert!(
-            mgr.pending_headers.get(&2).is_some(),
+            mgr.pending_headers.contains_key(&2),
             "valid continuation header at height 2 must be accepted"
         );
     }

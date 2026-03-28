@@ -472,8 +472,8 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| std::path::PathBuf::from("wallet.json"));
         let result = generate_and_save_keypair(&keypair_path);
-        if result.is_err() {
-            eprintln!("\nError: {}", result.as_ref().unwrap_err());
+        if let Err(ref e) = result {
+            eprintln!("\nError: {}", e);
             wait_for_key_on_windows();
         }
         return result;
@@ -817,7 +817,7 @@ async fn main() -> anyhow::Result<()> {
                 if last_gap_filled == Some(gap_pos) {
                     // Already filled this gap, waiting for server to process it
                     false
-                } else if local_position.map_or(true, |lp| lp > gap_pos) {
+                } else if local_position.is_none_or(|lp| lp > gap_pos) {
                     info!(
                         gap_position = gap_pos,
                         local_pos = ?local_position,
@@ -1077,7 +1077,7 @@ async fn main() -> anyhow::Result<()> {
                         "digit_count": batch_digit_count,
                         "digits": hex::encode(&digits),
                         "pow_nonce": pn,
-                        "anchor_block_hash": hex::encode(&anchor_block_hash),
+                        "anchor_block_hash": hex::encode(anchor_block_hash),
                     }),
                 )
             } else {
@@ -1124,7 +1124,7 @@ async fn main() -> anyhow::Result<()> {
                                 "Mining proof submitted successfully"
                             );
                             // Show balance every 10 proofs
-                            if proofs_accepted % 10 == 0 {
+                            if proofs_accepted.is_multiple_of(10) {
                                 if let Ok(bal_resp) = client
                                     .get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex))
                                     .send()
@@ -1222,7 +1222,6 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn legacy_wallet_rejected() {
