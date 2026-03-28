@@ -819,14 +819,10 @@ impl SignedTransaction {
     pub fn verify(&self) -> Result<(), pichain_crypto::CryptoError> {
         // Both PQ components MUST be present.
         let pq_sig = self.pq_signature.as_ref().ok_or_else(|| {
-            pichain_crypto::CryptoError::Serialization(
-                "Transaction missing pq_signature".into(),
-            )
+            pichain_crypto::CryptoError::Serialization("Transaction missing pq_signature".into())
         })?;
         let pq_pks = self.pq_public_keys.as_ref().ok_or_else(|| {
-            pichain_crypto::CryptoError::Serialization(
-                "Transaction missing pq_public_keys".into(),
-            )
+            pichain_crypto::CryptoError::Serialization("Transaction missing pq_public_keys".into())
         })?;
 
         // Verify PQ public keys derive the sender address

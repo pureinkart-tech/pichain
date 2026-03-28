@@ -199,7 +199,10 @@ mod tests {
         let base = 10_000;
         let split = calc.split_fee(total, base);
         // Base fee splits into burn + stakers + miners + proposer_base = 10,000
-        assert_eq!(split.burned + split.stakers + split.miners + split.proposer, total);
+        assert_eq!(
+            split.burned + split.stakers + split.miners + split.proposer,
+            total
+        );
         // Priority fee (1,000) added to proposer on top
         assert!(split.proposer >= 1_000);
     }

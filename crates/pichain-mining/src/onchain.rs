@@ -361,7 +361,8 @@ impl MiningProcessor {
 
         // Age-based cap: 3141 / chain_age_years, floor at 314 (3.14%)
         let chain_age_years = (self.current_height / reward::BLOCKS_PER_YEAR).max(1) as u32;
-        let age_cap = (BOOTSTRAP_MINER_REWARD_PCT_BPS / chain_age_years).max(MAX_MINER_REWARD_PCT_BPS);
+        let age_cap =
+            (BOOTSTRAP_MINER_REWARD_PCT_BPS / chain_age_years).max(MAX_MINER_REWARD_PCT_BPS);
 
         // Use the STRICTER (lower) of the two
         count_cap.min(age_cap)
@@ -411,11 +412,7 @@ impl MiningProcessor {
 
     /// Check whether a miner has remaining budget in this epoch.
     /// Returns the capped reward amount (may be 0 if cap exceeded).
-    fn check_miner_cap(
-        &self,
-        miner: &pichain_crypto::keys::Address,
-        proposed_reward: u64,
-    ) -> u64 {
+    fn check_miner_cap(&self, miner: &pichain_crypto::keys::Address, proposed_reward: u64) -> u64 {
         let cap = self.epoch_emission_cap();
         if cap == 0 {
             return 0; // zero emission means no mining rewards available
@@ -559,7 +556,9 @@ impl MiningProcessor {
             // to retry the same position in a loop.
             warn!(
                 start = proof.start_position,
-                end = proof.start_position.saturating_add(proof.digit_count as u64),
+                end = proof
+                    .start_position
+                    .saturating_add(proof.digit_count as u64),
                 "range already computed — accepting with 0 reward"
             );
             return VerificationResult {
@@ -1050,11 +1049,7 @@ impl MiningProcessor {
         let base = next_uncomputed.max(total_verified).max(frontier);
         let position = base.saturating_add((slot_index as u64).saturating_mul(SLOT_RANGE_SIZE));
         let total = self.active_miners.len();
-        let gap_fill = if has_gap {
-            Some(next_uncomputed)
-        } else {
-            None
-        };
+        let gap_fill = if has_gap { Some(next_uncomputed) } else { None };
         (position, slot_index, total, gap_fill)
     }
 
@@ -1564,7 +1559,10 @@ mod tests {
         let proof2 = MiningProof::new(0, digits2, Address([2; 20]), 43);
         let r2 = processor.process_proof(&proof2, &[0u8; 32]);
         assert!(r2.valid, "duplicate should be accepted with 0 reward");
-        assert_eq!(r2.spot_checks, 0, "should skip spot-checking for duplicates");
+        assert_eq!(
+            r2.spot_checks, 0,
+            "should skip spot-checking for duplicates"
+        );
         assert_eq!(r2.reward_amount, 0, "duplicate should get 0 reward");
     }
 

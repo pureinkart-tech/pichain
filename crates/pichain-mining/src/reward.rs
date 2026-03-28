@@ -318,7 +318,12 @@ mod tests {
             total += calc.annual_emission(year) as u128;
         }
         let pct = total * 1000 / MINING_POOL_BASE; // permille
-        assert!(pct >= 998, "after 31 years should be >99.8% mined, got {}.{}%", pct/10, pct%10);
+        assert!(
+            pct >= 998,
+            "after 31 years should be >99.8% mined, got {}.{}%",
+            pct / 10,
+            pct % 10
+        );
     }
 
     #[test]
@@ -369,9 +374,15 @@ mod tests {
         let mut calc = RewardCalculator::new();
         calc.set_genesis_timestamp(1_000_000_000_000);
         assert_eq!(calc.year_from_timestamp(1_000_000_000_000), 1);
-        assert_eq!(calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR / 2), 1);
+        assert_eq!(
+            calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR / 2),
+            1
+        );
         assert_eq!(calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR), 2);
-        assert_eq!(calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR * 3), 4);
+        assert_eq!(
+            calc.year_from_timestamp(1_000_000_000_000 + MS_PER_YEAR * 3),
+            4
+        );
     }
 
     #[test]

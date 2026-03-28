@@ -60,14 +60,12 @@ impl GenesisConfig {
         Self {
             chain_id: 314159, // digits of PI
             timestamp_ms: 0,  // set at actual genesis ceremony
-            allocations: vec![
-                GenesisAllocation {
-                    address: Address::ZERO, // virtual — no real balance created
-                    amount: TOTAL_SUPPLY as PiAmount,
-                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
-                    virtual_pool: true, // tracked in RewardCalculator, minted over time
-                },
-            ],
+            allocations: vec![GenesisAllocation {
+                address: Address::ZERO, // virtual — no real balance created
+                amount: TOTAL_SUPPLY as PiAmount,
+                label: "Mining Pool (100% — Satoshi launch)".to_string(),
+                virtual_pool: true, // tracked in RewardCalculator, minted over time
+            }],
             validators: vec![],
         }
     }
@@ -81,14 +79,12 @@ impl GenesisConfig {
         Self {
             chain_id: 314159,
             timestamp_ms,
-            allocations: vec![
-                GenesisAllocation {
-                    address: Address::ZERO, // virtual — minted over time
-                    amount: TOTAL_SUPPLY as PiAmount,
-                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
-                    virtual_pool: true,
-                },
-            ],
+            allocations: vec![GenesisAllocation {
+                address: Address::ZERO, // virtual — minted over time
+                amount: TOTAL_SUPPLY as PiAmount,
+                label: "Mining Pool (100% — Satoshi launch)".to_string(),
+                virtual_pool: true,
+            }],
             validators,
         }
     }
@@ -105,14 +101,12 @@ impl GenesisConfig {
         Self {
             chain_id: 31415,
             timestamp_ms: 0,
-            allocations: vec![
-                GenesisAllocation {
-                    address: mining_address,
-                    amount: TOTAL_SUPPLY as PiAmount,
-                    label: "Mining Pool (100% — Satoshi launch)".to_string(),
-                    virtual_pool: true, // virtual — minted over time via mining rewards
-                },
-            ],
+            allocations: vec![GenesisAllocation {
+                address: mining_address,
+                amount: TOTAL_SUPPLY as PiAmount,
+                label: "Mining Pool (100% — Satoshi launch)".to_string(),
+                virtual_pool: true, // virtual — minted over time via mining rewards
+            }],
             validators: vec![],
         }
     }

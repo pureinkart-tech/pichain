@@ -296,21 +296,36 @@ async fn try_detect_signer() -> Option<(pichain_crypto::keys::Address, String)> 
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .ok()?;
-    let resp = client.get("http://127.0.0.1:8315/status").send().await.ok()?;
+    let resp = client
+        .get("http://127.0.0.1:8315/status")
+        .send()
+        .await
+        .ok()?;
     let data: serde_json::Value = resp.json().await.ok()?;
-    if data["connected"].as_bool() != Some(true) { return None; }
+    if data["connected"].as_bool() != Some(true) {
+        return None;
+    }
     let addr_str = data["address"].as_str()?;
     let mut hex = addr_str.to_string();
-    if hex.starts_with("Pi314") { hex = hex[5..].to_string(); }
+    if hex.starts_with("Pi314") {
+        hex = hex[5..].to_string();
+    }
     let addr_bytes = hex::decode(&hex).ok()?;
-    if addr_bytes.len() != 20 { return None; }
+    if addr_bytes.len() != 20 {
+        return None;
+    }
     let mut arr = [0u8; 20];
     arr.copy_from_slice(&addr_bytes);
     Some((pichain_crypto::keys::Address(arr), hex.to_lowercase()))
 }
 
 /// Display wallet info: address, balance, and usage tips.
-async fn show_wallet_info(rpc_url: &str, address_hex: &str, address: &pichain_crypto::keys::Address, is_pool_mode: bool) {
+async fn show_wallet_info(
+    rpc_url: &str,
+    address_hex: &str,
+    address: &pichain_crypto::keys::Address,
+    is_pool_mode: bool,
+) {
     let display_addr = format!("{}", address);
     eprintln!();
     eprintln!("  ╔══════════════════════════════════════════════════════════╗");
@@ -325,14 +340,21 @@ async fn show_wallet_info(rpc_url: &str, address_hex: &str, address: &pichain_cr
         .build()
         .unwrap_or_default();
 
-    match client.get(format!("{}/api/v1/account/{}", rpc_url, address_hex)).send().await {
+    match client
+        .get(format!("{}/api/v1/account/{}", rpc_url, address_hex))
+        .send()
+        .await
+    {
         Ok(resp) => {
             if let Ok(acct) = resp.json::<AccountResponse>().await {
                 let balance_pi = acct.balance as f64 / 1_000_000_000.0;
                 let locked_pi = acct.locked_balance.unwrap_or(0) as f64 / 1_000_000_000.0;
                 eprintln!("  ║  Balance: {:<46} ║", format!("{:.4} PI", balance_pi));
                 if locked_pi > 0.0 {
-                    eprintln!("  ║  Locked:  {:<46} ║", format!("{:.4} PI (gas fees)", locked_pi));
+                    eprintln!(
+                        "  ║  Locked:  {:<46} ║",
+                        format!("{:.4} PI (gas fees)", locked_pi)
+                    );
                 }
                 eprintln!("  ║  Nonce:   {:<46} ║", acct.nonce);
             } else {
@@ -416,9 +438,18 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
     eprintln!("  SECURITY: Wallet file is NOT encrypted. Protect it like a password.");
     eprintln!();
     eprintln!("  NEXT STEPS:");
-    eprintln!("    Start mining:    pichain-miner --keypair {}", path.display());
-    eprintln!("    Check balance:   pichain-miner --keypair {} --info", path.display());
-    eprintln!("    View on web:     https://pichain.net → Connect Wallet → enter {}", addr);
+    eprintln!(
+        "    Start mining:    pichain-miner --keypair {}",
+        path.display()
+    );
+    eprintln!(
+        "    Check balance:   pichain-miner --keypair {} --info",
+        path.display()
+    );
+    eprintln!(
+        "    View on web:     https://pichain.net → Connect Wallet → enter {}",
+        addr
+    );
     eprintln!();
     Ok(())
 }
@@ -436,7 +467,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Handle keypair generation
     if args.generate_keypair {
-        let keypair_path = args.keypair.clone().unwrap_or_else(|| std::path::PathBuf::from("wallet.json"));
+        let keypair_path = args
+            .keypair
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("wallet.json"));
         let result = generate_and_save_keypair(&keypair_path);
         if result.is_err() {
             eprintln!("\nError: {}", result.as_ref().unwrap_err());
@@ -454,11 +488,18 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref addr_str) = args.address {
         // Pool-submit mode: mine to any address, no wallet needed
         let mut hex = addr_str.clone();
-        if hex.starts_with("Pi314") { hex = hex[5..].to_string(); }
-        if hex.starts_with("pi314") { hex = hex[5..].to_string(); }
+        if hex.starts_with("Pi314") {
+            hex = hex[5..].to_string();
+        }
+        if hex.starts_with("pi314") {
+            hex = hex[5..].to_string();
+        }
         let addr_bytes = hex::decode(&hex).map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
         if addr_bytes.len() != 20 {
-            anyhow::bail!("address must be 20 bytes (40 hex chars), got {}", addr_bytes.len());
+            anyhow::bail!(
+                "address must be 20 bytes (40 hex chars), got {}",
+                addr_bytes.len()
+            );
         }
         let mut arr = [0u8; 20];
         arr.copy_from_slice(&addr_bytes);
@@ -559,7 +600,11 @@ async fn main() -> anyhow::Result<()> {
             .timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_default();
-        if let Ok(resp) = quick_client.get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex)).send().await {
+        if let Ok(resp) = quick_client
+            .get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex))
+            .send()
+            .await
+        {
             if let Ok(acct) = resp.json::<AccountResponse>().await {
                 let bal = acct.balance as f64 / 1_000_000_000.0;
                 eprintln!("  │  Balance: {:<43}│", format!("{:.4} PI", bal));
@@ -617,8 +662,6 @@ async fn main() -> anyhow::Result<()> {
     // Adaptive batch sizing: scale down when getting 0-reward overlaps,
     // scale up when earning rewards. Smaller batches = faster submission
     // = less chance of overlap with other miners.
-    
-    
 
     // Configure rayon thread pool
     rayon::ThreadPoolBuilder::new()
@@ -706,7 +749,10 @@ async fn main() -> anyhow::Result<()> {
         // Adaptive batch: query ACTIVE miners from slot endpoint (not historical unique_miners)
         let server_min = mining_status.min_batch_size.max(10);
         let active_miners = match client
-            .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, address_hex))
+            .get(format!(
+                "{}/api/v1/mining/slot/{}",
+                args.rpc_url, address_hex
+            ))
             .send()
             .await
         {
@@ -746,13 +792,18 @@ async fn main() -> anyhow::Result<()> {
             // Use max(slot_position, local_position) so we never go backwards
             // even if other miners have computed positions ahead of us.
             let (slot_pos, gap_fill_pos) = match client
-                .get(format!("{}/api/v1/mining/slot/{}", args.rpc_url, address_hex))
+                .get(format!(
+                    "{}/api/v1/mining/slot/{}",
+                    args.rpc_url, address_hex
+                ))
                 .send()
                 .await
             {
                 Ok(resp) => {
                     let slot: serde_json::Value = resp.json().await.unwrap_or_default();
-                    let pos = slot["recommended_position"].as_u64().unwrap_or(mining_status.next_position);
+                    let pos = slot["recommended_position"]
+                        .as_u64()
+                        .unwrap_or(mining_status.next_position);
                     let gap = slot["gap_fill_position"].as_u64();
                     (pos, gap)
                 }
@@ -1057,12 +1108,7 @@ async fn main() -> anyhow::Result<()> {
 
             proofs_submitted += 1;
 
-            match client
-                .post(&submit_url)
-                .json(&submit_body)
-                .send()
-                .await
-            {
+            match client.post(&submit_url).json(&submit_body).send().await {
                 Ok(resp) => match resp.json::<SubmitResponse>().await {
                     Ok(result) => {
                         if result.status == "pending" {
@@ -1079,17 +1125,26 @@ async fn main() -> anyhow::Result<()> {
                             );
                             // Show balance every 10 proofs
                             if proofs_accepted % 10 == 0 {
-                                if let Ok(bal_resp) = client.get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex)).send().await {
+                                if let Ok(bal_resp) = client
+                                    .get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex))
+                                    .send()
+                                    .await
+                                {
                                     if let Ok(acct) = bal_resp.json::<AccountResponse>().await {
                                         let bal = acct.balance as f64 / 1_000_000_000.0;
-                                        info!(balance = format!("{:.4} PI", bal), proofs = proofs_accepted, "Wallet balance update");
+                                        info!(
+                                            balance = format!("{:.4} PI", bal),
+                                            proofs = proofs_accepted,
+                                            "Wallet balance update"
+                                        );
                                     }
                                 }
                             }
                             current_nonce = current_nonce.saturating_add(1);
                             // CRITICAL: advance local position past what we just submitted
                             // so we don't re-mine the same range while waiting for block inclusion
-                            local_position = Some(batch_pos.saturating_add(batch_digit_count as u64));
+                            local_position =
+                                Some(batch_pos.saturating_add(batch_digit_count as u64));
                         } else {
                             error!(
                                 status = %result.status,

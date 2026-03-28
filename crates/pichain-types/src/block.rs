@@ -205,7 +205,8 @@ impl Block {
             let ml_sig = pichain_crypto::MlDsaSignature::from_bytes(&self.proposer_sig)
                 .map_err(|e| format!("invalid ML-DSA signature: {e}"))?;
             let header_hash = self.header.hash();
-            ml_pk.verify(header_hash.as_bytes(), &ml_sig)
+            ml_pk
+                .verify(header_hash.as_bytes(), &ml_sig)
                 .map_err(|e| format!("proposer PQ signature verification failed: {e}"))
         }
     }

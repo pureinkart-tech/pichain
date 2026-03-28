@@ -794,7 +794,7 @@ impl TransactionExecutor {
                         pi_burned: 0,
                         pi_minted: 0,
                         proposer_reward: 0,
-                    staker_reward: 0,
+                        staker_reward: 0,
                         miner_fee: 0,
                         state_reads: vec![],
                     }
@@ -881,7 +881,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -915,7 +915,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -943,7 +943,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -970,7 +970,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -1145,7 +1145,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![],
             };
@@ -1175,7 +1175,7 @@ impl TransactionExecutor {
                 pi_burned: 0,
                 pi_minted: 0,
                 proposer_reward: 0,
-                    staker_reward: 0,
+                staker_reward: 0,
                 miner_fee: 0,
                 state_reads: vec![tx.data.sender],
             };
@@ -1218,7 +1218,7 @@ impl TransactionExecutor {
                         pi_burned: 0,
                         pi_minted: 0,
                         proposer_reward: 0,
-                    staker_reward: 0,
+                        staker_reward: 0,
                         miner_fee: 0,
                         state_reads: vec![],
                     };
@@ -1696,7 +1696,7 @@ impl TransactionExecutor {
                             pi_burned,
                             pi_minted: 0,
                             proposer_reward: fee_split.proposer,
-                                staker_reward: fee_split.stakers,
+                            staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![tx.data.sender],
                         };
@@ -2244,8 +2244,8 @@ impl TransactionExecutor {
                                         pi_burned,
                                         pi_minted: 0,
                                         proposer_reward: fee_split.proposer,
-                                staker_reward: fee_split.stakers,
-                                miner_fee: fee_split.miners,
+                                        staker_reward: fee_split.stakers,
+                                        miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2343,8 +2343,8 @@ impl TransactionExecutor {
                                         pi_burned,
                                         pi_minted: 0,
                                         proposer_reward: fee_split.proposer,
-                                staker_reward: fee_split.stakers,
-                                miner_fee: fee_split.miners,
+                                        staker_reward: fee_split.stakers,
+                                        miner_fee: fee_split.miners,
                                         state_reads: vec![],
                                     };
                                 }
@@ -2633,7 +2633,7 @@ impl TransactionExecutor {
                             pi_burned,
                             pi_minted: 0,
                             proposer_reward: fee_split.proposer,
-                                staker_reward: fee_split.stakers,
+                            staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![],
                         };
@@ -2666,7 +2666,7 @@ impl TransactionExecutor {
                             pi_burned,
                             pi_minted: 0,
                             proposer_reward: fee_split.proposer,
-                                staker_reward: fee_split.stakers,
+                            staker_reward: fee_split.stakers,
                             miner_fee: fee_split.miners,
                             state_reads: vec![],
                         };

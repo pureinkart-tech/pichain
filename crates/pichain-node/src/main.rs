@@ -541,7 +541,10 @@ async fn main() -> anyhow::Result<()> {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
+                        std::fs::set_permissions(
+                            &key_path,
+                            std::fs::Permissions::from_mode(0o600),
+                        )?;
                     }
                     info!(pq_address = %kp.address(), "generated PQ block-signing keypair → {}", key_path.display());
                     kp
@@ -844,14 +847,15 @@ async fn main() -> anyhow::Result<()> {
 
                     // Credit the proposer with their fee share (18.59% base + priority)
                     // before persist_block, which only handles staker distribution.
-                    let proposer_total: u64 = produced.execution_results.iter()
+                    let proposer_total: u64 = produced
+                        .execution_results
+                        .iter()
                         .map(|r| r.proposer_reward)
                         .fold(0u64, |a, v| a.saturating_add(v));
                     if proposer_total > 0 {
-                        persist_state.executor.credit_account(
-                            produced.block.header.proposer,
-                            proposer_total,
-                        );
+                        persist_state
+                            .executor
+                            .credit_account(produced.block.header.proposer, proposer_total);
                     }
 
                     // Persist block + state changes to RocksDB
@@ -1469,9 +1473,7 @@ async fn main() -> anyhow::Result<()> {
                                         (Ok(ca), Ok(cb)) => {
                                             let evidence =
                                                 pichain_consensus::EquivocationEvidence {
-                                                    author: pichain_crypto::keys::Address(
-                                                        author,
-                                                    ),
+                                                    author: pichain_crypto::keys::Address(author),
                                                     round,
                                                     cert_a: ca,
                                                     cert_b: cb,
@@ -2037,9 +2039,7 @@ async fn main() -> anyhow::Result<()> {
                 // Check for zero addresses (virtual pools are allowed to use Address::ZERO)
                 let mut zero_count = 0;
                 for alloc in &genesis.allocations {
-                    if alloc.address == pichain_crypto::keys::Address::ZERO
-                        && !alloc.virtual_pool
-                    {
+                    if alloc.address == pichain_crypto::keys::Address::ZERO && !alloc.virtual_pool {
                         zero_count += 1;
                         println!(
                             "  WARNING: {} has Address::ZERO (placeholder — must be replaced)",

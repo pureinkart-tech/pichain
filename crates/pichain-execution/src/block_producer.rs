@@ -556,7 +556,6 @@ mod tests {
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                
                 ..Default::default()
             },
         ));
@@ -586,7 +585,6 @@ mod tests {
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                
                 ..Default::default()
             },
         ));
@@ -648,7 +646,6 @@ mod tests {
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                
                 ..Default::default()
             },
         ));
@@ -692,7 +689,6 @@ mod tests {
         let executor = Arc::new(TransactionExecutor::new(1));
         let mempool = Arc::new(TransactionPool::with_config(
             crate::mempool::MempoolConfig {
-                
                 ..Default::default()
             },
         ));

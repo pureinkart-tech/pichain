@@ -1686,12 +1686,8 @@ impl StateProvider for NodeState {
         );
 
         // Build the mining proof
-        let proof = pichain_mining::MiningProof::new(
-            start_position,
-            digits,
-            *miner_address,
-            pow_nonce,
-        );
+        let proof =
+            pichain_mining::MiningProof::new(start_position, digits, *miner_address, pow_nonce);
 
         // Convert anchor hash to fixed-size array
         let mut anchor = [0u8; 32];
@@ -1725,14 +1721,17 @@ impl StateProvider for NodeState {
             // Also update executor cache
             self.executor.set_account(*miner_address, acct.state);
 
-            self.total_minted.fetch_add(
-                result.reward_amount,
-                std::sync::atomic::Ordering::Relaxed,
-            );
+            self.total_minted
+                .fetch_add(result.reward_amount, std::sync::atomic::Ordering::Relaxed);
         }
 
         // Return a pseudo tx hash (proof was processed directly, not via mempool)
-        let hash_input = format!("pool:{}:{}:{}", hex::encode(miner_address.0), start_position, digit_count);
+        let hash_input = format!(
+            "pool:{}:{}:{}",
+            hex::encode(miner_address.0),
+            start_position,
+            digit_count
+        );
         Ok(hex::encode(pichain_crypto::hash(hash_input.as_bytes()).0))
     }
 
