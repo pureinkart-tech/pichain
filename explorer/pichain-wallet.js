@@ -39,7 +39,7 @@ window.pqWalletProvider = 'none';
   if (!addr) return;
   // Clear ALL per-page disconnect flags — if we have a persisted address,
   // the user is connected and ALL pages should show it
-  ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
+  ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
     localStorage.removeItem('pichain_disconnected_' + p);
   });
   var hex = addr;
@@ -210,7 +210,7 @@ function persistWalletConnection(address) {
     localStorage.setItem('pichain_connected_address', address);
     localStorage.removeItem('pichain_disconnected');
     // Clear per-page disconnect flags so all pages reconnect
-    ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
+    ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
       localStorage.removeItem('pichain_disconnected_' + p);
     });
   }
@@ -221,7 +221,7 @@ function clearWalletConnection() {
   localStorage.removeItem('pichain_pibot_tid');
   localStorage.setItem('pichain_disconnected', '1');
   // Also clear per-page disconnect flags
-  ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
+  ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
     localStorage.removeItem('pichain_disconnected_' + p);
   });
   window.pqProxyConnected = false;

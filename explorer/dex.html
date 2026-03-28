@@ -518,6 +518,7 @@ async function loadDexWallet(){
   if(window.walletAddressHex && window.pqProxyConnected){
     walletAddressHex=window.walletAddressHex;
     walletAddress=hexDecode(walletAddressHex);
+    walletKeypair={publicKey:walletAddress};
     onWalletConnected();
     return;
   }
@@ -600,12 +601,7 @@ function connectViewOnly(){
 }
 
 function onWalletConnected(){
-  var bar=document.getElementById('dexWalletBar')||document.getElementById('walletBar');
-  if(bar && walletAddressHex){
-    bar.innerHTML=
-      '<span style="color:var(--cyan);font-family:monospace;font-size:12px;">Pi314'+walletAddressHex.slice(0,8)+'...</span> '+
-      '<button class="w-btn-out" onclick="disconnectWallet()" style="padding:4px 10px;font-size:11px;">Disconnect</button>';
-  }
+  updateWalletUI();
   updateWalletBalance();
 }
 
