@@ -88,16 +88,23 @@ async function getCachedTokenInfo(mintAddr) {
     return cached || { symbol: mintAddr.slice(0,6), name: '', decimals: 6, address: mintAddr };
   }
 }
-// Pre-warm SOL price every 15s
+// Pre-warm SOL price every 15s — try multiple sources
 let cachedSolPrice = 90;
-setInterval(async () => {
-  try {
-    const res = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(3000) });
-    if (res.ok) { const d = await res.json(); cachedSolPrice = parseFloat(d.data?.[SOL_MINT]?.price || '90'); }
-  } catch {}
-}, 15000);
-// Warm on startup
-(async () => { try { const r = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(5000) }); if (r.ok) { const d = await r.json(); cachedSolPrice = parseFloat(d.data?.[SOL_MINT]?.price || '90'); } } catch {} })();
+async function fetchSolPrice() {
+  const sources = [
+    { url: 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', parse: d => d?.solana?.usd },
+    { url: 'https://api-v3.raydium.io/mint/price?mints=So11111111111111111111111111111111111111112', parse: d => parseFloat(d?.data?.[SOL_MINT] || '0') },
+    { url: 'https://api.jup.ag/price/v2?ids=' + SOL_MINT, parse: d => parseFloat(d?.data?.[SOL_MINT]?.price || '0') },
+  ];
+  for (const src of sources) {
+    try {
+      const r = await fetch(src.url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) { const d = await r.json(); const p = src.parse(d); if (p > 0) { cachedSolPrice = p; return; } }
+    } catch {}
+  }
+}
+setInterval(fetchSolPrice, 15000);
+fetchSolPrice(); // warm on startup
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;

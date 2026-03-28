@@ -1617,10 +1617,16 @@ let ammK = ammPiReserve * ammSolReserve;
 
 // Fetch SOL price + AMM pool state
 async function updateCrossPrices() {
-  try {
-    const r = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(3000) });
-    if (r.ok) { const d = await r.json(); crossSolPrice = parseFloat(d.data?.['So11111111111111111111111111111111111111112']?.price || '90'); }
-  } catch {}
+  // Try multiple SOL price sources
+  for (const src of [
+    { url: 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', parse: d => d?.solana?.usd },
+    { url: 'https://api-v3.raydium.io/mint/price?mints=So11111111111111111111111111111111111111112', parse: d => parseFloat(d?.data?.['So11111111111111111111111111111111111111112'] || '0') },
+  ]) {
+    try {
+      const r = await fetch(src.url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) { const d = await r.json(); const p = src.parse(d); if (p > 0) { crossSolPrice = p; break; } }
+    } catch {}
+  }
   // Fetch AMM pool state from node
   try {
     const pr = await fetch(API + '/amm-pool.json', { signal: AbortSignal.timeout(3000) });
