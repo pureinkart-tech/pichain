@@ -1850,37 +1850,23 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
   <div class="modal" id="walletModalContent">
     <div id="walletStep1">
       <h3>Connect Wallet</h3>
-      <button class="btn btn-primary" style="width:100%;" onclick="createWalletStep1()">Create New Wallet</button>
-      <div style="text-align:center;color:var(--dim);margin:12px 0;font-size:13px;">or</div>
-      <div class="form-row"><label>Import Private Key</label>
-        <input type="text" id="importSeedInput" placeholder="64-char hex private key" spellcheck="false">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to place bets and play games.</p>
+      <div class="form-row">
+        <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
       </div>
-      <button class="btn btn-outline" style="width:100%;" onclick="importWallet()">Import</button>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="closeWalletModal()">Cancel</button>
-    </div>
-    <div id="walletStep2" style="display:none;">
-      <h3>Save Your Private Key</h3>
-      <div class="warning-box">Save this key somewhere safe. It is the ONLY way to access your wallet.</div>
-      <div class="form-row"><label>Private Key</label>
-        <div style="position:relative;">
-          <input type="text" id="newWalletSeed" readonly spellcheck="false" style="font-size:12px;padding-right:70px;">
-          <button class="btn btn-sm" id="copyKeyBtn" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
-        </div>
+      <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
+      <div class="form-row">
+        <label style="color:var(--muted);font-size:12px;">Or enter your address (view only)</label>
+        <input type="text" id="importSeedInput" placeholder="Pi314..." spellcheck="false">
       </div>
-      <div class="form-row"><label>Address</label>
-        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="color:var(--cyan);">
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;color:var(--muted);cursor:pointer;">
-        <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked"> I have saved my private key
-      </label>
-      <button class="btn btn-primary" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Confirm &amp; Activate</button>
-      <button class="btn btn-outline" style="margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="connectViewOnly()">View Wallet</button>
     </div>
     <div id="walletStep3" style="display:none;">
-      <h3>Activating Wallet</h3>
+      <h3>Connecting...</h3>
       <div style="text-align:center;padding:24px 0;">
         <span id="captchaSpinner" class="spinner"></span>
-        <div id="captchaStatus" style="margin-top:12px;color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
+        <div id="captchaStatus" style="margin-top:12px;color:var(--muted);font-size:14px;">Connecting to PIChain Signer...</div>
       </div>
     </div>
   </div>
@@ -2001,7 +1987,6 @@ let walletKeypair=null,walletAddress=null,walletAddressHex='',walletSeedHex='';
 // Unique per-session demo identity — prevents different users from colliding as 'demo_player'
 const DEMO_SESSION_ID='demo_'+Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b=>b.toString(16).padStart(2,'0')).join('');
 let accountNonce=0,piBalance=0,currentBaseFee=1000;
-let pendingNewSeed=null;
 let DEMO_MODE=true;
 let playerDisplayName='';
 let localPlayerId='';
@@ -2563,47 +2548,56 @@ function updatePokerChipDisplay(){
 }
 
 const WALLET_PAGE_ID='games';
-function initWallet(seed,skipClose){
-  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
-  // PQ: keypair managed by signing proxy
-  walletKeypair={publicKey:walletAddress}; // shim for compatibility checks
-  walletAddress=deriveAddress(walletKeypair.publicKey);
-  walletAddressHex=hexEncode(walletAddress);
-  walletSeedHex=hexEncode(seed);
-  localStorage.setItem('pichain_seed',walletSeedHex);
-  localStorage.setItem('pichain_wallet_seed',walletSeedHex);
-  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
-  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
-  updateWalletUI();
-  updateBalance();
-  if(!skipClose)closeWalletModal();
-}
-
-function createWalletStep1(){
-  pendingNewSeed=crypto.getRandomValues(new Uint8Array(32));
-  document.getElementById('newWalletSeed').value=hexEncode(pendingNewSeed);
-  const kp={publicKey:new Uint8Array(32)}; // PQ: key preview not available
-  document.getElementById('newWalletAddr').value='Pi314'+hexEncode(deriveAddress(kp.publicKey));
-  document.getElementById('savedKeyCheck').checked=false;
-  document.getElementById('confirmWalletBtn').disabled=true;
+async function connectSignerWallet(){
   document.getElementById('walletStep1').style.display='none';
-  document.getElementById('walletStep2').style.display='block';
+  document.getElementById('walletStep3').style.display='block';
+  const status=document.getElementById('captchaStatus');
+  status.textContent='Connecting to PIChain Signer...';
+  try {
+    const result = await connectPQProxy();
+    if(result.connected){
+      let hex=result.address;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      walletAddressHex=hex.toLowerCase();
+      walletAddress=hexDecode(walletAddressHex);
+      walletKeypair={publicKey:walletAddress}; // compat
+      persistWalletConnection(result.address);
+      document.getElementById('walletModal').classList.remove('show');
+      resetWalletModal();
+      updateWalletUI();
+      showToast('Wallet connected: Pi314'+walletAddressHex.slice(0,8)+'...','success');
+    } else {
+      status.textContent='Could not connect. Make sure PIChain Signer or the desktop app is running.';
+      status.style.color='var(--rose)';
+      document.getElementById('captchaSpinner').style.display='none';
+    }
+  } catch(e) {
+    status.textContent='Connection failed: '+e.message;
+    status.style.color='var(--rose)';
+    document.getElementById('captchaSpinner').style.display='none';
+  }
 }
 
-function confirmNewWallet(){if(!pendingNewSeed)return;initWallet(pendingNewSeed,true);pendingNewSeed=null;showActivationStep();}
-function showActivationStep(){document.getElementById('walletStep1').style.display='none';document.getElementById('walletStep2').style.display='none';document.getElementById('walletStep3').style.display='block';document.getElementById('walletModal').classList.add('show');activateWallet();}
-function cancelNewWallet(){pendingNewSeed=null;resetWalletModal();}
-
-function importWallet(){
-  const seed=document.getElementById('importSeedInput').value.trim();
-  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
-  initWallet(hexDecode(seed),true);showActivationStep();
+function connectViewOnly(){
+  let input=document.getElementById('importSeedInput').value.trim();
+  if(!input){showToast('Please enter a PIChain address','error');return;}
+  let hex=input;
+  if(hex.startsWith('Pi314'))hex=hex.slice(5);
+  if(hex.startsWith('pi314'))hex=hex.slice(5);
+  if(!/^[0-9a-fA-F]{40}$/.test(hex)){showToast('Invalid address. Must be Pi314... or 40 hex chars.','error');return;}
+  walletAddressHex=hex.toLowerCase();
+  walletAddress=hexDecode(walletAddressHex);
+  walletKeypair={publicKey:walletAddress}; // compat
+  persistWalletConnection('Pi314'+walletAddressHex);
+  document.getElementById('walletModal').classList.remove('show');
+  resetWalletModal();
+  updateWalletUI();
+  showToast('Viewing wallet (read-only)','success');
 }
 
-function copyNewKey(){navigator.clipboard.writeText(document.getElementById('newWalletSeed').value).then(()=>{const btn=document.getElementById('copyKeyBtn');btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy';},2000);});}
 function showWalletModal(){resetWalletModal();document.getElementById('walletModal').classList.add('show');}
 function closeWalletModal(){document.getElementById('walletModal').classList.remove('show');resetWalletModal();}
-function resetWalletModal(){document.getElementById('walletStep1').style.display='block';document.getElementById('walletStep2').style.display='none';document.getElementById('walletStep3').style.display='none';const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';}
+function resetWalletModal(){document.getElementById('walletStep1').style.display='block';const s3=document.getElementById('walletStep3');if(s3)s3.style.display='none';const s=document.getElementById('captchaStatus');if(s){s.textContent='Connecting to PIChain Signer...';s.style.color='var(--muted)';}const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';}
 
 function getPhantomBtnHtml(){
   if(phantomConnected&&phantomPubkey){
@@ -2629,7 +2623,7 @@ function updateWalletUI(){
   }
 }
 
-function disconnectWallet(){walletKeypair=null;walletAddress=null;walletAddressHex='';piBalance=0;accountNonce=0;updateWalletUI();showToast('Wallet disconnected for this session. Refresh to reconnect.','info');}
+function disconnectWallet(){localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');clearWalletConnection();walletKeypair=null;walletAddress=null;walletAddressHex='';piBalance=0;accountNonce=0;updateWalletUI();showToast('Wallet disconnected.','info');}
 
 async function updateBalance(){
   if(!walletAddressHex)return;
@@ -2640,39 +2634,34 @@ async function updateBalance(){
   }catch(e){}
 }
 
-async function activateWallet(){
-  if(!walletAddressHex)return;
-  const statusEl=document.getElementById('captchaStatus');const spinnerEl=document.getElementById('captchaSpinner');
-  try{
-    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
-    const cd=await cr.json();
-    if(!cd.success){
-      if(cd.error&&cd.error.includes('already activated')){if(statusEl){statusEl.textContent='Wallet already activated!';statusEl.style.color='var(--green)';}if(spinnerEl)spinnerEl.style.display='none';setTimeout(()=>closeWalletModal(),1500);showToast('Wallet ready!','success');}
-      return;
+function loadWallet(){
+  if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  connectPQProxy().then(function(result){
+    if(result.connected){
+      let hex=result.address;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      walletAddressHex=hex.toLowerCase();
+      walletAddress=hexDecode(walletAddressHex);
+      walletKeypair={publicKey:walletAddress};
+      persistWalletConnection(result.address);
+      updateWalletUI();
+      updateBalance();
     }
-    if(statusEl)statusEl.textContent='Solving proof-of-work challenge...';
-    const challengeBytes=hexDecode(cd.challenge);const diffBits=cd.difficulty_bits||20;
-    const nonce=await solveActivationPoW(challengeBytes,diffBits);
-    if(statusEl)statusEl.textContent='Activating wallet...';
-    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
-    const d=await r.json();
-    if(d.success){if(statusEl){statusEl.textContent='Wallet activated! +'+d.locked_amount_pi+' PI';statusEl.style.color='var(--green)';}if(spinnerEl)spinnerEl.style.display='none';showToast('+'+d.locked_amount_pi+' PI for gas!','success');updateBalance();setTimeout(()=>closeWalletModal(),2000);}
-    else{if(statusEl){statusEl.textContent=d.error||'Activation failed';statusEl.style.color='var(--rose)';}if(spinnerEl)spinnerEl.style.display='none';setTimeout(()=>closeWalletModal(),3000);}
-  }catch(e){if(statusEl){statusEl.textContent='Could not reach node';statusEl.style.color='var(--rose)';}if(spinnerEl)spinnerEl.style.display='none';setTimeout(()=>closeWalletModal(),3000);}
+  }).catch(function(){
+    const savedAddr=getPersistedAddress();
+    if(savedAddr){
+      let hex=savedAddr;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      if(/^[0-9a-fA-F]{40}$/.test(hex)){
+        walletAddressHex=hex.toLowerCase();
+        walletAddress=hexDecode(walletAddressHex);
+        walletKeypair={publicKey:walletAddress};
+        updateWalletUI();
+        updateBalance();
+      }
+    }
+  });
 }
-
-async function solveActivationPoW(challenge,diffBits){
-  const fullBytes=(diffBits/8)|0;const remBits=diffBits%8;const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
-  for(let batch=0;batch<1000000;batch++){
-    const base=batch*2000;const promises=[];
-    for(let i=0;i<2000;i++){const nonce=base+i;const buf=new Uint8Array(challenge.length+8);buf.set(challenge);let n=nonce;for(let j=0;j<8;j++){buf[challenge.length+j]=n&0xFF;n=Math.floor(n/256);}promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));}
-    const results=await Promise.all(promises);
-    for(const{nonce,hash}of results){let ok=true;for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;if(ok)return nonce;}
-  }
-  throw new Error('PoW not found');
-}
-
-function loadWallet(){var saved=localStorage.getItem('pichain_wallet_seed')||localStorage.getItem('pichain_seed');if(!saved||saved.length!==64)return;try{initWallet(hexDecode(saved));localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);activateWallet();}catch(e){console.warn('Wallet load failed:',e);}}
 
 // =====================================================================
 // TX BUILDING & SIGNING

@@ -171,40 +171,23 @@ tr:hover{background:rgba(99,102,241,0.04);}
   <div class="modal" id="walletModalContent">
     <div id="walletStep1">
       <h3>Connect Wallet</h3>
-      <button class="btn btn-primary" onclick="createWalletStep1()">Create New Wallet</button>
-      <div style="text-align:center;color:var(--dim);margin:12px 0;font-size:13px;">or</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to stake and delegate.</p>
       <div class="form-row">
-        <label>Import Private Key</label>
-        <input type="text" id="importSeedInput" placeholder="64-char hex private key" spellcheck="false">
+        <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
       </div>
-      <button class="btn btn-outline" onclick="importWallet()">Import</button>
-      <button class="btn btn-outline" style="margin-top:8px;" onclick="closeWalletModal()">Cancel</button>
-    </div>
-    <div id="walletStep2" style="display:none;">
-      <h3>Save Your Private Key</h3>
-      <div class="warning-box">Save this key somewhere safe. It is the ONLY way to access your wallet. Never share it with anyone.</div>
+      <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
       <div class="form-row">
-        <label>Private Key</label>
-        <div style="position:relative;">
-          <input type="text" id="newWalletSeed" readonly spellcheck="false">
-          <button class="btn btn-sm" id="copyKeyBtn" onclick="copyNewKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
-        </div>
+        <label style="color:var(--muted);font-size:12px;">Or enter your address (view only)</label>
+        <input type="text" id="importSeedInput" placeholder="Pi314..." spellcheck="false">
       </div>
-      <div class="form-row">
-        <label>Address</label>
-        <input type="text" id="newWalletAddr" readonly spellcheck="false" style="color:var(--cyan);">
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;color:var(--muted);cursor:pointer;">
-        <input type="checkbox" id="savedKeyCheck" onchange="document.getElementById('confirmWalletBtn').disabled=!this.checked"> I have saved my private key
-      </label>
-      <button class="btn btn-primary" id="confirmWalletBtn" disabled onclick="confirmNewWallet()">Confirm &amp; Activate</button>
-      <button class="btn btn-outline" style="margin-top:8px;" onclick="cancelNewWallet()">Cancel</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="connectViewOnly()">View Wallet</button>
     </div>
     <div id="walletStep3" style="display:none;">
-      <h3>Activating Wallet</h3>
+      <h3>Connecting...</h3>
       <div style="text-align:center;padding:24px 0;">
         <span id="captchaSpinner" style="display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;"></span>
-        <div id="captchaStatus" style="margin-top:12px;color:var(--muted);font-size:14px;">Solving proof-of-work challenge...</div>
+        <div id="captchaStatus" style="margin-top:12px;color:var(--muted);font-size:14px;">Connecting to PIChain Signer...</div>
       </div>
     </div>
   </div>
@@ -299,66 +282,53 @@ let walletSeedHex = '';
 let accountNonce = 0;
 let piBalance = 0;
 let currentBaseFee = 1000;
-let pendingNewSeed = null;
 
 const WALLET_PAGE_ID='staking';
-function initWallet(seed, skipModalClose) {
-  const isNew=!localStorage.getItem('pichain_wallet_seed')&&!localStorage.getItem('pichain_seed');
-  // PQ: keypair managed by signing proxy
-  walletKeypair = {publicKey:walletAddress}; // shim for compatibility checks
-  walletAddress = deriveAddress(walletKeypair.publicKey);
-  walletAddressHex = hexEncode(walletAddress);
-  walletSeedHex = hexEncode(seed);
-  localStorage.setItem('pichain_seed', walletSeedHex);
-  localStorage.setItem('pichain_wallet_seed', walletSeedHex);
-  localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
-  if(isNew){['swap','dex','launch','mine','staking','nft','games'].forEach(p=>localStorage.removeItem('pichain_disconnected_'+p));}
-  updateWalletUI();
-  updateBalance();
-  if(!skipModalClose) closeWalletModal();
-}
-
-function createWalletStep1() {
-  pendingNewSeed = crypto.getRandomValues(new Uint8Array(32));
-  document.getElementById('newWalletSeed').value = hexEncode(pendingNewSeed);
-  const kp = {publicKey:new Uint8Array(32)}; // PQ: key preview not available
-  document.getElementById('newWalletAddr').value = 'Pi314' + hexEncode(deriveAddress(kp.publicKey));
-  document.getElementById('savedKeyCheck').checked = false;
-  document.getElementById('confirmWalletBtn').disabled = true;
+async function connectSignerWallet() {
   document.getElementById('walletStep1').style.display = 'none';
-  document.getElementById('walletStep2').style.display = 'block';
-}
-
-function confirmNewWallet() {
-  if (!pendingNewSeed) return;
-  initWallet(pendingNewSeed, true);
-  pendingNewSeed = null;
-  showActivationStep();
-}
-
-function showActivationStep() {
-  document.getElementById('walletStep1').style.display = 'none';
-  document.getElementById('walletStep2').style.display = 'none';
   document.getElementById('walletStep3').style.display = 'block';
-  document.getElementById('walletModal').classList.add('show');
-  activateWallet();
+  const status = document.getElementById('captchaStatus');
+  status.textContent = 'Connecting to PIChain Signer...';
+  try {
+    const result = await connectPQProxy();
+    if (result.connected) {
+      let hex = result.address;
+      if (hex.startsWith('Pi314')) hex = hex.slice(5);
+      walletAddressHex = hex.toLowerCase();
+      walletAddress = hexDecode(walletAddressHex);
+      walletKeypair = { publicKey: walletAddress }; // compat
+      persistWalletConnection(result.address);
+      document.getElementById('walletModal').classList.remove('show');
+      resetWalletModal();
+      updateWalletUI();
+      showToast('Wallet connected: Pi314' + walletAddressHex.slice(0, 8) + '...', 'success');
+    } else {
+      status.textContent = 'Could not connect. Make sure PIChain Signer or the desktop app is running.';
+      status.style.color = 'var(--rose)';
+      document.getElementById('captchaSpinner').style.display = 'none';
+    }
+  } catch (e) {
+    status.textContent = 'Connection failed: ' + e.message;
+    status.style.color = 'var(--rose)';
+    document.getElementById('captchaSpinner').style.display = 'none';
+  }
 }
 
-function cancelNewWallet() { pendingNewSeed = null; resetWalletModal(); }
-
-function importWallet() {
-  const seed = document.getElementById('importSeedInput').value.trim();
-  if(seed.length!==64||!/^[0-9a-fA-F]+$/.test(seed)){showToast('Invalid key. Must be 64 hex chars.','error');return;}
-  initWallet(hexDecode(seed), true);
-  showActivationStep();
-}
-
-function copyNewKey() {
-  navigator.clipboard.writeText(document.getElementById('newWalletSeed').value).then(() => {
-    const btn = document.getElementById('copyKeyBtn');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
+function connectViewOnly() {
+  let input = document.getElementById('importSeedInput').value.trim();
+  if (!input) { showToast('Please enter a PIChain address', 'error'); return; }
+  let hex = input;
+  if (hex.startsWith('Pi314')) hex = hex.slice(5);
+  if (hex.startsWith('pi314')) hex = hex.slice(5);
+  if (!/^[0-9a-fA-F]{40}$/.test(hex)) { showToast('Invalid address. Must be Pi314... or 40 hex chars.', 'error'); return; }
+  walletAddressHex = hex.toLowerCase();
+  walletAddress = hexDecode(walletAddressHex);
+  walletKeypair = { publicKey: walletAddress }; // compat
+  persistWalletConnection('Pi314' + walletAddressHex);
+  document.getElementById('walletModal').classList.remove('show');
+  resetWalletModal();
+  updateWalletUI();
+  showToast('Viewing wallet (read-only)', 'success');
 }
 
 function showWalletModal() { resetWalletModal(); document.getElementById('walletModal').classList.add('show'); }
@@ -366,81 +336,10 @@ function closeWalletModal() { document.getElementById('walletModal').classList.r
 
 function resetWalletModal() {
   document.getElementById('walletStep1').style.display = 'block';
-  document.getElementById('walletStep2').style.display = 'none';
-  document.getElementById('walletStep3').style.display = 'none';
-  const s=document.getElementById('captchaStatus');if(s){s.textContent='Solving proof-of-work challenge...';s.style.color='var(--muted)';}
-  const sp=document.getElementById('captchaSpinner');if(sp)sp.style.display='inline-block';
-  const el=document.getElementById('newWalletSeed');if(el)el.value='';
-  const el2=document.getElementById('newWalletAddr');if(el2)el2.value='';
-  const el3=document.getElementById('importSeedInput');if(el3)el3.value='';
-}
-
-async function activateWallet(){
-  if(!walletAddressHex)return;
-  const statusEl=document.getElementById('captchaStatus');
-  const spinnerEl=document.getElementById('captchaSpinner');
-  try{
-    const cr=await fetch(API+'/api/v1/wallet/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex})});
-    const cd=await cr.json();
-    if(!cd.success){
-      if(cd.error&&cd.error.includes('already activated')){
-        if(statusEl){statusEl.textContent='Wallet already activated!';statusEl.style.color='var(--green)';}
-        if(spinnerEl)spinnerEl.style.display='none';
-        setTimeout(()=>closeWalletModal(),1500);
-        showToast('Wallet ready!','success');
-      }
-      return;
-    }
-    if(statusEl)statusEl.textContent='Solving proof-of-work challenge...';
-    const challengeBytes=hexDecode(cd.challenge);
-    const diffBits=cd.difficulty_bits||20;
-    const nonce=await solveActivationPoW(challengeBytes,diffBits);
-    if(statusEl)statusEl.textContent='Activating wallet...';
-    const r=await fetch(API+'/api/v1/wallet/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:walletAddressHex,challenge:cd.challenge,nonce:nonce})});
-    const d=await r.json();
-    if(d.success){
-      if(statusEl){statusEl.textContent='Wallet activated! +'+d.locked_amount_pi+' PI for gas fees';statusEl.style.color='var(--green)';}
-      if(spinnerEl)spinnerEl.style.display='none';
-      showToast('+'+d.locked_amount_pi+' PI locked for gas fees!','success');
-      updateBalance();
-      setTimeout(()=>closeWalletModal(),2000);
-    }else{
-      if(statusEl){statusEl.textContent=d.error||'Activation failed';statusEl.style.color='var(--rose)';}
-      if(spinnerEl)spinnerEl.style.display='none';
-      setTimeout(()=>closeWalletModal(),3000);
-    }
-  }catch(e){
-    if(statusEl){statusEl.textContent='Could not reach node';statusEl.style.color='var(--rose)';}
-    if(spinnerEl)spinnerEl.style.display='none';
-    setTimeout(()=>closeWalletModal(),3000);
-  }
-}
-
-async function solveActivationPoW(challenge,diffBits){
-  const fullBytes=(diffBits/8)|0;
-  const remBits=diffBits%8;
-  const mask=remBits>0?(0xFF<<(8-remBits))&0xFF:0;
-  const batchSize=2000;
-  for(let batch=0;batch<1000000;batch++){
-    const base=batch*batchSize;
-    const promises=[];
-    for(let i=0;i<batchSize;i++){
-      const nonce=base+i;
-      const buf=new Uint8Array(challenge.length+8);
-      buf.set(challenge);
-      let n=nonce;
-      for(let j=0;j<8;j++){buf[challenge.length+j]=n&0xFF;n=Math.floor(n/256);}
-      promises.push(crypto.subtle.digest('SHA-256',buf).then(h=>({nonce,hash:new Uint8Array(h)})));
-    }
-    const results=await Promise.all(promises);
-    for(const{nonce,hash}of results){
-      let ok=true;
-      for(let i=0;i<fullBytes;i++){if(hash[i]!==0){ok=false;break;}}
-      if(ok&&remBits>0&&(hash[fullBytes]&mask)!==0)ok=false;
-      if(ok)return nonce;
-    }
-  }
-  throw new Error('PoW solution not found');
+  const s3 = document.getElementById('walletStep3'); if (s3) s3.style.display = 'none';
+  const s = document.getElementById('captchaStatus'); if (s) { s.textContent = 'Connecting to PIChain Signer...'; s.style.color = 'var(--muted)'; }
+  const sp = document.getElementById('captchaSpinner'); if (sp) sp.style.display = 'inline-block';
+  const el3 = document.getElementById('importSeedInput'); if (el3) el3.value = '';
 }
 
 function updateWalletUI() {
@@ -449,7 +348,6 @@ function updateWalletUI() {
     bar.innerHTML = `
       <span class="addr">${shortAddr(walletAddressHex)}</span>
       <span class="bal" id="walletBal">${formatPI(piBalance)} PI</span>
-      <button class="btn btn-sm btn-outline" onclick="showPrivateKey()">Key</button>
       <button class="btn btn-sm btn-outline" onclick="disconnectWallet()">Disconnect</button>
     `;
     loadMyDelegations();
@@ -461,31 +359,9 @@ function updateWalletUI() {
   }
 }
 
-function showPrivateKey() {
-  const modal = document.getElementById('walletModalContent');
-  document.getElementById('walletStep1').style.display = 'none';
-  let keyView = document.getElementById('walletKeyView');
-  if (!keyView) { keyView = document.createElement('div'); keyView.id = 'walletKeyView'; modal.appendChild(keyView); }
-  keyView.style.display = 'block';
-  keyView.innerHTML = `
-    <h3>Your Private Key</h3>
-    <div class="warning-box">Never share this key with anyone.</div>
-    <div class="form-row"><label>Private Key</label>
-      <div style="position:relative;">
-        <input type="text" value="${walletSeedHex}" readonly spellcheck="false" style="font-size:12px;padding-right:70px;">
-        <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${walletSeedHex}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);">Copy</button>
-      </div>
-    </div>
-    <div class="form-row"><label>Address</label>
-      <input type="text" value="Pi314${walletAddressHex}" readonly spellcheck="false" style="color:var(--cyan);">
-    </div>
-    <button class="btn btn-outline" style="margin-top:12px;" onclick="document.getElementById('walletKeyView').style.display='none';closeWalletModal();">Close</button>
-  `;
-  document.getElementById('walletModal').classList.add('show');
-}
-
 function disconnectWallet() {
   localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
+  clearWalletConnection();
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   updateWalletUI();
@@ -511,8 +387,31 @@ async function updateBalance() {
 
 function loadWallet() {
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
-  const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
-  if(saved && saved.length===64) { initWallet(hexDecode(saved)); activateWallet(); }
+  connectPQProxy().then(function(result){
+    if(result.connected){
+      let hex=result.address;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      walletAddressHex=hex.toLowerCase();
+      walletAddress=hexDecode(walletAddressHex);
+      walletKeypair={publicKey:walletAddress};
+      persistWalletConnection(result.address);
+      updateWalletUI();
+      updateBalance();
+    }
+  }).catch(function(){
+    const savedAddr=getPersistedAddress();
+    if(savedAddr){
+      let hex=savedAddr;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      if(/^[0-9a-fA-F]{40}$/.test(hex)){
+        walletAddressHex=hex.toLowerCase();
+        walletAddress=hexDecode(walletAddressHex);
+        walletKeypair={publicKey:walletAddress};
+        updateWalletUI();
+        updateBalance();
+      }
+    }
+  });
 }
 
 function showToast(msg, type) {
