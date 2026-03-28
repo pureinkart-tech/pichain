@@ -522,7 +522,7 @@ async function mainMenu(ctx, u) {
   text += `\n\nPaste a *token ${isPi ? 'mint ID' : 'address'}* to trade\\!`;
 
   const kb = new InlineKeyboard()
-    .text('Buy', 'cmd_buy').text('Sell & Manage', 'positions').row()
+    .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('Buy', 'cmd_buy').text('Sell & Manage', 'positions').row()
     .text(isPi ? '\u{1F7E2} Switch Solana' : '\u{1F7E3} Switch PIChain', 'switch_chain').text('Change Wallet', 'cmd_wallets').row()
     .text(isPi ? 'Launches' : 'Trending', isPi ? 'launches' : 'sol_trending').text('Tokens', 'tokens').text('Alerts', 'cmd_alerts').row()
     .text('Wallet', 'wallet').text('Settings', 'settings').text('Refer Friends', 'referrals').row()
@@ -1277,6 +1277,39 @@ bot.on('message:text', async (ctx, next) => {
     return;
   }
 
+  // Custom buy PI amount
+  if (ctx.session.awaitingInput === 'buypi_amount') {
+    ctx.session.awaitingInput = null;
+    const amount = parseFloat(text);
+    if (!amount || amount <= 0) {
+      await ctx.reply('Invalid amount. Please enter a number (e.g., 1000).');
+      return;
+    }
+    // Trigger the same flow as button buy
+    const u = await getUser(ctx.from.id);
+    const solPrice = cachedSolPrice || 90;
+    const costUsd = amount * PI_PRICE_USD;
+    const costSol = costUsd / solPrice;
+    const piAddr = u.wallet_address || u.pi_address || u.address || '';
+    if (!piAddr || piAddr === '0'.repeat(40)) {
+      await ctx.reply('You need a PIChain wallet first. Type /wallet to set one up.');
+      return;
+    }
+    ctx.session.pendingBuy = { amountPi: amount, costSol, costUsd, piAddr, costLamports: Math.ceil(costSol * 1e9) };
+    const kb = new InlineKeyboard()
+      .text('\u{2705} Confirm Purchase', 'confirm_buypi')
+      .text('\u{274C} Cancel', 'cancel_buypi');
+    await ctx.reply(
+      `\u{1F7E3} *Buy ${amount.toLocaleString()} PI*\n\n` +
+      `Cost: *${costSol.toFixed(6)} SOL* ($${costUsd.toFixed(2)})\n` +
+      `SOL price: $${solPrice.toFixed(2)}\n\n` +
+      `PI sent to: \`${piAddr}\`\n\n` +
+      `SOL deducted from your PiBot Solana wallet.`,
+      { parse_mode: 'Markdown', reply_markup: kb }
+    );
+    return;
+  }
+
   // 2FA verification
   if (ctx.session.awaitingInput === '2fa_verify') {
     ctx.session.awaitingInput = null;
@@ -1564,6 +1597,68 @@ bot.callbackQuery('xkey', async (ctx) => {
 });
 bot.callbackQuery('ikey', async (ctx) => { ctx.session.awaitingInput = 'import_key'; await ctx.reply('Paste the contents of your PQ wallet JSON file (from the desktop app or CLI miner).\n\nOpen the wallet .json file in a text editor and copy everything.'); await ctx.answerCallbackQuery().catch(() => {}); });
 bot.callbackQuery('cmd_buy', async (ctx) => { const u = await getUser(ctx.from.id); const isPi = u.chain==='pi'; await ctx.editMessageText(isPi ? 'Paste a *token mint ID* \\(64 hex chars\\) to buy\\.' : 'Paste a *Solana token address* to buy\\.', { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2190} Home','home') }).catch(()=>{}); await ctx.answerCallbackQuery().catch(() => {}); });
+
+// Buy PI with buttons
+bot.callbackQuery('buy_pi_menu', async (ctx) => {
+  const solPrice = cachedSolPrice || 90;
+  const piPerSol = solPrice / PI_PRICE_USD;
+  const kb = new InlineKeyboard()
+    .text('100 PI', 'buypi:100').text('500 PI', 'buypi:500').text('1,000 PI', 'buypi:1000').row()
+    .text('5,000 PI', 'buypi:5000').text('10,000 PI', 'buypi:10000').text('50,000 PI', 'buypi:50000').row()
+    .text('Custom Amount', 'buypi_custom').row()
+    .text('\u{2190} Home', 'home');
+  await ctx.editMessageText(
+    `\u{1F7E3} *Buy PI*\n\n` +
+    `Price: *\\$${esc(PI_PRICE_USD.toString())}* per PI\n` +
+    `1 SOL \\= ${esc(Math.floor(piPerSol).toLocaleString())} PI\n\n` +
+    `Select an amount:`,
+    { parse_mode: 'MarkdownV2', reply_markup: kb }
+  ).catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery(/^buypi:(\d+)$/, async (ctx) => {
+  const amountPi = parseInt(ctx.match[1]);
+  const u = await getUser(ctx.from.id);
+  const solPrice = cachedSolPrice || 90;
+  const costUsd = amountPi * PI_PRICE_USD;
+  const costSol = costUsd / solPrice;
+  const piAddr = u.wallet_address || u.pi_address || u.address || '';
+
+  if (!PI_TREASURY_ADDR) {
+    await ctx.editMessageText('PI sales are not configured yet.').catch(() => {});
+    await ctx.answerCallbackQuery().catch(() => {});
+    return;
+  }
+
+  if (!piAddr || piAddr === '0'.repeat(40)) {
+    await ctx.editMessageText('You need a PIChain wallet first. Type /wallet to set one up.').catch(() => {});
+    await ctx.answerCallbackQuery().catch(() => {});
+    return;
+  }
+
+  ctx.session.pendingBuy = { amountPi, costSol, costUsd, piAddr, costLamports: Math.ceil(costSol * 1e9) };
+
+  const kb = new InlineKeyboard()
+    .text('\u{2705} Confirm Purchase', 'confirm_buypi')
+    .text('\u{274C} Cancel', 'buy_pi_menu');
+
+  await ctx.editMessageText(
+    `\u{1F7E3} *Buy ${amountPi.toLocaleString()} PI*\n\n` +
+    `Cost: *${esc(costSol.toFixed(6))} SOL* \\(\\$${esc(costUsd.toFixed(2))}\\)\n` +
+    `SOL price: \\$${esc(solPrice.toFixed(2))}\n\n` +
+    `PI sent to: \`${esc(piAddr)}\`\n\n` +
+    `SOL deducted from your PiBot Solana wallet\\.`,
+    { parse_mode: 'MarkdownV2', reply_markup: kb }
+  ).catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('buypi_custom', async (ctx) => {
+  ctx.session.awaitingInput = 'buypi_amount';
+  await ctx.editMessageText('Enter the amount of PI you want to buy:').catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
 bot.callbackQuery('cmd_wallets', async (ctx) => { const u = await getUser(ctx.from.id); const wallets = multiWallet.getWallets(u.telegram_id); if(wallets.length===0){await multiWallet.createWallet(u.telegram_id,'Main');multiWallet.switchWallet(u.telegram_id,multiWallet.getWallets(u.telegram_id)[0].id);} const all=multiWallet.getWallets(u.telegram_id); let text='\u{1F4B3} *Wallets*\n\n'; const kb=new InlineKeyboard(); for(const w of all){text+=`${w.is_active?'\u{2705}':'\u{26AA}'} *${esc(w.label)}*\n`;if(!w.is_active)kb.text('Switch '+w.label,'mw_switch:'+w.id).row();} kb.text('\u{2795} New Wallet','mw_new').text('\u{2190} Home','home').row(); await ctx.editMessageText(text,{parse_mode:'MarkdownV2',reply_markup:kb}).catch(()=>ctx.reply(text,{parse_mode:'MarkdownV2',reply_markup:kb})); await ctx.answerCallbackQuery().catch(() => {}); });
 bot.callbackQuery('cmd_sell', async (ctx) => { ctx.answerCallbackQuery().catch(() => {}); await showPortfolio(ctx, await getUser(ctx.from.id)); });
 bot.callbackQuery('cmd_send', async (ctx) => {
