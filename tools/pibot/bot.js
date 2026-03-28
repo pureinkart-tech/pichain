@@ -463,11 +463,36 @@ async function mainMenu(ctx, u) {
 
         for (let i = 0; i < mints.length; i++) {
           const t = solTokens[i];
-          const dex = dexBatch.find(p => p.baseToken?.address === mints[i]) || null;
+          let dex = dexBatch.find(p => p.baseToken?.address === mints[i]) || null;
+          // If DexScreener batch missed this token, try via Raydium pool ID
+          if (!dex) {
+            try {
+              const cacheKey = 'dex_pool:' + mints[i];
+              let poolDex = cache.get(cacheKey, 60000);
+              if (poolDex === undefined) {
+                const rpResp = await fetch('https://api-v3.raydium.io/pools/info/mint?mint1=' + mints[i] + '&poolType=all&poolSortField=default&sortType=desc&pageSize=1&page=1', { signal: AbortSignal.timeout(4000) });
+                const rpData = await rpResp.json();
+                const poolId = rpData.data?.data?.[0]?.id;
+                if (poolId) {
+                  const sc = require('../../shared-token-cache.cjs');
+                  if (!sc.isDexCooldown()) {
+                    const dxResp = await fetch('https://api.dexscreener.com/latest/dex/pairs/solana/' + poolId, { signal: AbortSignal.timeout(4000) });
+                    if (dxResp.status === 429) { sc.setDexCooldown(30000); }
+                    else if (dxResp.ok) {
+                      const dxData = await dxResp.json();
+                      poolDex = dxData.pair || dxData.pairs?.[0] || null;
+                    }
+                  }
+                }
+                cache.set(cacheKey, poolDex || null);
+              }
+              if (poolDex) dex = poolDex;
+            } catch {}
+          }
           const info = await getCachedTokenInfo(t.mint);
           const sym = info.symbol || t.mint.slice(0,6);
           let price = dex ? parseFloat(dex.priceUsd || '0') : 0;
-          // Fallback to sol.getPrice if DexScreener has no data
+          // Fallback to Raydium/Jupiter price if DexScreener has no data
           if (price === 0) {
             try { price = await sol.getPrice(t.mint); } catch {}
           }
