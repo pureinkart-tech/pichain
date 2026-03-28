@@ -277,6 +277,10 @@ function getPersistedAddress() {
  * Shows waiting state, opens Telegram, polls for verification.
  */
 async function connectWithPiBot() {
+  // Generate link code and open Telegram IMMEDIATELY (must be in direct click handler)
+  const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  window.open('https://t.me/PiChainTradeBot?start=link_' + code, '_blank');
+
   const step1 = document.getElementById('walletStep1') || document.getElementById('wmStep1');
   const step3 = document.getElementById('walletStep3') || document.getElementById('wmStep3');
   const status = document.getElementById('captchaStatus') || document.getElementById('wmStatus');
@@ -285,11 +289,31 @@ async function connectWithPiBot() {
   if (step1) step1.style.display = 'none';
   if (step3) {
     step3.style.display = 'block';
-    if (status) { status.textContent = 'Waiting for PiBot verification...'; status.style.color = 'var(--muted)'; }
+    if (status) { status.textContent = 'Waiting for PiBot verification... Click Start in Telegram.'; status.style.color = 'var(--muted)'; }
     if (spinner) spinner.style.display = 'inline-block';
   }
 
-  const result = await connectViaPiBot();
+  // Poll for verification
+  const API = window.API || window.location.origin;
+  let result = { connected: false };
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const resp = await fetch(API + '/api/v1/session/check?code=' + code, { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.linked && data.address) {
+          window.pqProxyConnected = true;
+          window.pqProxyAddress = data.address;
+          window.pqWalletProvider = 'pibot';
+          localStorage.setItem('pichain_pibot_tid', data.telegram_id);
+          window.persistWalletConnection(data.address);
+          result = { connected: true, address: data.address };
+          break;
+        }
+      }
+    } catch {}
+  }
   if (result.connected) {
     const modal = document.getElementById('walletModal');
     if (modal) modal.classList.remove('show');
