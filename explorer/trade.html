@@ -1597,25 +1597,32 @@ document.getElementById('walletModal').addEventListener('click', function(e) {
 // ═══════════════════════════════════════════════════════════════════
 // Cross-chain Swap: PI ↔ SOL
 // ═══════════════════════════════════════════════════════════════════
-const PI_PRICE_USD = 0.001;
 let crossSolPrice = 90;
 let swapDirection = 'buy'; // 'buy' = SOL→PI, 'sell' = PI→SOL
+let ammPiReserve = 10000 * 1e9;
+let ammSolReserve = 0.077 * 1e9;
+let ammK = ammPiReserve * ammSolReserve;
 
-// Fetch SOL price
-async function updateCrossSolPrice() {
+// Fetch SOL price + AMM pool state
+async function updateCrossPrices() {
   try {
     const r = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(3000) });
     if (r.ok) { const d = await r.json(); crossSolPrice = parseFloat(d.data?.['So11111111111111111111111111111111111111112']?.price || '90'); }
   } catch {}
+  // Pool state updates with each PiBot trade — website shows real-time estimate
+  // Actual execution goes through PiBot which holds the authoritative pool state
+  const piPriceUsd = (ammSolReserve / ammPiReserve) * crossSolPrice;
+  const piPerSol = Math.floor(ammPiReserve / ammSolReserve);
   const el = document.getElementById('crossSolPrice');
   if (el) el.textContent = '$' + crossSolPrice.toFixed(2);
-  const piPerSol = Math.floor(crossSolPrice / PI_PRICE_USD);
   const rateEl = document.getElementById('crossRate');
-  if (rateEl) rateEl.textContent = '1 SOL = ' + piPerSol.toLocaleString() + ' PI';
+  if (rateEl) rateEl.textContent = '1 SOL = ~' + piPerSol.toLocaleString() + ' PI';
+  const priceEl = document.getElementById('crossPiPrice');
+  if (priceEl) priceEl.textContent = '$' + piPriceUsd.toFixed(6);
   calcSwap();
 }
-updateCrossSolPrice();
-setInterval(updateCrossSolPrice, 15000);
+updateCrossPrices();
+setInterval(updateCrossPrices, 15000);
 
 function setSwapDir(dir) {
   swapDirection = dir;
@@ -1660,16 +1667,27 @@ function calcSwap() {
     if (btn) btn.textContent = 'Enter an amount';
     return;
   }
-  const piPerSol = crossSolPrice / PI_PRICE_USD;
-  let output;
   if (swapDirection === 'buy') {
-    output = input * piPerSol; // SOL → PI
-    if (btn) btn.textContent = 'Buy ' + Math.floor(output).toLocaleString() + ' PI';
+    // SOL → PI (constant product: (solR + solIn) * (piR - piOut) = k)
+    const solIn = Math.floor(input * 1e9 * 0.997); // 0.3% fee
+    const newSolR = ammSolReserve + solIn;
+    const newPiR = Math.ceil(ammK / newSolR);
+    const piOut = ammPiReserve - newPiR;
+    const piOutDisplay = Math.max(0, piOut / 1e9);
+    const impact = (piOut / ammPiReserve * 100).toFixed(1);
+    document.getElementById('swapToAmount').value = piOutDisplay.toFixed(2);
+    if (btn) btn.textContent = piOut > 0 ? 'Buy ' + Math.floor(piOutDisplay).toLocaleString() + ' PI (' + impact + '% impact)' : 'Insufficient liquidity';
   } else {
-    output = input / piPerSol; // PI → SOL
-    if (btn) btn.textContent = 'Sell for ' + output.toFixed(6) + ' SOL';
+    // PI → SOL
+    const piIn = Math.floor(input * 1e9 * 0.997);
+    const newPiR = ammPiReserve + piIn;
+    const newSolR = Math.ceil(ammK / newPiR);
+    const solOut = ammSolReserve - newSolR;
+    const solOutDisplay = Math.max(0, solOut / 1e9);
+    const impact = (input * 1e9 / ammPiReserve * 100).toFixed(1);
+    document.getElementById('swapToAmount').value = solOutDisplay.toFixed(6);
+    if (btn) btn.textContent = solOut > 0 ? 'Sell for ' + solOutDisplay.toFixed(6) + ' SOL (' + impact + '% impact)' : 'Insufficient liquidity';
   }
-  document.getElementById('swapToAmount').value = swapDirection === 'buy' ? Math.floor(output) : output.toFixed(6);
 }
 
 async function doCrossSwap() {

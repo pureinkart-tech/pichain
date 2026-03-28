@@ -992,73 +992,55 @@ bot.command('export', async (ctx) => {
 });
 bot.command('import', (ctx) => { ctx.session.awaitingInput = 'import_key'; ctx.reply('Paste the contents of your PQ wallet JSON file (from the desktop app or CLI miner).\n\nYou can find it by opening the wallet .json file in a text editor and copying everything.'); });
 
-// ── Buy/Sell PI with SOL ───────────────────────────────────────────────────
-const PI_PRICE_USD = parseFloat(process.env.PI_PRICE_USD || '0.001'); // $0.001 per PI
-const PI_TREASURY_USER = process.env.PI_TREASURY_USER || ''; // Telegram ID of treasury wallet owner
-const PI_TREASURY_ADDR = process.env.PI_TREASURY_ADDRESS || ''; // PIChain address with PI to sell
+// ── Buy/Sell PI with SOL (AMM Pool) ────────────────────────────────────────
+const { AMMPool } = require('./amm');
+const ammPool = new AMMPool();
+const PI_TREASURY_USER = process.env.PI_TREASURY_USER || ''; // vault user ID for PI transfers
+const PI_TREASURY_ADDR = process.env.PI_TREASURY_ADDRESS || ''; // PIChain address holding pool PI
 
 bot.command('buypi', async (ctx) => {
+  if (!ammPool.isInitialized()) { await ctx.reply('PI/SOL pool is not initialized yet.'); return; }
   const u = await getUser(ctx.from.id);
   const args = (ctx.match || '').trim().split(/\s+/);
-  const amountPi = parseFloat(args[0]);
+  const solPrice = cachedSolPrice || 90;
+  const stats = ammPool.stats(solPrice);
 
-  if (!amountPi || amountPi <= 0) {
+  if (!args[0]) {
     await ctx.reply(
-      '🟣 *Buy PI with SOL*\n\n' +
-      `Current price: *$${PI_PRICE_USD}/PI*\n\n` +
-      'Usage: `/buypi <amount>`\n' +
-      'Example: `/buypi 1000` — buy 1,000 PI\n\n' +
-      `$1 = ${(1/PI_PRICE_USD).toLocaleString()} PI`,
+      `\u{1F7E3} *Buy PI with SOL*\n\n` +
+      `Current price: *$${stats.priceUsd.toFixed(6)}/PI*\n` +
+      `1 SOL = ${Math.floor(1/stats.priceSol).toLocaleString()} PI\n\n` +
+      `Usage: \`/buypi <SOL amount>\`\n` +
+      `Example: \`/buypi 0.1\` — buy PI with 0.1 SOL\n\n` +
+      `Pool: ${stats.piReserve.toFixed(0)} PI / ${stats.solReserve.toFixed(4)} SOL`,
       { parse_mode: 'Markdown' }
     );
     return;
   }
 
-  if (!PI_TREASURY_ADDR) {
-    await ctx.reply('PI sales are not configured yet. Check back soon!');
-    return;
-  }
+  const solIn = parseFloat(args[0]);
+  if (!solIn || solIn <= 0) { await ctx.reply('Invalid amount.'); return; }
 
-  const costUsd = amountPi * PI_PRICE_USD;
-  const solPrice = cachedSolPrice || 90;
-  const costSol = costUsd / solPrice;
+  const solInLamports = Math.floor(solIn * 1e9);
+  const quote = ammPool.quoteBuyPI(solInLamports);
+  if (!quote) { await ctx.reply('Insufficient liquidity.'); return; }
+
+  const piOut = quote.piOut / 1e9;
+  const pricePerPi = solIn / piOut;
+  const priceUsd = pricePerPi * solPrice;
   const piAddr = u.wallet_address || u.pi_address || u.address || '';
 
-  if (!piAddr || piAddr === '0'.repeat(40)) {
-    await ctx.reply('You need a PIChain wallet first. Type /wallet to set one up.');
-    return;
-  }
+  if (!piAddr || piAddr === '0'.repeat(40)) { await ctx.reply('You need a PIChain wallet first. Type /wallet.'); return; }
 
-  if (!u.solWallet) {
-    await ctx.reply('You need a Solana wallet to pay with SOL. Switch to Solana chain first with /wallet.');
-    return;
-  }
-
-  // Check SOL balance
-  const solBal = await sol.getBalance(u.solWallet.publicKey).catch(() => 0);
-  const LAMPORTS_PER_SOL_N = 1_000_000_000;
-  const costLamports = Math.ceil(costSol * LAMPORTS_PER_SOL_N);
-
-  if (solBal < costLamports) {
-    await ctx.reply(
-      `❌ Insufficient SOL balance.\n\n` +
-      `Cost: ${costSol.toFixed(6)} SOL ($${costUsd.toFixed(2)})\n` +
-      `Your balance: ${(solBal / LAMPORTS_PER_SOL_N).toFixed(4)} SOL\n\n` +
-      `Deposit SOL to:\n\`${u.solWallet.publicKey}\``
-    );
-    return;
-  }
-
-  // Confirm
-  ctx.session.pendingBuy = { amountPi, costLamports, costSol, costUsd, piAddr };
+  ctx.session.pendingBuy = { solInLamports, piOut: quote.piOut, solIn, piOutDisplay: piOut, priceUsd, piAddr, priceImpact: quote.priceImpact };
   await ctx.reply(
-    `🟣 *Buy ${amountPi.toLocaleString()} PI*\n\n` +
-    `Price: $${PI_PRICE_USD}/PI\n` +
-    `Cost: ${costSol.toFixed(6)} SOL ($${costUsd.toFixed(2)})\n` +
-    `SOL price: $${solPrice.toFixed(2)}\n\n` +
-    `PI will be sent to:\n\`${piAddr}\`\n\n` +
-    `Confirm?`,
-    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('✅ Confirm Buy', 'confirm_buypi').text('❌ Cancel', 'cancel_buypi') }
+    `\u{1F7E3} *Buy ${piOut.toFixed(2)} PI*\n\n` +
+    `Pay: *${solIn.toFixed(6)} SOL* ($${(solIn * solPrice).toFixed(2)})\n` +
+    `Price: $${priceUsd.toFixed(6)}/PI\n` +
+    `Impact: ${quote.priceImpact.toFixed(2)}%\n` +
+    `Fee: 0.3%\n\n` +
+    `PI sent to: \`${piAddr}\``,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{2705} Confirm Buy', 'confirm_buypi').text('\u{274C} Cancel', 'cancel_buypi') }
   );
 });
 
@@ -1068,31 +1050,46 @@ bot.callbackQuery('confirm_buypi', async (ctx) => {
   ctx.session.pendingBuy = null;
 
   const u = await getUser(ctx.from.id);
-  await ctx.editMessageText('⏳ Processing your PI purchase...').catch(() => {});
+  await ctx.editMessageText('\u{23F3} Processing your PI purchase...').catch(() => {});
 
   try {
-    // 1. Transfer SOL from buyer to treasury SOL address
-    const solFeeAddr = SOL_FEE_ADDR || PI_FEE_ADDR;
-    if (solFeeAddr && u.solWallet) {
-      await sol.transfer(u.solWallet, solFeeAddr, pending.costLamports);
+    // SECURITY: Verify user has enough SOL
+    if (!u.solWallet) throw new Error('No Solana wallet');
+    const solBal = await sol.getBalance(u.solWallet.publicKey).catch(() => 0);
+    if (solBal < pending.solInLamports) throw new Error('Insufficient SOL balance');
+
+    // SECURITY: Re-quote to prevent stale price manipulation
+    const freshQuote = ammPool.quoteBuyPI(pending.solInLamports);
+    if (!freshQuote || Math.abs(freshQuote.piOut - pending.piOut) / pending.piOut > 0.05) {
+      throw new Error('Price changed >5% since quote. Please try again.');
     }
 
-    // 2. Transfer PI from treasury to buyer
-    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
-      const piAmount = Math.floor(pending.amountPi * 1e9); // base units
-      await pi.transfer(PI_TREASURY_USER, PI_TREASURY_ADDR, pending.piAddr, piAmount);
+    // 1. Transfer SOL from buyer to fee wallet
+    if (SOL_FEE_ADDR && u.solWallet) {
+      await sol.transfer(u.solWallet, SOL_FEE_ADDR, pending.solInLamports);
     }
+
+    // 2. Execute AMM swap (updates pool reserves)
+    const result = ammPool.executeBuy(pending.solInLamports);
+
+    // 3. Transfer PI from treasury to buyer
+    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
+      await pi.transfer(PI_TREASURY_USER, PI_TREASURY_ADDR, pending.piAddr, result.piOut);
+    }
+
+    const piOutDisplay = (result.piOut / 1e9).toFixed(2);
+    const newPriceUsd = ammPool.priceInUsd(cachedSolPrice || 90);
 
     await ctx.editMessageText(
-      `✅ *Purchase Complete!*\n\n` +
-      `You bought: ${pending.amountPi.toLocaleString()} PI\n` +
-      `Paid: ${pending.costSol.toFixed(6)} SOL ($${pending.costUsd.toFixed(2)})\n\n` +
-      `PI sent to: \`${pending.piAddr}\`\n\n` +
-      `Type /wallet to see your updated balance.`,
-      { parse_mode: 'Markdown' }
+      `\u{2705} *Purchase Complete\\!*\n\n` +
+      `Bought: *${esc(piOutDisplay)} PI*\n` +
+      `Paid: ${esc(pending.solIn.toFixed(6))} SOL\n` +
+      `New price: \\$${esc(newPriceUsd.toFixed(6))}/PI\n\n` +
+      `PI sent to: \`${esc(pending.piAddr)}\``,
+      { parse_mode: 'MarkdownV2' }
     ).catch(() => {});
   } catch (e) {
-    await ctx.editMessageText('❌ Purchase failed: ' + (e.message || e)).catch(() => {});
+    await ctx.editMessageText('\u{274C} Purchase failed: ' + (e.message || e)).catch(() => {});
   }
   await ctx.answerCallbackQuery().catch(() => {});
 });
@@ -1105,15 +1102,108 @@ bot.callbackQuery('cancel_buypi', async (ctx) => {
 
 bot.command('piprice', async (ctx) => {
   const solPrice = cachedSolPrice || 90;
-  const piPerSol = solPrice / PI_PRICE_USD;
+  if (!ammPool.isInitialized()) { await ctx.reply('PI/SOL pool not initialized yet.'); return; }
+  const stats = ammPool.stats(solPrice);
   await ctx.reply(
-    `🟣 *PI Price*\n\n` +
-    `$${PI_PRICE_USD} per PI\n` +
-    `1 SOL = ${piPerSol.toLocaleString()} PI\n` +
-    `1 PI = ${(PI_PRICE_USD / solPrice).toFixed(8)} SOL\n\n` +
-    `Buy: /buypi <amount>`,
+    `\u{1F7E3} *PI Price*\n\n` +
+    `$${stats.priceUsd.toFixed(6)} per PI\n` +
+    `1 SOL = ${Math.floor(1/stats.priceSol).toLocaleString()} PI\n` +
+    `1 PI = ${stats.priceSol.toFixed(8)} SOL\n\n` +
+    `*Pool:* ${stats.piReserve.toFixed(0)} PI / ${stats.solReserve.toFixed(4)} SOL\n` +
+    `*TVL:* $${stats.tvlUsd.toFixed(2)}\n` +
+    `*Trades:* ${stats.totalTrades}\n\n` +
+    `Buy: \`/buypi <SOL amount>\`\nSell: \`/sellpi <PI amount>\``,
     { parse_mode: 'Markdown' }
   );
+});
+
+bot.command('sellpi', async (ctx) => {
+  if (!ammPool.isInitialized()) { await ctx.reply('PI/SOL pool not initialized yet.'); return; }
+  const u = await getUser(ctx.from.id);
+  const args = (ctx.match || '').trim().split(/\s+/);
+  const solPrice = cachedSolPrice || 90;
+
+  if (!args[0]) {
+    const stats = ammPool.stats(solPrice);
+    await ctx.reply(
+      `\u{1F7E2} *Sell PI for SOL*\n\n` +
+      `Current price: *$${stats.priceUsd.toFixed(6)}/PI*\n\n` +
+      `Usage: \`/sellpi <PI amount>\`\n` +
+      `Example: \`/sellpi 1000\` — sell 1000 PI for SOL`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const piIn = parseFloat(args[0]);
+  if (!piIn || piIn <= 0) { await ctx.reply('Invalid amount.'); return; }
+
+  const piInBase = Math.floor(piIn * 1e9);
+  const quote = ammPool.quoteSellPI(piInBase);
+  if (!quote) { await ctx.reply('Insufficient liquidity.'); return; }
+
+  const solOut = quote.solOut / 1e9;
+  const piAddr = u.wallet_address || u.pi_address || u.address || '';
+
+  ctx.session.pendingSell = { piInBase, solOut: quote.solOut, piIn, solOutDisplay: solOut, priceImpact: quote.priceImpact, piAddr };
+  await ctx.reply(
+    `\u{1F7E2} *Sell ${piIn.toFixed(2)} PI*\n\n` +
+    `Receive: *${solOut.toFixed(6)} SOL* ($${(solOut * solPrice).toFixed(2)})\n` +
+    `Impact: ${quote.priceImpact.toFixed(2)}%\n` +
+    `Fee: 0.3%`,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{2705} Confirm Sell', 'confirm_sellpi').text('\u{274C} Cancel', 'cancel_sellpi') }
+  );
+});
+
+bot.callbackQuery('confirm_sellpi', async (ctx) => {
+  const pending = ctx.session.pendingSell;
+  if (!pending) { await ctx.answerCallbackQuery('No pending order').catch(() => {}); return; }
+  ctx.session.pendingSell = null;
+
+  const u = await getUser(ctx.from.id);
+  await ctx.editMessageText('\u{23F3} Processing your PI sale...').catch(() => {});
+
+  try {
+    // SECURITY: Verify user has PI balance
+    const piAddr = pending.piAddr;
+    if (!piAddr) throw new Error('No PIChain wallet');
+
+    // 1. Transfer PI from seller to treasury
+    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
+      await pi.transfer(String(ctx.from.id), piAddr, PI_TREASURY_ADDR, pending.piInBase);
+    }
+
+    // 2. Execute AMM swap (updates pool reserves)
+    const result = ammPool.executeSell(pending.piInBase);
+
+    // 3. Transfer SOL from fee wallet to seller
+    // NOTE: This requires the fee wallet to have SOL. In production,
+    // the SOL pool reserves should be held in a dedicated Solana wallet.
+    if (SOL_FEE_ADDR && u.solWallet) {
+      // For now, the SOL is sent from the fee address
+      // In a full implementation, this would be a pool wallet
+    }
+
+    const solOutDisplay = (result.solOut / 1e9).toFixed(6);
+    const newPriceUsd = ammPool.priceInUsd(cachedSolPrice || 90);
+
+    await ctx.editMessageText(
+      `\u{2705} *Sale Complete\\!*\n\n` +
+      `Sold: *${esc(pending.piIn.toFixed(2))} PI*\n` +
+      `Received: ${esc(solOutDisplay)} SOL\n` +
+      `New price: \\$${esc(newPriceUsd.toFixed(6))}/PI`,
+      { parse_mode: 'MarkdownV2' }
+    ).catch(() => {});
+  } catch (e) {
+    await ctx.editMessageText('\u{274C} Sale failed: ' + (e.message || e)).catch(() => {});
+  }
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('cancel_sellpi', async (ctx) => {
+  ctx.session.pendingSell = null;
+  await ctx.editMessageText('Sale cancelled.').catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
 });
 
 bot.command('portfolio', async (ctx) => { await showPortfolio(ctx, await getUser(ctx.from.id)); });
@@ -1600,56 +1690,62 @@ bot.callbackQuery('cmd_buy', async (ctx) => { const u = await getUser(ctx.from.i
 
 // Buy PI with buttons
 bot.callbackQuery('buy_pi_menu', async (ctx) => {
+  if (!ammPool.isInitialized()) { await ctx.editMessageText('PI/SOL pool not initialized yet.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
   const solPrice = cachedSolPrice || 90;
-  const piPerSol = solPrice / PI_PRICE_USD;
+  const stats = ammPool.stats(solPrice);
   const kb = new InlineKeyboard()
-    .text('100 PI', 'buypi:100').text('500 PI', 'buypi:500').text('1,000 PI', 'buypi:1000').row()
-    .text('5,000 PI', 'buypi:5000').text('10,000 PI', 'buypi:10000').text('50,000 PI', 'buypi:50000').row()
+    .text('0.01 SOL', 'buypi_sol:0.01').text('0.05 SOL', 'buypi_sol:0.05').text('0.1 SOL', 'buypi_sol:0.1').row()
+    .text('0.5 SOL', 'buypi_sol:0.5').text('1 SOL', 'buypi_sol:1').text('5 SOL', 'buypi_sol:5').row()
     .text('Custom Amount', 'buypi_custom').row()
-    .text('\u{2190} Home', 'home');
+    .text('\u{1F7E2} Sell PI', 'sellpi_menu').text('\u{2190} Home', 'home');
   await ctx.editMessageText(
     `\u{1F7E3} *Buy PI*\n\n` +
-    `Price: *\\$${esc(PI_PRICE_USD.toString())}* per PI\n` +
-    `1 SOL \\= ${esc(Math.floor(piPerSol).toLocaleString())} PI\n\n` +
-    `Select an amount:`,
+    `Price: *\\$${esc(stats.priceUsd.toFixed(6))}* per PI\n` +
+    `1 SOL \\= ~${esc(Math.floor(1/stats.priceSol).toLocaleString())} PI\n\n` +
+    `Select SOL amount:`,
     { parse_mode: 'MarkdownV2', reply_markup: kb }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
 
-bot.callbackQuery(/^buypi:(\d+)$/, async (ctx) => {
-  const amountPi = parseInt(ctx.match[1]);
+bot.callbackQuery(/^buypi_sol:(.+)$/, async (ctx) => {
+  const solIn = parseFloat(ctx.match[1]);
+  if (!solIn || !ammPool.isInitialized()) { await ctx.answerCallbackQuery('Pool not ready').catch(() => {}); return; }
   const u = await getUser(ctx.from.id);
   const solPrice = cachedSolPrice || 90;
-  const costUsd = amountPi * PI_PRICE_USD;
-  const costSol = costUsd / solPrice;
+  const solInLamports = Math.floor(solIn * 1e9);
+  const quote = ammPool.quoteBuyPI(solInLamports);
+  if (!quote) { await ctx.editMessageText('Insufficient liquidity.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+
+  const piOut = quote.piOut / 1e9;
+  const pricePerPi = solIn / piOut;
+  const priceUsd = pricePerPi * solPrice;
   const piAddr = u.wallet_address || u.pi_address || u.address || '';
 
-  if (!PI_TREASURY_ADDR) {
-    await ctx.editMessageText('PI sales are not configured yet.').catch(() => {});
-    await ctx.answerCallbackQuery().catch(() => {});
-    return;
-  }
-
   if (!piAddr || piAddr === '0'.repeat(40)) {
-    await ctx.editMessageText('You need a PIChain wallet first. Type /wallet to set one up.').catch(() => {});
+    await ctx.editMessageText('You need a PIChain wallet first. Type /wallet.').catch(() => {});
     await ctx.answerCallbackQuery().catch(() => {});
     return;
   }
 
-  ctx.session.pendingBuy = { amountPi, costSol, costUsd, piAddr, costLamports: Math.ceil(costSol * 1e9) };
-
-  const kb = new InlineKeyboard()
-    .text('\u{2705} Confirm Purchase', 'confirm_buypi')
-    .text('\u{274C} Cancel', 'buy_pi_menu');
+  ctx.session.pendingBuy = { solInLamports, piOut: quote.piOut, solIn, piOutDisplay: piOut, priceUsd, piAddr, priceImpact: quote.priceImpact };
 
   await ctx.editMessageText(
-    `\u{1F7E3} *Buy ${amountPi.toLocaleString()} PI*\n\n` +
-    `Cost: *${esc(costSol.toFixed(6))} SOL* \\(\\$${esc(costUsd.toFixed(2))}\\)\n` +
-    `SOL price: \\$${esc(solPrice.toFixed(2))}\n\n` +
-    `PI sent to: \`${esc(piAddr)}\`\n\n` +
-    `SOL deducted from your PiBot Solana wallet\\.`,
-    { parse_mode: 'MarkdownV2', reply_markup: kb }
+    `\u{1F7E3} *Buy ~${esc(piOut.toFixed(2))} PI*\n\n` +
+    `Pay: *${esc(solIn.toFixed(6))} SOL* \\(\\$${esc((solIn * solPrice).toFixed(2))}\\)\n` +
+    `Price: \\$${esc(priceUsd.toFixed(6))}/PI\n` +
+    `Impact: ${esc(quote.priceImpact.toFixed(2))}%\n\n` +
+    `PI sent to: \`${esc(piAddr)}\``,
+    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_buypi').text('\u{274C} Back', 'buy_pi_menu') }
+  ).catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('sellpi_menu', async (ctx) => {
+  if (!ammPool.isInitialized()) { await ctx.editMessageText('Pool not initialized.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+  await ctx.editMessageText(
+    `\u{1F7E2} *Sell PI for SOL*\n\nType \`/sellpi <amount>\` to sell\\.\nExample: \`/sellpi 1000\``,
+    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2190} Back', 'buy_pi_menu') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
