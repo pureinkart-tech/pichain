@@ -112,6 +112,9 @@ async function signAndBuildPQ(kindName, kindData, nonce, gasLimit, opts) {
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     signedTx = data.signed_tx;
+  } else if (window.pqWalletProvider === 'pibot') {
+    // Sign via PiBot vault — returns hex directly
+    return await signViaPiBot(kindName, kindData, nonce, gasLimit, opts);
   } else if (window.pqWalletProvider === 'extension') {
     signedTx = await window.__pichain_extension.sign(txData);
   } else {
@@ -185,10 +188,81 @@ function persistWalletConnection(address) {
 
 function clearWalletConnection() {
   localStorage.removeItem('pichain_connected_address');
+  localStorage.removeItem('pichain_pibot_tid');
   localStorage.setItem('pichain_disconnected', '1');
   window.pqProxyConnected = false;
   window.pqProxyAddress = null;
   window.pqWalletProvider = 'none';
+}
+
+/**
+ * Connect via PiBot: generate a link code, user verifies on Telegram,
+ * website polls until linked. Returns { connected, address }.
+ */
+async function connectViaPiBot() {
+  const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const API = window.API || window.location.origin;
+
+  // Open PiBot with the link code
+  window.open('https://t.me/PiChainTradeBot?start=link_' + code, '_blank');
+
+  // Poll for verification (every 2s for 2 minutes)
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const resp = await fetch(API + '/api/v1/session/check?code=' + code, { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.linked && data.address) {
+          window.pqProxyConnected = true;
+          window.pqProxyAddress = data.address;
+          window.pqWalletProvider = 'pibot';
+          localStorage.setItem('pichain_pibot_tid', data.telegram_id);
+          persistWalletConnection(data.address);
+          return { connected: true, address: data.address };
+        }
+      }
+    } catch {}
+  }
+  return { connected: false };
+}
+
+/**
+ * Sign via PiBot vault (for users connected through Telegram linking).
+ */
+async function signViaPiBot(kindName, kindData, nonce, gasLimit, opts) {
+  opts = opts || {};
+  const tid = localStorage.getItem('pichain_pibot_tid');
+  if (!tid) throw new Error('Not connected via PiBot');
+
+  const API = window.API || window.location.origin;
+  const chainId = opts.chainId || window.CHAIN_ID || 31415;
+  const maxBaseFee = opts.maxBaseFee || window.currentBaseFee || 1000;
+
+  const txData = {
+    sender: window.pqProxyAddress,
+    nonce: nonce,
+    kind: { [kindName]: kindData },
+    gas_limit: gasLimit,
+    max_base_fee: maxBaseFee,
+    max_priority_fee: opts.maxPriorityFee || 100,
+    chain_id: chainId,
+  };
+
+  const resp = await fetch(API + '/api/v1/session/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_id: tid, tx_data: txData }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+
+  // Return hex-encoded signed tx for submission
+  const jsonStr = JSON.stringify(data.signed_tx);
+  const bytes = new TextEncoder().encode(jsonStr);
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  return hex;
 }
 
 function getPersistedAddress() {
@@ -198,8 +272,45 @@ function getPersistedAddress() {
 
 // ─── Expose globally ───
 
+/**
+ * UI helper: connect with PiBot from wallet modal.
+ * Shows waiting state, opens Telegram, polls for verification.
+ */
+async function connectWithPiBot() {
+  const step1 = document.getElementById('walletStep1') || document.getElementById('wmStep1');
+  const step3 = document.getElementById('walletStep3') || document.getElementById('wmStep3');
+  const status = document.getElementById('captchaStatus') || document.getElementById('wmStatus');
+  const spinner = document.getElementById('captchaSpinner') || document.getElementById('wmSpinner');
+
+  if (step1) step1.style.display = 'none';
+  if (step3) {
+    step3.style.display = 'block';
+    if (status) { status.textContent = 'Waiting for PiBot verification...'; status.style.color = 'var(--muted)'; }
+    if (spinner) spinner.style.display = 'inline-block';
+  }
+
+  const result = await connectViaPiBot();
+  if (result.connected) {
+    const modal = document.getElementById('walletModal');
+    if (modal) modal.classList.remove('show');
+    if (typeof showToast === 'function') showToast('Connected via PiBot: ' + result.address.slice(0, 16) + '...', 'success');
+    if (typeof updateWalletUI === 'function') updateWalletUI();
+    if (typeof onWalletConnected === 'function') onWalletConnected();
+    // Set compat vars for pages that check walletKeypair
+    window.walletAddressHex = result.address.replace(/^Pi314/, '').toLowerCase();
+    window.walletAddress = window.walletAddressHex ? new Uint8Array(window.walletAddressHex.match(/.{2}/g).map(b => parseInt(b, 16))) : null;
+    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+  } else {
+    if (status) { status.textContent = 'Connection timed out. Try again.'; status.style.color = 'var(--rose)'; }
+    if (spinner) spinner.style.display = 'none';
+  }
+}
+
+window.connectWithPiBot = connectWithPiBot;
 window.connectPQProxy = connectPQProxy;
+window.connectViaPiBot = connectViaPiBot;
 window.signAndBuildPQ = signAndBuildPQ;
+window.signViaPiBot = signViaPiBot;
 window.submitPQTx = submitPQTx;
 window.signAndSubmitPQ = signAndSubmitPQ;
 window.updatePQBadge = updatePQBadge;
@@ -222,12 +333,19 @@ async function autoConnect() {
     }
   } catch {}
 
+  // Check for PiBot session (can sign via vault)
+  const pibotTid = localStorage.getItem('pichain_pibot_tid');
+  const savedAddr = getPersistedAddress();
+  if (pibotTid && savedAddr) {
+    window.pqProxyConnected = true;
+    window.pqProxyAddress = savedAddr;
+    window.pqWalletProvider = 'pibot';
+    return;
+  }
+
   // Fall back to persisted address (view-only, no signing)
-  const saved = getPersistedAddress();
-  if (saved) {
-    window.pqProxyAddress = saved;
-    // Don't set pqProxyConnected = true since signer isn't available for signing
-    // Pages can still show balance and read-only data
+  if (savedAddr) {
+    window.pqProxyAddress = savedAddr;
   }
 }
 

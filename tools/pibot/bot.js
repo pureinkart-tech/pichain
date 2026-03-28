@@ -980,6 +980,41 @@ bot.command('start', async (ctx) => {
   const arg = (ctx.match || '').trim();
   const u = await getUser(ctx.from.id, parseInt(arg) || 0);
 
+  // Handle website wallet linking: /start link_XXXXXX
+  if (arg.startsWith('link_')) {
+    const code = arg.slice(5);
+    if (code.length >= 6) {
+      const addr = u.wallet_address || u.pi_address || u.address || '';
+      if (!addr || addr === '0'.repeat(40)) {
+        await ctx.reply('You need a PIChain wallet first. Type /wallet to set one up.');
+        return;
+      }
+      // Save link session
+      const sessFile = require('path').join('/tmp', 'pichain-sessions.json');
+      let sessions = {};
+      try { sessions = JSON.parse(require('fs').readFileSync(sessFile, 'utf8')); } catch {}
+      sessions[code] = {
+        telegram_id: String(ctx.from.id),
+        address: addr,
+        linked_at: Date.now(),
+        username: ctx.from.username || ctx.from.first_name || '',
+      };
+      // Clean old sessions (>10 min)
+      for (const [k, v] of Object.entries(sessions)) {
+        if (Date.now() - v.linked_at > 600000) delete sessions[k];
+      }
+      require('fs').writeFileSync(sessFile, JSON.stringify(sessions));
+      await ctx.reply(
+        `\u{2705} *Website linked\\!*\n\n` +
+        `Your PIChain wallet is now connected to pichain\\.net\\.\n` +
+        `Address: \`${esc(addr)}\`\n\n` +
+        `You can now trade, bet, and use the DEX directly from your browser\\.`,
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+  }
+
   // Handle position deep links: /start p1, /start p2, etc
   const posMatch = arg.match(/^p(\d)$/);
   if (posMatch) {

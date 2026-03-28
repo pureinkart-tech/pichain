@@ -1246,6 +1246,9 @@ impl RpcServer {
             .route("/dating", get(serve_dating_page))
             // AMM pool state (read-only, public data)
             .route("/amm-pool.json", get(serve_amm_pool))
+            // PiBot wallet linking (website ↔ Telegram)
+            .route("/api/v1/session/check", get(check_pibot_session))
+            .route("/api/v1/session/sign", post(pibot_proxy_sign))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -4975,6 +4978,75 @@ async fn serve_player_apk() -> impl IntoResponse {
 
 async fn serve_dating_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
     serve_explorer_file(&state, "dating.html", include_str!("../../../explorer/dating.html"))
+}
+
+/// Check if a PiBot link code has been verified.
+/// Website polls this after showing the Telegram link.
+async fn check_pibot_session(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let code = params.get("code").map(|s| s.as_str()).unwrap_or("");
+    if code.is_empty() {
+        return (StatusCode::BAD_REQUEST, [("content-type", "application/json")],
+            "{\"linked\":false,\"error\":\"missing code\"}".to_string()).into_response();
+    }
+    let sess_file = "/tmp/pichain-sessions.json";
+    if let Ok(content) = std::fs::read_to_string(sess_file) {
+        if let Ok(sessions) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(session) = sessions.get(code) {
+                let addr = session.get("address").and_then(|v| v.as_str()).unwrap_or("");
+                let tid = session.get("telegram_id").and_then(|v| v.as_str()).unwrap_or("");
+                if !addr.is_empty() {
+                    return (StatusCode::OK, [("content-type", "application/json"), ("access-control-allow-origin", "*")],
+                        serde_json::json!({"linked":true,"address":addr,"telegram_id":tid}).to_string()).into_response();
+                }
+            }
+        }
+    }
+    (StatusCode::OK, [("content-type", "application/json"), ("access-control-allow-origin", "*")],
+        "{\"linked\":false}".to_string()).into_response()
+}
+
+/// Proxy a signing request to the PiBot vault (pichain-signer on port 8315).
+/// Used by the website when user connected via PiBot linking.
+async fn pibot_proxy_sign(
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, [(& 'static str, &'static str); 2], String) {
+    let tid = body.get("telegram_id").and_then(|v| v.as_str()).unwrap_or("");
+    let tx_data = body.get("tx_data");
+    if tid.is_empty() || tx_data.is_none() {
+        return (StatusCode::BAD_REQUEST,
+            [("content-type", "application/json"), ("access-control-allow-origin", "*")],
+            "{\"error\":\"missing telegram_id or tx_data\"}".to_string());
+    }
+    // Forward to vault via raw TCP (avoids needing reqwest/hyper dependency)
+    let vault_json = serde_json::to_string(&serde_json::json!({
+        "user_id": tid,
+        "tx_data": tx_data,
+    })).unwrap_or_default();
+    let http_req = format!(
+        "POST /vault/sign HTTP/1.1\r\nHost: 127.0.0.1:8315\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        vault_json.len(), vault_json
+    );
+    match tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut stream = tokio::net::TcpStream::connect("127.0.0.1:8315").await?;
+        tokio::io::AsyncWriteExt::write_all(&mut stream, http_req.as_bytes()).await?;
+        let mut response = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut response).await?;
+        Ok::<Vec<u8>, std::io::Error>(response)
+    }).await {
+        Ok(Ok(response)) => {
+            let resp_str = String::from_utf8_lossy(&response);
+            // Extract body after \r\n\r\n
+            let body = resp_str.split("\r\n\r\n").nth(1).unwrap_or("{}");
+            let is_ok = resp_str.starts_with("HTTP/1.1 200") || resp_str.starts_with("HTTP/1.0 200");
+            let status = if is_ok { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+            (status, [("content-type", "application/json"), ("access-control-allow-origin", "*")], body.to_string())
+        }
+        _ => (StatusCode::SERVICE_UNAVAILABLE,
+            [("content-type", "application/json"), ("access-control-allow-origin", "*")],
+            "{\"error\":\"vault unavailable\"}".to_string()),
+    }
 }
 
 /// Serve AMM pool state (read-only public data: reserves, price, volume).
