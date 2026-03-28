@@ -774,6 +774,7 @@ function showWalletModal() {
 
 function updateWalletUI() {
   const bar = document.getElementById('walletBar');
+  if(!bar)return;
   if(walletAddressHex) {
     const pqLabel = pqProxyConnected ? '<span class="pq-badge" style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;background:rgba(34,197,94,0.15);color:#22c55e;">PQ</span>' : '';
     bar.innerHTML = `

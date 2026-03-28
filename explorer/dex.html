@@ -600,9 +600,12 @@ function connectViewOnly(){
 }
 
 function onWalletConnected(){
-  document.getElementById('walletBar').innerHTML=
-    '<span style="color:var(--cyan);font-family:monospace;font-size:12px;">Pi314'+walletAddressHex.slice(0,8)+'...</span> '+
-    '<button class="w-btn-out" onclick="disconnectWallet()" style="padding:4px 10px;font-size:11px;">Disconnect</button>';
+  var bar=document.getElementById('dexWalletBar')||document.getElementById('walletBar');
+  if(bar && walletAddressHex){
+    bar.innerHTML=
+      '<span style="color:var(--cyan);font-family:monospace;font-size:12px;">Pi314'+walletAddressHex.slice(0,8)+'...</span> '+
+      '<button class="w-btn-out" onclick="disconnectWallet()" style="padding:4px 10px;font-size:11px;">Disconnect</button>';
+  }
   updateWalletBalance();
 }
 

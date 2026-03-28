@@ -2633,6 +2633,7 @@ function getWcBtnHtml(){
 }
 function updateWalletUI(){
   const bar=document.getElementById('walletBar');
+  if(!bar)return;
   const shownName=getPlayerDisplayName();
   const phantomHtml=getPhantomBtnHtml();
   const wcHtml=getWcBtnHtml();

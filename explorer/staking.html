@@ -365,6 +365,7 @@ function resetWalletModal() {
 
 function updateWalletUI() {
   const bar = document.getElementById('walletBar');
+  if(!bar)return;
   if(walletKeypair) {
     bar.innerHTML = `
       <span class="addr">${shortAddr(walletAddressHex)}</span>
