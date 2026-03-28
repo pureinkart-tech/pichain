@@ -212,6 +212,7 @@ class SolanaClient {
       'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { symbol: 'BONK', name: 'Bonk', decimals: 5, address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' },
       'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm': { symbol: 'WIF', name: 'dogwifhat', decimals: 6, address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' },
       'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { symbol: 'JUP', name: 'Jupiter', decimals: 6, address: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN' },
+      'bf7BTmV7qUY1jiZA9FybL1tAswhsqhnYXMML8Frpump': { symbol: 'UFC', name: 'UFC Token', decimals: 6, address: 'bf7BTmV7qUY1jiZA9FybL1tAswhsqhnYXMML8Frpump' },
     };
     if (KNOWN[mintAddress]) return KNOWN[mintAddress];
 
