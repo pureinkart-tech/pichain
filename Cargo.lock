@@ -5926,6 +5926,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
+ "axum",
  "chrono",
  "dirs 6.0.0",
  "hex",
@@ -5947,6 +5948,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "tokio",
+ "tower-http 0.5.2",
 ]
 
 [[package]]
@@ -6034,7 +6036,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
 ]
 
@@ -6055,7 +6057,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "zeroize",
@@ -6915,7 +6917,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-rustls",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -6949,7 +6951,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -8826,6 +8828,22 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "tower-http"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
+dependencies = [
+ "bitflags 2.11.0",
+ "bytes",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "pin-project-lite",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]
