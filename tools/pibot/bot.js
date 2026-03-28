@@ -365,7 +365,7 @@ async function getUser(tid, refId = 0) {
 
 // ── Per-user rate limiting ──────────────────────────────────────────────────
 const userCooldowns = new Map(); // tid -> lastActionTs
-const COOLDOWN_MS = 5000; // 5 seconds between trading actions
+const COOLDOWN_MS = 1000; // 1 second between actions (prevent spam, not annoy users)
 function isRateLimited(tid) {
   const now = Date.now();
   const last = userCooldowns.get(tid) || 0;
