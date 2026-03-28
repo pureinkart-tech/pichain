@@ -1609,8 +1609,11 @@ async function updateCrossPrices() {
     const r = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(3000) });
     if (r.ok) { const d = await r.json(); crossSolPrice = parseFloat(d.data?.['So11111111111111111111111111111111111111112']?.price || '90'); }
   } catch {}
-  // Pool state updates with each PiBot trade — website shows real-time estimate
-  // Actual execution goes through PiBot which holds the authoritative pool state
+  // Fetch AMM pool state from node
+  try {
+    const pr = await fetch(API + '/amm-pool.json', { signal: AbortSignal.timeout(3000) });
+    if (pr.ok) { const pd = await pr.json(); ammPiReserve = pd.piReserve; ammSolReserve = pd.solReserve; ammK = pd.k || ammPiReserve * ammSolReserve; }
+  } catch {}
   const piPriceUsd = (ammSolReserve / ammPiReserve) * crossSolPrice;
   const piPerSol = Math.floor(ammPiReserve / ammSolReserve);
   const el = document.getElementById('crossSolPrice');

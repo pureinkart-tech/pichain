@@ -1244,6 +1244,8 @@ impl RpcServer {
             .route("/player/manifest.json", get(serve_player_manifest))
             // Dating page (Egotistic)
             .route("/dating", get(serve_dating_page))
+            // AMM pool state (read-only, public data)
+            .route("/amm-pool.json", get(serve_amm_pool))
             // WebSocket endpoint for real-time subscriptions
             .route("/ws", get(ws_upgrade))
             .layer(
@@ -4973,6 +4975,24 @@ async fn serve_player_apk() -> impl IntoResponse {
 
 async fn serve_dating_page(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
     serve_explorer_file(&state, "dating.html", include_str!("../../../explorer/dating.html"))
+}
+
+/// Serve AMM pool state (read-only public data: reserves, price, volume).
+async fn serve_amm_pool(State(state): State<Arc<RpcState>>) -> impl IntoResponse {
+    // Read pool state from pibot's amm-pool.json
+    let pool_path = std::path::Path::new("tools/pibot/amm-pool.json");
+    if let Ok(content) = std::fs::read_to_string(pool_path) {
+        return (
+            StatusCode::OK,
+            [
+                ("content-type", "application/json; charset=utf-8"),
+                ("cache-control", "no-cache, must-revalidate"),
+                ("access-control-allow-origin", "*"),
+            ],
+            content,
+        ).into_response();
+    }
+    (StatusCode::NOT_FOUND, [("content-type", "application/json")], "{\"error\":\"pool not initialized\"}").into_response()
 }
 
 /// GET /api/v1/dex/pairs — All trading pairs with stats (price, volume, TVL, 24h change).
