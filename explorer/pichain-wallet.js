@@ -37,6 +37,11 @@ window.pqWalletProvider = 'none';
   var addr = localStorage.getItem('pichain_connected_address');
   var tid = localStorage.getItem('pichain_pibot_tid');
   if (!addr) return;
+  // Clear ALL per-page disconnect flags — if we have a persisted address,
+  // the user is connected and ALL pages should show it
+  ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
+    localStorage.removeItem('pichain_disconnected_' + p);
+  });
   var hex = addr;
   if (hex.indexOf('Pi314') === 0) hex = hex.slice(5);
   hex = hex.toLowerCase();
@@ -85,8 +90,8 @@ async function connectPQProxy() {
       } catch(e2) {}
     }
   }
-  window.pqProxyConnected = false;
-  window.pqWalletProvider = 'none';
+  // DON'T reset pqProxyConnected here — syncRestore may have set it
+  // from a persisted session. Only return false to indicate proxy isn't live.
   return { connected: false };
 }
 
@@ -205,7 +210,7 @@ function persistWalletConnection(address) {
     localStorage.setItem('pichain_connected_address', address);
     localStorage.removeItem('pichain_disconnected');
     // Clear per-page disconnect flags so all pages reconnect
-    ['dex','trade','launch','betting','staking','terminal','mine'].forEach(function(p) {
+    ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
       localStorage.removeItem('pichain_disconnected_' + p);
     });
   }
@@ -216,7 +221,7 @@ function clearWalletConnection() {
   localStorage.removeItem('pichain_pibot_tid');
   localStorage.setItem('pichain_disconnected', '1');
   // Also clear per-page disconnect flags
-  ['dex','trade','launch','betting','staking','terminal','mine'].forEach(function(p) {
+  ['dex','trade','launch','betting','staking','terminal','mine','games'].forEach(function(p) {
     localStorage.removeItem('pichain_disconnected_' + p);
   });
   window.pqProxyConnected = false;
