@@ -639,6 +639,7 @@ function updateWalletUI(){
 
 function disconnectWallet(){
   localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
+  clearWalletConnection(); // Clear site-wide persisted connection
   walletKeypair=null;walletAddress=null;walletAddressHex='';piBalance=0;accountNonce=0;
   updateWalletUI();updateTradeBalances();
 }

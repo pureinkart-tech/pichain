@@ -170,6 +170,32 @@ function updatePQBadge() {
   });
 }
 
+/**
+ * Persist wallet connection across all pages.
+ * Saves address to localStorage so user doesn't reconnect on every page.
+ * SECURITY: Only the address is stored — NEVER private keys.
+ * The signer proxy holds keys locally on the user's machine.
+ */
+function persistWalletConnection(address) {
+  if (address) {
+    localStorage.setItem('pichain_connected_address', address);
+    localStorage.removeItem('pichain_disconnected');
+  }
+}
+
+function clearWalletConnection() {
+  localStorage.removeItem('pichain_connected_address');
+  localStorage.setItem('pichain_disconnected', '1');
+  window.pqProxyConnected = false;
+  window.pqProxyAddress = null;
+  window.pqWalletProvider = 'none';
+}
+
+function getPersistedAddress() {
+  if (localStorage.getItem('pichain_disconnected') === '1') return null;
+  return localStorage.getItem('pichain_connected_address');
+}
+
 // ─── Expose globally ───
 
 window.connectPQProxy = connectPQProxy;
@@ -177,14 +203,38 @@ window.signAndBuildPQ = signAndBuildPQ;
 window.submitPQTx = submitPQTx;
 window.signAndSubmitPQ = signAndSubmitPQ;
 window.updatePQBadge = updatePQBadge;
+window.persistWalletConnection = persistWalletConnection;
+window.clearWalletConnection = clearWalletConnection;
+window.getPersistedAddress = getPersistedAddress;
 
-// Auto-connect on load
+// Auto-connect on load: try signer proxy first, then persisted address
+async function autoConnect() {
+  // Don't auto-connect if user explicitly disconnected
+  if (localStorage.getItem('pichain_disconnected') === '1') return;
+
+  // Try live signer proxy first
+  try {
+    const result = await connectPQProxy();
+    if (result.connected) {
+      persistWalletConnection(result.address);
+      updatePQBadge();
+      return;
+    }
+  } catch {}
+
+  // Fall back to persisted address (view-only, no signing)
+  const saved = getPersistedAddress();
+  if (saved) {
+    window.pqProxyAddress = saved;
+    // Don't set pqProxyConnected = true since signer isn't available for signing
+    // Pages can still show balance and read-only data
+  }
+}
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    connectPQProxy().then(updatePQBadge).catch(() => {});
-  });
+  document.addEventListener('DOMContentLoaded', autoConnect);
 } else {
-  connectPQProxy().then(updatePQBadge).catch(() => {});
+  autoConnect();
 }
 
 })();
