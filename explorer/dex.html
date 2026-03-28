@@ -514,6 +514,8 @@ function initWallet(seed,skipClose){
 
 async function loadDexWallet(){
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Already connected to same address — don't re-render (prevents balance flash to 0)
+  if(walletKeypair && walletAddressHex && walletAddressHex === window.walletAddressHex) return;
   // Check if pichain-wallet.js already restored a session
   if(window.walletAddressHex && window.pqProxyConnected){
     walletAddressHex=window.walletAddressHex;
@@ -530,21 +532,25 @@ async function loadDexWallet(){
       if(hex.startsWith('Pi314'))hex=hex.slice(5);
       walletAddressHex=hex.toLowerCase();
       walletAddress=hexDecode(walletAddressHex);
+      walletKeypair={publicKey:walletAddress};
+      window.persistWalletConnection(result.address);
       onWalletConnected();
       return;
     }
   } catch {}
-  // Fall back to saved address
-  const savedAddr=localStorage.getItem('pichain_wallet_address');
-  if(savedAddr&&/^[0-9a-fA-F]{40}$/.test(savedAddr)){
-    walletAddressHex=savedAddr;
-    walletAddress=hexDecode(savedAddr);
-    onWalletConnected();
-    return;
+  // Fall back to persisted address (shared across all pages)
+  const savedAddr=getPersistedAddress();
+  if(savedAddr){
+    let hex=savedAddr;
+    if(hex.startsWith('Pi314'))hex=hex.slice(5);
+    if(/^[0-9a-fA-F]{40}$/.test(hex)){
+      walletAddressHex=hex.toLowerCase();
+      walletAddress=hexDecode(walletAddressHex);
+      walletKeypair={publicKey:walletAddress};
+      onWalletConnected();
+      return;
+    }
   }
-  // Legacy: try old seed format
-  const saved=localStorage.getItem('pichain_wallet_seed')||localStorage.getItem('pichain_seed');
-  if(saved&&saved.length===64){initWallet(hexDecode(saved));tryActivate();}
 }
 
 function showWalletModal(){resetWalletModal();document.getElementById('walletModal').classList.add('show');}
@@ -569,7 +575,8 @@ async function connectSignerWallet(){
       if(hex.startsWith('Pi314'))hex=hex.slice(5);
       walletAddressHex=hex.toLowerCase();
       walletAddress=hexDecode(walletAddressHex);
-      localStorage.setItem('pichain_wallet_address',walletAddressHex);
+      walletKeypair={publicKey:walletAddress};
+      window.persistWalletConnection(result.address);
       document.getElementById('walletModal').classList.remove('show');
       onWalletConnected();
       showToast('Wallet connected: Pi314'+walletAddressHex.slice(0,8)+'...','success');
@@ -594,7 +601,8 @@ function connectViewOnly(){
   if(!/^[0-9a-fA-F]{40}$/.test(hex)){showToast('Invalid address. Must be Pi314... or 40 hex chars.','error');return;}
   walletAddressHex=hex.toLowerCase();
   walletAddress=hexDecode(walletAddressHex);
-  localStorage.setItem('pichain_wallet_address',walletAddressHex);
+  walletKeypair={publicKey:walletAddress};
+  window.persistWalletConnection('Pi314'+walletAddressHex);
   document.getElementById('walletModal').classList.remove('show');
   onWalletConnected();
   showToast('Viewing wallet: Pi314'+walletAddressHex.slice(0,8)+'... (read-only)','success');
@@ -666,9 +674,9 @@ function updateWalletUI(){
 
 function disconnectWallet(){
   localStorage.setItem('pichain_disconnected_'+WALLET_PAGE_ID,'1');
-  window.clearWalletConnection(); // Clear site-wide persisted connection
   walletKeypair=null;walletAddress=null;walletAddressHex='';piBalance=0;accountNonce=0;
   updateWalletUI();updateTradeBalances();
+  showToast('Wallet disconnected.','info');
 }
 
 async function updateWalletBalance(){
@@ -1444,8 +1452,8 @@ function connectWS() {
 
 // ============ INIT ============
 async function init() {
-  // Wait for async nacl library before loading wallet
-  const _naclPoll=setInterval(()=>{if(typeof nacl!=='undefined'){clearInterval(_naclPoll);loadDexWallet();}},50);
+  // PQ wallet auto-connect (no NaCl dependency)
+  loadDexWallet();
   initChart();
   setupTimeframeButtons();
   await loadPairs();

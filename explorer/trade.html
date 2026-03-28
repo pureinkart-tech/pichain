@@ -599,10 +599,12 @@ const WALLET_PAGE_ID='swap';
 async function initWalletPQ() {
   const result = await connectPQProxy();
   if (result.connected) {
-    walletAddressHex = result.address;
-    walletAddress = hexDecode(result.address);
-    walletKeypair = { publicKey: walletAddress }; // compatibility shim (signing is via proxy)
-    localStorage.setItem('pichain_pq_address', walletAddressHex);
+    let hex = result.address;
+    if (hex.startsWith('Pi314')) hex = hex.slice(5);
+    walletAddressHex = hex.toLowerCase();
+    walletAddress = hexDecode(walletAddressHex);
+    walletKeypair = { publicKey: walletAddress };
+    window.persistWalletConnection(result.address);
     localStorage.removeItem('pichain_disconnected_'+WALLET_PAGE_ID);
     updateWalletUI();
     updateBalance();
@@ -638,6 +640,7 @@ async function connectSignerWallet() {
       document.getElementById('walletModal').classList.remove('show');
       resetWalletModal();
       updateWalletUI();
+      updateBalance();
       showToast('Wallet connected: Pi314' + walletAddressHex.slice(0, 8) + '...', 'success');
     } else {
       status.textContent = 'Could not connect. Make sure PIChain Signer or the desktop app is running.';
@@ -665,6 +668,7 @@ function connectViewOnly() {
   document.getElementById('walletModal').classList.remove('show');
   resetWalletModal();
   updateWalletUI();
+  updateBalance();
   showToast('Viewing wallet (read-only)', 'success');
 }
 
@@ -747,6 +751,8 @@ async function solveActivationPoW(challenge,diffBits){
 
 function loadWallet() {
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Already connected to same address — don't re-render (prevents balance flash to 0)
+  if(walletKeypair && walletAddressHex && walletAddressHex === window.walletAddressHex) return;
   // Check if pichain-wallet.js already restored a session
   if(window.walletAddressHex && window.pqProxyConnected){
     walletAddressHex=window.walletAddressHex;
@@ -758,12 +764,16 @@ function loadWallet() {
   }
   // Try PQ proxy connection first
   initWalletPQ().catch(() => {
-    // If proxy not available, check if we have a saved PQ address for display
-    const savedAddr = localStorage.getItem('pichain_pq_address');
+    // If proxy not available, check persisted address
+    const savedAddr = getPersistedAddress();
     if (savedAddr) {
-      walletAddressHex = savedAddr;
-      walletAddress = hexDecode(savedAddr);
+      let hex = savedAddr;
+      if(hex.startsWith('Pi314'))hex=hex.slice(5);
+      walletAddressHex = hex.toLowerCase();
+      walletAddress = hexDecode(walletAddressHex);
+      walletKeypair = {publicKey:walletAddress};
       updateWalletUI();
+      updateBalance();
     }
   });
 }
@@ -833,6 +843,7 @@ function disconnectWallet() {
   tokenBalances = {};
   updateWalletUI();
   updateSwapBtn();
+  showToast('Wallet disconnected.', 'info');
 }
 
 async function updateBalance() {
@@ -1108,13 +1119,15 @@ function updateTokenUI() {
 
 function updateFromBalance() {
   const bal = getTokenBalance(fromToken.mint);
-  document.getElementById('fromBalance').textContent = formatTokens(bal, fromToken.decimals);
+  const el = document.getElementById('fromBalance');
+  if(el) el.textContent = formatTokens(bal, fromToken.decimals);
 }
 
 function updateToBalance() {
-  if(!toToken) { document.getElementById('toBalance').textContent = '0.0000'; return; }
+  const el = document.getElementById('toBalance');
+  if(!toToken) { if(el) el.textContent = '0.0000'; return; }
   const bal = getTokenBalance(toToken.mint);
-  document.getElementById('toBalance').textContent = formatTokens(bal, toToken.decimals);
+  if(el) el.textContent = formatTokens(bal, toToken.decimals);
 }
 
 function flipTokens() {

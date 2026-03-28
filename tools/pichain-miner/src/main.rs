@@ -80,6 +80,10 @@ struct Args {
     #[arg(long)]
     generate_keypair: bool,
 
+    /// Show wallet info (address, balance) without mining, then exit.
+    #[arg(long)]
+    info: bool,
+
     /// Position offset for multi-miner operation.
     /// Each miner should use a different offset (e.g., 0, 1, 2...)
     /// to avoid computing the same range as other miners.
@@ -286,6 +290,89 @@ fn load_wallet(path: &PathBuf) -> anyhow::Result<LoadedWallet> {
     Ok(LoadedWallet { pq_keypair })
 }
 
+/// Try to detect pichain-signer on localhost:8315.
+async fn try_detect_signer() -> Option<(pichain_crypto::keys::Address, String)> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let resp = client.get("http://127.0.0.1:8315/status").send().await.ok()?;
+    let data: serde_json::Value = resp.json().await.ok()?;
+    if data["connected"].as_bool() != Some(true) { return None; }
+    let addr_str = data["address"].as_str()?;
+    let mut hex = addr_str.to_string();
+    if hex.starts_with("Pi314") { hex = hex[5..].to_string(); }
+    let addr_bytes = hex::decode(&hex).ok()?;
+    if addr_bytes.len() != 20 { return None; }
+    let mut arr = [0u8; 20];
+    arr.copy_from_slice(&addr_bytes);
+    Some((pichain_crypto::keys::Address(arr), hex.to_lowercase()))
+}
+
+/// Display wallet info: address, balance, and usage tips.
+async fn show_wallet_info(rpc_url: &str, address_hex: &str, address: &pichain_crypto::keys::Address, is_pool_mode: bool) {
+    let display_addr = format!("{}", address);
+    eprintln!();
+    eprintln!("  ╔══════════════════════════════════════════════════════════╗");
+    eprintln!("  ║               PIChain Wallet Info                        ║");
+    eprintln!("  ╠══════════════════════════════════════════════════════════╣");
+    eprintln!("  ║                                                          ║");
+    eprintln!("  ║  Address: {:<46} ║", display_addr);
+
+    // Fetch balance
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(format!("{}/api/v1/account/{}", rpc_url, address_hex)).send().await {
+        Ok(resp) => {
+            if let Ok(acct) = resp.json::<AccountResponse>().await {
+                let balance_pi = acct.balance as f64 / 1_000_000_000.0;
+                let locked_pi = acct.locked_balance.unwrap_or(0) as f64 / 1_000_000_000.0;
+                eprintln!("  ║  Balance: {:<46} ║", format!("{:.4} PI", balance_pi));
+                if locked_pi > 0.0 {
+                    eprintln!("  ║  Locked:  {:<46} ║", format!("{:.4} PI (gas fees)", locked_pi));
+                }
+                eprintln!("  ║  Nonce:   {:<46} ║", acct.nonce);
+            } else {
+                eprintln!("  ║  Balance: (could not fetch)                              ║");
+            }
+        }
+        Err(_) => {
+            eprintln!("  ║  Balance: (could not reach node)                         ║");
+        }
+    }
+
+    eprintln!("  ║                                                          ║");
+    eprintln!("  ╠══════════════════════════════════════════════════════════╣");
+    eprintln!("  ║  HOW TO ACCESS YOUR PI                                  ║");
+    eprintln!("  ╠══════════════════════════════════════════════════════════╣");
+    eprintln!("  ║                                                          ║");
+    eprintln!("  ║  Website:                                                ║");
+    eprintln!("  ║    Go to https://pichain.net → any tab → Connect Wallet  ║");
+    eprintln!("  ║    Enter your address (above) in \"View Only\" mode       ║");
+    eprintln!("  ║                                                          ║");
+    eprintln!("  ║  Check balance:                                          ║");
+    eprintln!("  ║    pichain-cli balance {}  ║", display_addr);
+    eprintln!("  ║                                                          ║");
+    if !is_pool_mode {
+        eprintln!("  ║  Send PI:                                                ║");
+        eprintln!("  ║    pichain-cli send --to Pi314<recipient> --amount 10     ║");
+        eprintln!("  ║                                                          ║");
+    }
+    eprintln!("  ║  PiBot (Telegram):                                      ║");
+    eprintln!("  ║    For easier wallet management, mine to your PiBot      ║");
+    eprintln!("  ║    address instead:                                      ║");
+    eprintln!("  ║    1. Open @PiChainTradeBot on Telegram                  ║");
+    eprintln!("  ║    2. Type /wallet to see your PiBot address             ║");
+    eprintln!("  ║    3. Restart miner with:                                ║");
+    eprintln!("  ║       pichain-miner --address <your_pibot_address>       ║");
+    eprintln!("  ║                                                          ║");
+    eprintln!("  ╚══════════════════════════════════════════════════════════╝");
+    eprintln!();
+}
+
 /// On Windows, pause so the user can read the output before the terminal closes.
 /// Does nothing on Unix (terminal stays open).
 fn wait_for_key_on_windows() {
@@ -317,13 +404,22 @@ fn generate_and_save_keypair(path: &PathBuf) -> anyhow::Result<()> {
     }
     std::fs::write(path, &json)?;
 
+    let addr = kp.address();
     println!("=== New PIChain Mining Wallet ===");
-    println!("Address:    {}", kp.address());
+    println!("Address:    {}", addr);
     println!("Crypto:     Post-Quantum (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
     println!("Saved to:   {}", path.display());
-    println!("\nQuantum computers cannot break this wallet.");
+    println!();
+    println!("Quantum computers cannot break this wallet.");
     println!("Keep this file safe. Your keys cannot be recovered.");
-    eprintln!("\n  SECURITY: Wallet file is NOT encrypted. Protect it like a password.");
+    eprintln!();
+    eprintln!("  SECURITY: Wallet file is NOT encrypted. Protect it like a password.");
+    eprintln!();
+    eprintln!("  NEXT STEPS:");
+    eprintln!("    Start mining:    pichain-miner --keypair {}", path.display());
+    eprintln!("    Check balance:   pichain-miner --keypair {} --info", path.display());
+    eprintln!("    View on web:     https://pichain.net → Connect Wallet → enter {}", addr);
+    eprintln!();
     Ok(())
 }
 
@@ -410,28 +506,76 @@ async fn main() -> anyhow::Result<()> {
         use_pool_submit = false;
         info!(%address, "Post-quantum wallet loaded (ML-DSA-65 + SLH-DSA-SHAKE-128f)");
     } else {
-        eprintln!();
-        eprintln!("  ╔══════════════════════════════════════════════════════╗");
-        eprintln!("  ║           PIChain Miner — Getting Started            ║");
-        eprintln!("  ╠══════════════════════════════════════════════════════╣");
-        eprintln!("  ║                                                      ║");
-        eprintln!("  ║  Choose how to mine:                                 ║");
-        eprintln!("  ║                                                      ║");
-        eprintln!("  ║  1. Mine to an existing address (easiest):           ║");
-        eprintln!("  ║     pichain-miner --address Pi314your_address_here   ║");
-        eprintln!("  ║     (use your PiBot or desktop app address)          ║");
-        eprintln!("  ║                                                      ║");
-        eprintln!("  ║  2. Create a new wallet + mine:                      ║");
-        eprintln!("  ║     pichain-miner --keypair wallet.json \\             ║");
-        eprintln!("  ║       --generate-keypair                             ║");
-        eprintln!("  ║     pichain-miner --keypair wallet.json              ║");
-        eprintln!("  ║                                                      ║");
-        eprintln!("  ╚══════════════════════════════════════════════════════╝");
-        eprintln!();
-        wait_for_key_on_windows();
-        std::process::exit(1);
+        // No --keypair or --address: try auto-detect from pichain-signer on localhost:8315
+        let signer_addr = try_detect_signer().await;
+
+        if let Some((detected_address, detected_hex)) = signer_addr {
+            info!(%detected_address, "Auto-detected PIChain Signer on localhost:8315");
+            address = detected_address;
+            address_hex = detected_hex;
+            loaded = None;
+            use_pool_submit = true;
+        } else {
+            eprintln!();
+            eprintln!("  ╔══════════════════════════════════════════════════════════╗");
+            eprintln!("  ║             PIChain Miner — Getting Started              ║");
+            eprintln!("  ╠══════════════════════════════════════════════════════════╣");
+            eprintln!("  ║                                                          ║");
+            eprintln!("  ║  Easiest: Mine to your PiBot wallet                      ║");
+            eprintln!("  ║    1. Open @PiChainTradeBot on Telegram                  ║");
+            eprintln!("  ║    2. Type /wallet to see your address                   ║");
+            eprintln!("  ║    3. Run:                                               ║");
+            eprintln!("  ║       pichain-miner --address Pi314<your_address>        ║");
+            eprintln!("  ║                                                          ║");
+            eprintln!("  ║  Or: Mine with a local wallet file                       ║");
+            eprintln!("  ║    pichain-miner --keypair wallet.json --generate-keypair ║");
+            eprintln!("  ║    pichain-miner --keypair wallet.json                   ║");
+            eprintln!("  ║                                                          ║");
+            eprintln!("  ║  Or: Run PIChain Signer / desktop app first              ║");
+            eprintln!("  ║    The miner will auto-detect it on localhost:8315        ║");
+            eprintln!("  ║                                                          ║");
+            eprintln!("  ╚══════════════════════════════════════════════════════════╝");
+            eprintln!();
+            wait_for_key_on_windows();
+            std::process::exit(1);
+        }
     }
-    info!(%address, "Miner wallet loaded");
+    // Handle --info: show wallet details and exit
+    if args.info {
+        show_wallet_info(&args.rpc_url, &address_hex, &address, use_pool_submit).await;
+        wait_for_key_on_windows();
+        return Ok(());
+    }
+
+    // Show wallet summary at startup
+    {
+        let display_addr = format!("{}", address);
+        eprintln!();
+        eprintln!("  ┌─────────────────────────────────────────────────────┐");
+        eprintln!("  │  Wallet: {:<43}│", display_addr);
+
+        // Quick balance check
+        let quick_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+        if let Ok(resp) = quick_client.get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex)).send().await {
+            if let Ok(acct) = resp.json::<AccountResponse>().await {
+                let bal = acct.balance as f64 / 1_000_000_000.0;
+                eprintln!("  │  Balance: {:<43}│", format!("{:.4} PI", bal));
+            }
+        }
+        if use_pool_submit {
+            eprintln!("  │  Mode:    {:<43}│", "Pool-submit (no wallet file)");
+        } else {
+            eprintln!("  │  Mode:    {:<43}│", "Block pipeline (local signing)");
+        }
+        eprintln!("  │                                                     │");
+        eprintln!("  │  Tip: Run with --info for wallet details & how to   │");
+        eprintln!("  │       access your PI on the web or via PiBot.       │");
+        eprintln!("  └─────────────────────────────────────────────────────┘");
+        eprintln!();
+    }
 
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
@@ -933,6 +1077,15 @@ async fn main() -> anyhow::Result<()> {
                                 batch = effective_min_batch,
                                 "Mining proof submitted successfully"
                             );
+                            // Show balance every 10 proofs
+                            if proofs_accepted % 10 == 0 {
+                                if let Ok(bal_resp) = client.get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex)).send().await {
+                                    if let Ok(acct) = bal_resp.json::<AccountResponse>().await {
+                                        let bal = acct.balance as f64 / 1_000_000_000.0;
+                                        info!(balance = format!("{:.4} PI", bal), proofs = proofs_accepted, "Wallet balance update");
+                                    }
+                                }
+                            }
                             current_nonce = current_nonce.saturating_add(1);
                             // CRITICAL: advance local position past what we just submitted
                             // so we don't re-mine the same range while waiting for block inclusion

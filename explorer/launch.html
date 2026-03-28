@@ -746,6 +746,16 @@ async function solveActivationPoW(challenge,diffBits){
 
 function loadWallet() {
   if(localStorage.getItem('pichain_disconnected_'+WALLET_PAGE_ID)==='1')return;
+  // Already connected to same address — don't re-render (prevents balance flash to 0)
+  if(walletKeypair && walletAddressHex && walletAddressHex === window.walletAddressHex) return;
+  if(window.walletAddressHex && window.pqProxyConnected){
+    walletAddressHex=window.walletAddressHex;
+    walletAddress=hexDecode(walletAddressHex);
+    walletKeypair={publicKey:walletAddress};
+    updateWalletUI();
+    updateBalance();
+    return;
+  }
   const saved = localStorage.getItem('pichain_wallet_seed') || localStorage.getItem('pichain_seed');
   if(saved && saved.length===64){initWallet(hexDecode(saved));activateWallet();}
 }
@@ -811,6 +821,7 @@ function disconnectWallet() {
   walletKeypair = null; walletAddress = null; walletAddressHex = '';
   piBalance = 0; accountNonce = 0;
   updateWalletUI();
+  showToast('Wallet disconnected.', 'info');
 }
 
 async function updateBalance() {

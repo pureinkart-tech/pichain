@@ -37,11 +37,9 @@ window.pqWalletProvider = 'none';
   var addr = localStorage.getItem('pichain_connected_address');
   var tid = localStorage.getItem('pichain_pibot_tid');
   if (!addr) return;
-  // Clear ALL per-page disconnect flags — if we have a persisted address,
-  // the user is connected and ALL pages should show it
-  ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
-    localStorage.removeItem('pichain_disconnected_' + p);
-  });
+  // Don't clear per-page disconnect flags here.
+  // Per-page flags are only cleared when user explicitly connects (persistWalletConnection).
+  // This allows per-page disconnect to persist across page loads.
   var hex = addr;
   if (hex.indexOf('Pi314') === 0) hex = hex.slice(5);
   hex = hex.toLowerCase();
@@ -210,7 +208,7 @@ function persistWalletConnection(address) {
     localStorage.setItem('pichain_connected_address', address);
     localStorage.removeItem('pichain_disconnected');
     // Clear per-page disconnect flags so all pages reconnect
-    ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
+    ['dex','swap','launch','betting','games','staking','terminal','mine','nft'].forEach(function(p) {
       localStorage.removeItem('pichain_disconnected_' + p);
     });
   }
@@ -221,7 +219,7 @@ function clearWalletConnection() {
   localStorage.removeItem('pichain_pibot_tid');
   localStorage.setItem('pichain_disconnected', '1');
   // Also clear per-page disconnect flags
-  ['dex','swap','launch','betting','games','staking','terminal','mine'].forEach(function(p) {
+  ['dex','swap','launch','betting','games','staking','terminal','mine','nft'].forEach(function(p) {
     localStorage.removeItem('pichain_disconnected_' + p);
   });
   window.pqProxyConnected = false;
@@ -352,20 +350,21 @@ async function connectWithPiBot() {
     } catch {}
   }
   if (result.connected) {
-    // Set all compat vars that pages check
-    let hex = result.address;
-    if (hex.startsWith('Pi314')) hex = hex.slice(5);
-    window.walletAddressHex = hex.toLowerCase();
-    window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
-    window.walletKeypair = { publicKey: window.walletAddress };
+    setWindowWalletVars(result.address);
 
     const modal = document.getElementById('walletModal');
     if (modal) modal.classList.remove('show');
     if (typeof showToast === 'function') showToast('Connected via PiBot!', 'success');
-    if (typeof updateWalletUI === 'function') updateWalletUI();
-    if (typeof onWalletConnected === 'function') onWalletConnected();
-    if (typeof updateBalance === 'function') updateBalance();
-    if (typeof updateWalletBalance === 'function') updateWalletBalance();
+    // Use loadWallet to properly sync window globals to page locals
+    if (typeof loadWallet === 'function') { loadWallet(); }
+    else if (typeof loadDexWallet === 'function') { loadDexWallet(); }
+    else {
+      if (typeof updateWalletUI === 'function') updateWalletUI();
+      if (typeof onWalletConnected === 'function') onWalletConnected();
+      if (typeof updateBalance === 'function') updateBalance();
+      if (typeof updateWalletBalance === 'function') updateWalletBalance();
+    }
+    updatePQBadge();
   } else {
     if (status) { status.textContent = 'Connection timed out. Try again.'; status.style.color = 'var(--rose)'; }
     if (spinner) spinner.style.display = 'none';
@@ -384,6 +383,35 @@ window.persistWalletConnection = persistWalletConnection;
 window.clearWalletConnection = clearWalletConnection;
 window.getPersistedAddress = getPersistedAddress;
 
+/**
+ * Notify pages that wallet state has changed.
+ * Calls the page's loadWallet/loadDexWallet (which copies window globals to
+ * page-local vars then updates UI), OR falls back to individual update calls.
+ */
+function notifyPages() {
+  setTimeout(() => {
+    // Prefer loadWallet/loadDexWallet — these copy window globals to page locals
+    if (typeof loadWallet === 'function') { loadWallet(); }
+    else if (typeof loadDexWallet === 'function') { loadDexWallet(); }
+    else {
+      // Fallback: call individual update functions
+      if (typeof updateWalletUI === 'function') updateWalletUI();
+      if (typeof onWalletConnected === 'function') onWalletConnected();
+      if (typeof updateBalance === 'function') updateBalance();
+      if (typeof updateWalletBalance === 'function') updateWalletBalance();
+    }
+    updatePQBadge();
+  }, 100);
+}
+
+function setWindowWalletVars(address) {
+  let hex = address;
+  if (hex.startsWith('Pi314')) hex = hex.slice(5);
+  window.walletAddressHex = hex.toLowerCase();
+  try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
+  window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+}
+
 // Auto-connect on load: try signer proxy first, then persisted address
 async function autoConnect() {
   // Don't auto-connect if user explicitly disconnected
@@ -393,22 +421,11 @@ async function autoConnect() {
   const earlyTid = localStorage.getItem('pichain_pibot_tid');
   const earlyAddr = getPersistedAddress();
   if (earlyTid && earlyAddr) {
-    // PiBot session exists — use it, don't try signer proxy
-    let hex = earlyAddr;
-    if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyConnected = true;
     window.pqProxyAddress = earlyAddr;
     window.pqWalletProvider = 'pibot';
-    window.walletAddressHex = hex.toLowerCase();
-    try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
-    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
-    setTimeout(() => {
-      if (typeof updateWalletUI === 'function') updateWalletUI();
-      if (typeof onWalletConnected === 'function') onWalletConnected();
-      if (typeof updateBalance === 'function') updateBalance();
-      if (typeof updateWalletBalance === 'function') updateWalletBalance();
-      updatePQBadge();
-    }, 500);
+    setWindowWalletVars(earlyAddr);
+    notifyPages();
     return;
   }
 
@@ -416,19 +433,14 @@ async function autoConnect() {
   try {
     const result = await connectPQProxy();
     if (result.connected) {
-      persistWalletConnection(result.address);
-      let hex = result.address;
-      if (hex.startsWith('Pi314')) hex = hex.slice(5);
-      window.walletAddressHex = hex.toLowerCase();
-      try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
-      window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
-      setTimeout(() => {
-        if (typeof updateWalletUI === 'function') updateWalletUI();
-        if (typeof onWalletConnected === 'function') onWalletConnected();
-        if (typeof updateBalance === 'function') updateBalance();
-        if (typeof updateWalletBalance === 'function') updateWalletBalance();
-        updatePQBadge();
-      }, 500);
+      // Only persist if no address saved yet (first connect).
+      // Don't call persistWalletConnection on reconnect — it clears per-page
+      // disconnect flags, undoing intentional per-page disconnects.
+      if (!getPersistedAddress()) {
+        persistWalletConnection(result.address);
+      }
+      setWindowWalletVars(result.address);
+      notifyPages();
       return;
     }
   } catch {}
@@ -436,18 +448,9 @@ async function autoConnect() {
   // Fall back to persisted address (view-only, no signing)
   const savedAddr = getPersistedAddress();
   if (savedAddr) {
-    let hex = savedAddr;
-    if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyAddress = savedAddr;
-    window.walletAddressHex = hex.toLowerCase();
-    try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
-    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
-    setTimeout(() => {
-      if (typeof updateWalletUI === 'function') updateWalletUI();
-      if (typeof onWalletConnected === 'function') onWalletConnected();
-      if (typeof updateBalance === 'function') updateBalance();
-      if (typeof updateWalletBalance === 'function') updateWalletBalance();
-    }, 500);
+    setWindowWalletVars(savedAddr);
+    notifyPages();
   }
 }
 
