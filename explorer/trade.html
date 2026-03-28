@@ -218,6 +218,9 @@ a:hover { text-decoration: underline; }
         <button class="btn" style="width:100%;padding:14px;font-size:15px;background:linear-gradient(135deg,#0088cc,#00c6ff);border:none;color:#fff;" onclick="connectWithPiBot()">&#x1F916; Connect with PiBot (Telegram)</button>
       </div>
       <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">No downloads needed — works on phone and desktop</div>
+      <div style="margin-top:8px;text-align:center;">
+        <a href="#" onclick="var p=navigator.platform||'';var u=p.includes('Mac')?'macos-arm64':p.includes('Win')?'windows-x86_64.exe':'linux-x86_64';window.open('https://github.com/pureinkart-tech/pichain/releases/latest/download/pichain-signer-'+u);return false;" style="color:var(--dim);font-size:11px;">Terminal/CLI users: download standalone signer</a>
+      </div>
       <div class="form-row" style="margin-top:8px;">
       </div>
       <details style="margin:12px 0;cursor:pointer;">
