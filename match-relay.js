@@ -20,7 +20,7 @@ if (existsSync(SOL_ESCROW_PATH)) {
     console.error('Failed to load SOL escrow keypair:', e.message);
   }
 }
-const SOL_HOUSE_FEE = 0.02; // 2%
+const SOL_HOUSE_FEE = 0.03; // 3%
 const HOUSE_WALLET = '6RDecDCXVPrg6T2QHicbWnS3LBhUxMumY9D4wE3EPyhX';
 
 // Accumulate fees and forward to house wallet weekly
@@ -54,6 +54,116 @@ async function flushFeesToHouse() {
 
 // Flush fees once a week
 setInterval(flushFeesToHouse, WEEKLY_MS);
+
+// --- PI escrow ---
+const PI_RPC = process.env.PICHAIN_RPC || 'http://127.0.0.1:8314';
+const PI_SIGNER = 'http://127.0.0.1:8315';
+const PI_HOUSE_FEE = 0.01; // 1%
+const PI_HOUSE_ADDR = process.env.PI_FEE_ADDRESS || '';
+const PI_ESCROW_PATH = './live-data/pi-escrow-wallet.json';
+let piEscrowAddress = null;
+if (existsSync(PI_ESCROW_PATH)) {
+  try {
+    const piWallet = JSON.parse(readFileSync(PI_ESCROW_PATH, 'utf8'));
+    piEscrowAddress = (piWallet.address || '').replace(/^(Pi314|pi314)/, '').toLowerCase();
+    if (piEscrowAddress) console.log('PI escrow loaded:', 'Pi314' + piEscrowAddress);
+  } catch (e) {
+    console.error('Failed to load PI escrow wallet:', e.message);
+  }
+}
+
+// PI match tracking
+const piMatches = new Map(); // match_id -> { wager_base, players: Map<addr, {deposited, confirmed}>, state, winner, dispute_votes, acceptors, dispute_deadline, creator }
+const piPayoutPending = new Map();
+
+async function piGetBalance(address) {
+  try {
+    const resp = await fetch(PI_RPC + '/api/v1/account/' + address);
+    const data = await resp.json();
+    return data.found ? data.balance : 0;
+  } catch { return 0; }
+}
+
+async function piGetNonce(address) {
+  try {
+    const resp = await fetch(PI_RPC + '/api/v1/account/' + address);
+    const data = await resp.json();
+    return data.found ? data.nonce : 0;
+  } catch { return 0; }
+}
+
+async function piTransfer(fromAddr, toAddr, amount) {
+  // Sign via vault (pichain-signer) using the escrow user_id
+  const nonce = await piGetNonce(fromAddr);
+  const txData = {
+    sender: 'Pi314' + fromAddr,
+    nonce,
+    kind: { Transfer: { recipient: toAddr, amount } },
+    gas_limit: 21000,
+    max_base_fee: 1000,
+    max_priority_fee: 100,
+    chain_id: 31415,
+  };
+  // Sign through vault endpoint (not /sign which uses primary wallet)
+  const signResp = await fetch(PI_SIGNER + '/vault/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: 'pi_escrow', tx_data: txData }),
+  });
+  const signData = await signResp.json();
+  if (signData.error) throw new Error('Sign failed: ' + signData.error);
+  // Hex-encode the signed tx
+  const jsonStr = JSON.stringify(signData.signed_tx);
+  const bytes = new TextEncoder().encode(jsonStr);
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  // Submit
+  const submitResp = await fetch(PI_RPC + '/api/v1/tx/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ signed_tx_hex: hex }),
+  });
+  const result = await submitResp.json();
+  if (result.status !== 'pending') throw new Error('Submit failed: ' + (result.error || result.status));
+  return result;
+}
+
+async function executePiPayout(matchId) {
+  const pm = piMatches.get(matchId);
+  if (!pm || pm.state === 'paid') return;
+  pm.state = 'paid';
+  piMatches.set(matchId, pm);
+
+  const playerCount = pm.players.size;
+  const totalPot = pm.wager_base * playerCount;
+  const fee = Math.floor(totalPot * PI_HOUSE_FEE);
+  const payout = totalPot - fee;
+
+  if (!piEscrowAddress) {
+    broadcast({ t: 'pi_payout_error', mid: matchId, error: 'PI escrow not configured' });
+    return;
+  }
+
+  try {
+    // Pay winner
+    await piTransfer(piEscrowAddress, pm.winner, payout);
+    broadcast({ t: 'pi_payout_complete', mid: matchId, winner: pm.winner, amount: payout, fee });
+    console.log(`PI payout: ${payout} base to ${pm.winner}, fee: ${fee}`);
+
+    // Pay house fee
+    if (fee > 0 && PI_HOUSE_ADDR) {
+      try { await piTransfer(piEscrowAddress, PI_HOUSE_ADDR, fee); } catch (e) {
+        console.error('PI house fee transfer failed:', e.message);
+      }
+    }
+  } catch (e) {
+    console.error('PI payout failed:', e.message);
+    broadcast({ t: 'pi_payout_error', mid: matchId, error: e.message });
+  }
+
+  const timer = piPayoutPending.get(matchId);
+  if (timer) { clearTimeout(timer); piPayoutPending.delete(matchId); }
+}
 
 // SOL match tracking
 const solMatches = new Map();      // match_id -> { wager_lamports, players: Map<pubkey, {deposited,addr}>, state, winner, dispute_votes: Map<addr,proposed_winner>, acceptors: Set<addr>, dispute_deadline, creator }
@@ -1210,6 +1320,134 @@ wss.on('connection', (ws) => {
           executeSolPayout(msg.mid);
         } else {
           broadcast({ t: 'sol_dispute_update', mid: msg.mid, votes: Object.fromEntries(sm.dispute_votes), acceptors: Array.from(sm.acceptors) });
+        }
+        break;
+      }
+
+      // --- PI Match Escrow Handlers ---
+
+      case 'pi_create_match': {
+        if (!msg.mid || !msg.wager_base || !msg.addr) break;
+        if (!piEscrowAddress) { ws.send(JSON.stringify({ t: 'error', error: 'PI escrow not configured' })); break; }
+        const wagerBase = Number(msg.wager_base);
+        if (!Number.isInteger(wagerBase) || wagerBase < 10_000_000 || wagerBase > 1_000_000_000_000) {
+          ws.send(JSON.stringify({ t: 'error', error: 'Invalid PI wager (0.01-1000 PI)' })); break;
+        }
+        if (piMatches.has(msg.mid)) {
+          ws.send(JSON.stringify({ t: 'error', error: 'PI match ID already exists' })); break;
+        }
+        const piPlayers = new Map();
+        piPlayers.set(msg.addr, { deposited: false, confirmed: false });
+        piMatches.set(msg.mid, {
+          wager_base: wagerBase,
+          players: piPlayers,
+          state: 'awaiting_deposits',
+          winner: null,
+          dispute_votes: new Map(),
+          acceptors: new Set(),
+          dispute_deadline: null,
+          creator: msg.addr,
+        });
+        // Tell client the escrow address to deposit to
+        ws.send(JSON.stringify({ t: 'pi_escrow_info', mid: msg.mid, escrow: piEscrowAddress, wager_base: wagerBase }));
+        break;
+      }
+      case 'pi_join_match': {
+        if (!msg.mid || !msg.addr) break;
+        const pm = piMatches.get(msg.mid);
+        if (!pm) break;
+        if (pm.state !== 'awaiting_deposits') {
+          ws.send(JSON.stringify({ t: 'error', error: 'PI match no longer accepting players' })); break;
+        }
+        if (pm.players.has(msg.addr)) {
+          ws.send(JSON.stringify({ t: 'error', error: 'Already in this PI match' })); break;
+        }
+        if (pm.players.size >= 2) {
+          ws.send(JSON.stringify({ t: 'error', error: 'PI match is full' })); break;
+        }
+        pm.players.set(msg.addr, { deposited: false, confirmed: false });
+        piMatches.set(msg.mid, pm);
+        ws.send(JSON.stringify({ t: 'pi_escrow_info', mid: msg.mid, escrow: piEscrowAddress, wager_base: pm.wager_base }));
+        break;
+      }
+      case 'pi_deposit_confirm': {
+        if (!msg.mid || !msg.addr || !msg.tx_hash) break;
+        const pm = piMatches.get(msg.mid);
+        if (!pm) { ws.send(JSON.stringify({ t: 'error', error: 'PI match not found' })); break; }
+        const pInfo = pm.players.get(msg.addr);
+        if (!pInfo) { ws.send(JSON.stringify({ t: 'error', error: 'Not in this PI match' })); break; }
+        if (pInfo.deposited) { ws.send(JSON.stringify({ t: 'pi_deposit_verified', mid: msg.mid, addr: msg.addr, already: true })); break; }
+
+        // Verify on-chain: check escrow balance increased
+        const escrowBal = await piGetBalance(piEscrowAddress);
+        // Simple verification: escrow should have at least wager * confirmed_count
+        const confirmedCount = Array.from(pm.players.values()).filter(p => p.deposited).length + 1;
+        if (escrowBal < pm.wager_base * confirmedCount) {
+          ws.send(JSON.stringify({ t: 'pi_deposit_failed', mid: msg.mid, error: 'Deposit not detected on-chain. Please wait for confirmation.' }));
+          break;
+        }
+
+        pInfo.deposited = true;
+        pm.players.set(msg.addr, pInfo);
+        broadcast({ t: 'pi_deposit_verified', mid: msg.mid, addr: msg.addr });
+
+        // Check if all deposited
+        let allPiDeposited = true;
+        for (const [, info] of pm.players) {
+          if (!info.deposited) { allPiDeposited = false; break; }
+        }
+        if (allPiDeposited) {
+          pm.state = 'deposits_confirmed';
+          piMatches.set(msg.mid, pm);
+          broadcast({ t: 'pi_all_deposited', mid: msg.mid });
+        }
+        break;
+      }
+      case 'pi_game_result': {
+        if (!msg.mid || !msg.winner) break;
+        const pm = piMatches.get(msg.mid);
+        if (!pm || pm.state === 'paid' || pm.state === 'disputing') break;
+
+        const piResultSender = getWsBoundAddr(ws);
+        const piPlayerAddrs = Array.from(pm.players.keys());
+        if (!piResultSender || !piPlayerAddrs.includes(piResultSender)) {
+          ws.send(JSON.stringify({ t: 'error', error: 'Only PI match participants can report results' })); break;
+        }
+        if (!piPlayerAddrs.includes(msg.winner)) {
+          ws.send(JSON.stringify({ t: 'error', error: 'Winner is not a PI match participant' })); break;
+        }
+
+        pm.winner = msg.winner;
+        pm.state = 'disputing';
+        pm.dispute_deadline = Date.now() + 5 * 60 * 1000;
+        pm.dispute_votes.clear();
+        pm.acceptors.clear();
+        piMatches.set(msg.mid, pm);
+
+        const piTimer = setTimeout(() => {
+          executePiPayout(msg.mid);
+          piPayoutPending.delete(msg.mid);
+        }, 5 * 60 * 1000);
+        piPayoutPending.set(msg.mid, piTimer);
+
+        broadcast({ t: 'pi_result_pending', mid: msg.mid, winner: msg.winner, deadline: pm.dispute_deadline });
+        break;
+      }
+      case 'pi_accept_result': {
+        if (!msg.mid || !msg.addr) break;
+        const pm = piMatches.get(msg.mid);
+        if (!pm || pm.state !== 'disputing') break;
+        const piArAddrs = Array.from(pm.players.keys());
+        if (!piArAddrs.includes(msg.addr)) {
+          ws.send(JSON.stringify({ t: 'error', error: 'Only PI match participants can accept results' })); break;
+        }
+        pm.acceptors.add(msg.addr);
+        pm.dispute_votes.delete(msg.addr);
+        const piAllAccepted = piArAddrs.every(a => pm.acceptors.has(a));
+        if (piAllAccepted) {
+          executePiPayout(msg.mid);
+        } else {
+          broadcast({ t: 'pi_dispute_update', mid: msg.mid, votes: Object.fromEntries(pm.dispute_votes), acceptors: Array.from(pm.acceptors) });
         }
         break;
       }

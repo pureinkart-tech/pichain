@@ -133,8 +133,8 @@ pub const MIN_WAGER: u64 = 10_000_000;
 /// Maximum wager: 1000 PI.
 pub const MAX_WAGER: u64 = 1_000_000_000_000;
 
-/// House fee: 2% (200 bps), burned on resolution.
-pub const HOUSE_FEE_BPS: u16 = 200;
+/// House fee: 0% on-chain (fees collected off-chain by website/relay).
+pub const HOUSE_FEE_BPS: u16 = 0;
 
 /// Match expiry: ~30 minutes at 314ms blocks = 5,732 blocks.
 pub const MATCH_EXPIRY_BLOCKS: u64 = 5_732;

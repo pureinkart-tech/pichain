@@ -1392,7 +1392,7 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
             <!-- 1v1 Panel (mobile) -->
             <div id="arcade1v1Panel_m" style="display:none;margin-bottom:6px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:8px;">
               <div style="font-size:10px;font-weight:700;color:var(--neon-green);margin-bottom:4px;">1v1 MATCH</div>
-              <div style="font-size:10px;color:var(--dim);margin-bottom:4px;">Winner takes all (2% house fee)</div>
+              <div style="font-size:10px;color:var(--dim);margin-bottom:4px;">Winner takes all (1% PI / 3% SOL house fee)</div>
               <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center;">
                 <input type="text" id="arcadeRoomCode_m" placeholder="CREATE ROOM CODE" style="flex:1;font-size:11px;padding:5px 8px;text-transform:uppercase;" maxlength="12">
                 <button class="btn btn-sm btn-outline" onclick="generateArcadeRoomCode()" style="font-size:10px;white-space:nowrap;">Generate</button>
@@ -1446,7 +1446,7 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
           <!-- 1v1 Match Panel -->
           <div id="arcade1v1Panel" style="display:none;margin-bottom:8px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;">
             <div style="font-size:11px;font-weight:700;color:var(--neon-green);margin-bottom:6px;">1v1 MATCH</div>
-            <div style="font-size:11px;color:var(--dim);margin-bottom:6px;">Winner takes all (2% house fee)</div>
+            <div style="font-size:11px;color:var(--dim);margin-bottom:6px;">Winner takes all (1% PI / 3% SOL house fee)</div>
             <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;">
               <input type="text" id="arcadeRoomCode" placeholder="CREATE ROOM CODE" style="flex:1;font-size:11px;padding:5px 8px;text-transform:uppercase;" maxlength="12">
               <button class="btn btn-sm btn-outline" onclick="generateArcadeRoomCode()" style="font-size:10px;white-space:nowrap;">Generate</button>
@@ -3404,6 +3404,82 @@ function handleRelayMessage(msg){
       showToast('SOL payout error: '+(msg.error||'unknown'),'error');
       break;
 
+    // --- PI Escrow Handlers ---
+    case 'pi_escrow_info':
+      // Relay tells us the escrow address — deposit our wager via Transfer tx
+      if(msg.mid && msg.escrow && msg.wager_base && walletKeypair && !DEMO_MODE){
+        (async function(){
+          try {
+            showToast('Depositing '+formatPI(msg.wager_base)+' PI to escrow...','info');
+            const hex = await signAndBuildPQ('Transfer', { recipient: msg.escrow, amount: msg.wager_base }, accountNonce, 21000);
+            const result = await submitPQTx(hex);
+            if(result.status==='pending'){
+              accountNonce++;
+              // Wait a moment for confirmation, then tell relay
+              setTimeout(()=>{
+                sendRelay({t:'pi_deposit_confirm', mid:msg.mid, addr:walletAddressHex, tx_hash:result.tx_hash});
+              }, 3000);
+            } else {
+              showToast('PI deposit failed: '+(result.error||'unknown'),'error');
+            }
+          } catch(e) { showToast('PI deposit error: '+e.message,'error'); }
+        })();
+      }
+      break;
+    case 'pi_deposit_verified':
+      if(currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        if(!currentPvpMatch.pi_deposit_status)currentPvpMatch.pi_deposit_status={};
+        currentPvpMatch.pi_deposit_status[msg.addr]='confirmed';
+        renderPvpReadyLobby();
+      }
+      break;
+    case 'pi_deposit_failed':
+      showToast(msg.error||'PI deposit verification failed','error');
+      break;
+    case 'pi_all_deposited':
+      if(currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        currentPvpMatch._piAllDeposited=true;
+        showToast('All PI deposits confirmed — ready up!','success');
+        renderPvpReadyLobby();
+      }
+      break;
+    case 'pi_result_pending':
+      if(currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        currentPvpMatch._piDisputeDeadline=msg.deadline;
+        currentPvpMatch._piPendingWinner=msg.winner;
+        // Reuse SOL dispute UI for PI matches
+        currentPvpMatch._solDisputeDeadline=msg.deadline;
+        currentPvpMatch._solPendingWinner=msg.winner;
+        showSolDisputeUI(currentPvpMatch);
+      }
+      break;
+    case 'pi_payout_complete':
+      if(currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        const isMyPiWin=walletAddressHex&&msg.winner===walletAddressHex;
+        const payoutPi=formatPI(msg.amount);
+        const feePi=formatPI(msg.fee);
+        const piCtrl=document.getElementById('pvpGameControls');
+        if(piCtrl){
+          piCtrl.innerHTML=`<div style="text-align:center;padding:16px;">
+            <div style="font-size:18px;font-weight:700;color:${isMyPiWin?'var(--neon-green)':'var(--rose)'};">${isMyPiWin?'YOU WON '+payoutPi+' PI!':'Winner: '+msg.winner.slice(0,6)+'..'+msg.winner.slice(-4)}</div>
+            <div style="color:var(--dim);font-size:12px;margin-top:4px;">Fee: ${feePi} PI (1%)</div>
+            <button class="btn-glow" onclick="leavePvpMatch()" style="margin-top:12px;">Back to Lobby</button>
+          </div>`;
+        }
+        updateBalance();
+      }
+      break;
+    case 'pi_payout_error':
+      showToast('PI payout error: '+(msg.error||'unknown'),'error');
+      break;
+    case 'pi_dispute_update':
+      if(currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        currentPvpMatch._solDisputeVotes=msg.votes||{};
+        currentPvpMatch._solAcceptors=new Set(msg.acceptors||[]);
+        updateSolDisputeUI(currentPvpMatch);
+      }
+      break;
+
     // --- SOL Poker Chip Handlers ---
     case 'sol_poker_balance':
       solPokerChips = msg.chips || 0;
@@ -3702,6 +3778,8 @@ function createMatch(){
   sendRelay({t:'create_match',match,addr:creator});
   if(currency==='SOL'){
     sendRelay({t:'sol_create_match',mid:match.id,wager_lamports:wagerBase,addr:creator,pubkey:phantomPubkey});
+  } else if(currency==='PI' && !DEMO_MODE && walletKeypair){
+    sendRelay({t:'pi_create_match',mid:match.id,wager_base:wagerBase,addr:walletAddressHex});
   }
 
   // Match is full with you + bots: auto-enter immediately
@@ -4607,6 +4685,14 @@ function pvpGameOver(m,canvas,winnerAddr){
   if(isSol){
     // Send game result to relay for SOL payout with dispute window
     sendRelay({t:'sol_game_result',mid:m.id,winner:winnerAddr});
+    document.getElementById('pvpGameControls').innerHTML=`<div style="text-align:center;padding:8px;">
+      <div style="color:var(--gold);font-size:13px;">Verifying result — 5 minute dispute window...</div>
+      <div id="solDisputeArea"></div>
+      <button class="btn-glow" onclick="leavePvpMatch()" style="margin-top:12px;">Back to Lobby</button>
+    </div>`;
+  }else if(!DEMO_MODE && walletKeypair && m.currency==='PI' && piMatches){
+    // Send game result to relay for PI payout with dispute window
+    sendRelay({t:'pi_game_result',mid:m.id,winner:winnerAddr});
     document.getElementById('pvpGameControls').innerHTML=`<div style="text-align:center;padding:8px;">
       <div style="color:var(--gold);font-size:13px;">Verifying result — 5 minute dispute window...</div>
       <div id="solDisputeArea"></div>
