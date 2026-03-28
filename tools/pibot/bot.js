@@ -472,7 +472,11 @@ async function mainMenu(ctx, u) {
           const dex = dexBatch.find(p => p.baseToken?.address === mints[i]) || null;
           const info = await getCachedTokenInfo(t.mint);
           const sym = info.symbol || t.mint.slice(0,6);
-          const price = dex ? parseFloat(dex.priceUsd || '0') : 0;
+          let price = dex ? parseFloat(dex.priceUsd || '0') : 0;
+          // Fallback to sol.getPrice if DexScreener has no data
+          if (price === 0) {
+            try { price = await sol.getPrice(t.mint); } catch {}
+          }
           const valueUsd = t.uiBalance * price;
           const valueSol = solPrice > 0 ? valueUsd / solPrice : 0;
           netWorth += Math.floor(valueSol * LAMPORTS_PER_SOL);
