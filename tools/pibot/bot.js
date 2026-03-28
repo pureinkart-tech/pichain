@@ -521,9 +521,11 @@ async function mainMenu(ctx, u) {
   text += `\u{1F4E6} *Address:*\n\`${esc(addr)}\``;
   text += `\n\nPaste a *token ${isPi ? 'mint ID' : 'address'}* to trade\\!`;
 
-  const kb = new InlineKeyboard()
-    .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').text('\u{1F4CA} PI Price', 'piprice_btn').row()
-    .text('Buy Tokens', 'cmd_buy').text('Sell & Manage', 'positions').row()
+  const kb = new InlineKeyboard();
+  if (isPi) {
+    kb.text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').text('\u{1F4CA} PI Price', 'piprice_btn').row();
+  }
+  kb.text('Buy', 'cmd_buy').text('Sell & Manage', 'positions').row()
     .text(isPi ? '\u{1F7E2} Switch Solana' : '\u{1F7E3} Switch PIChain', 'switch_chain').text('Change Wallet', 'cmd_wallets').row()
     .text(isPi ? 'Launches' : 'Trending', isPi ? 'launches' : 'sol_trending').text('Tokens', 'tokens').text('Alerts', 'cmd_alerts').row()
     .text('Wallet', 'wallet').text('Settings', 'settings').text('Refer Friends', 'referrals').row()
