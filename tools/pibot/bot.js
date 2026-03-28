@@ -412,13 +412,7 @@ bot.use(async (ctx, next) => {
     return; // Drop the request
   }
   // Replay protection: ignore callback queries older than 30 seconds
-  if (ctx.callbackQuery) {
-    const cbAge = Date.now() / 1000 - (ctx.callbackQuery.message?.date || 0);
-    if (cbAge > 300) { // Message older than 5 minutes
-      await ctx.answerCallbackQuery('This button has expired. Use /home for a fresh menu.').catch(() => {});
-      return;
-    }
-  }
+  // No button expiry — buttons work indefinitely like BonkBot
   return next();
 });
 
@@ -512,7 +506,10 @@ async function mainMenu(ctx, u) {
           if (valueUsd > 0) posText += `Value: \\$${esc(valueUsd.toFixed(2))} / ${esc(valueSol.toFixed(4))} SOL\n`;
           posText += `Balance: ${esc(balRound)} ${esc(sym)}${supplyPct ? ', ' + esc(supplyPct) + '% Supply' : ''}\n`;
           if (mcap > 0) posText += `Mcap: \\$${esc(mcapStr)} @ ${esc(priceStr)}\n`;
-          posText += `5m: *${esc(fmt(m5))}*, 1h: *${esc(fmt(h1))}*, 6h: *${esc(fmt(h6))}*, 24h: *${esc(fmt(h24))}*\n`;
+          // Only show price changes if we have real data (not all zeros)
+          if (m5 || h1 || h6 || h24) {
+            posText += `5m: *${esc(fmt(m5))}*, 1h: *${esc(fmt(h1))}*, 6h: *${esc(fmt(h6))}*, 24h: *${esc(fmt(h24))}*\n`;
+          }
         }
       }
 
