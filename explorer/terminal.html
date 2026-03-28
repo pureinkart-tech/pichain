@@ -82,7 +82,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div id="connectArea" class="connect-box">
         <h3 style="margin-bottom:16px">Connect Wallet</h3>
         <p style="color:var(--dim);font-size:13px;margin-bottom:16px">Connect your PIChain wallet to trade from the web terminal.</p>
-        <button onclick="connectSignerWallet()" style="width:100%;padding:14px;font-size:15px;margin-bottom:8px;">&#x1F510; Connect PIChain Signer</button>
+        <button onclick="connectSignerWallet()" style="width:100%;padding:14px;font-size:15px;margin-bottom:8px;">&#x1F510; Connect via Miner App</button>
         <p style="color:var(--dim);font-size:11px;margin-bottom:8px">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</p>
         <details style="margin:8px 0 16px;cursor:pointer;">
           <summary style="color:var(--accent);font-size:12px;font-weight:600;">What is PIChain Signer?</summary>
@@ -155,7 +155,7 @@ async function connectSignerWallet() {
       let hex = result.address;
       if (hex.startsWith('Pi314')) hex = hex.slice(5);
       wallet = { address: hex.toLowerCase(), keypair: { publicKey: hexDecode(hex.toLowerCase()) } };
-      persistWalletConnection(result.address);
+      window.persistWalletConnection(result.address);
       document.getElementById('connectArea').style.display = 'none';
       document.getElementById('tradingArea').style.display = 'block';
       loadPortfolio();
@@ -175,7 +175,7 @@ function connectViewOnly() {
   if (hex.startsWith('pi314')) hex = hex.slice(5);
   if (!/^[0-9a-fA-F]{40}$/.test(hex)) { alert('Invalid address. Must be Pi314... or 40 hex chars.'); return; }
   wallet = { address: hex.toLowerCase(), keypair: { publicKey: hexDecode(hex.toLowerCase()) } };
-  persistWalletConnection('Pi314' + hex.toLowerCase());
+  window.persistWalletConnection('Pi314' + hex.toLowerCase());
   document.getElementById('connectArea').style.display = 'none';
   document.getElementById('tradingArea').style.display = 'block';
   loadPortfolio();

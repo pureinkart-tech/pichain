@@ -270,13 +270,16 @@ a:hover { text-decoration: underline; }
       <h3>Connect Wallet</h3>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Connect your PIChain wallet to launch and trade tokens.</p>
       <div class="form-row">
-        <button class="btn" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect PIChain Signer</button>
+        <button class="btn" style="width:100%;padding:14px;font-size:15px;" onclick="connectSignerWallet()">&#x1F510; Connect via Miner App</button>
       </div>
       <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">Requires <a href="/mine" style="color:var(--accent);">PIChain Signer</a> running on your computer</div>
       <div class="form-row" style="margin-top:12px;">
         <button class="btn" style="width:100%;padding:14px;font-size:15px;background:linear-gradient(135deg,#0088cc,#00c6ff);border:none;color:#fff;" onclick="connectWithPiBot()">&#x1F916; Connect with PiBot (Telegram)</button>
       </div>
       <div style="color:var(--dim);font-size:11px;text-align:center;margin:8px 0;">No downloads needed — works on phone and desktop</div>
+      <div class="form-row" style="margin-top:8px;">
+        <a href="https://github.com/pureinkart-tech/pichain/releases/latest" target="_blank" class="btn" style="width:100%;padding:12px;font-size:14px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);text-decoration:none;text-align:center;display:block;">&#x2B07; Download Standalone Signer</a>
+      </div>
       <details style="margin:12px 0;cursor:pointer;">
         <summary style="color:var(--accent);font-size:12px;font-weight:600;">What is PIChain Signer?</summary>
         <div style="color:var(--muted);font-size:12px;line-height:1.7;margin-top:8px;padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;">
@@ -626,7 +629,7 @@ async function connectSignerWallet() {
       walletAddressHex = hex.toLowerCase();
       walletAddress = hexDecode(walletAddressHex);
       walletKeypair = { publicKey: walletAddress };
-      persistWalletConnection(result.address);
+      window.persistWalletConnection(result.address);
       document.getElementById('walletModal').classList.remove('show');
       resetWalletModal();
       updateWalletUI();
@@ -654,7 +657,7 @@ function connectViewOnly() {
   walletAddressHex = hex.toLowerCase();
   walletAddress = hexDecode(walletAddressHex);
   walletKeypair = { publicKey: walletAddress };
-  persistWalletConnection('Pi314' + walletAddressHex);
+  window.persistWalletConnection('Pi314' + walletAddressHex);
   document.getElementById('walletModal').classList.remove('show');
   resetWalletModal();
   updateWalletUI();
