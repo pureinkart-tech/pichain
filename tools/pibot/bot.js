@@ -559,7 +559,9 @@ async function mainMenu(ctx, u) {
     text += `\n\u{1F4B0} *Balance:* ${balStr}\n`;
   }
   text += `\u{1F4E6} *Address:*\n\`${esc(addr)}\``;
-  text += `\n\nPaste a *token ${isPi ? 'mint ID' : 'address'}* to trade\\!`;
+  if (!isPi) {
+    text += `\n\nPaste a *token address* to trade\\!`;
+  }
 
   const kb = new InlineKeyboard();
   if (isPi) {
@@ -1753,7 +1755,7 @@ bot.callbackQuery('cmd_buy', async (ctx) => { const u = await getUser(ctx.from.i
 
 // Buy PI with buttons
 bot.callbackQuery('buy_pi_menu', async (ctx) => {
-  if (!ammPool.isInitialized()) { await ctx.editMessageText('PI/SOL pool not initialized yet.').catch(() => {}); await ctx.answerCallbackQuery().catch(() => {}); return; }
+  if (!ammPool.isInitialized()) { await ctx.editMessageText('PI/SOL pool not initialized yet.').catch((e) => console.error('buy_pi_menu init error:', e.message)); await ctx.answerCallbackQuery().catch(() => {}); return; }
   const solPrice = cachedSolPrice || 90;
   const stats = ammPool.stats(solPrice);
   const kb = new InlineKeyboard()
@@ -1763,11 +1765,11 @@ bot.callbackQuery('buy_pi_menu', async (ctx) => {
     .text('\u{1F7E2} Sell PI', 'sellpi_menu').text('\u{2190} Home', 'home');
   await ctx.editMessageText(
     `\u{1F7E3} *Buy PI*\n\n` +
-    `Price: *\\$${esc(stats.priceUsd.toFixed(6))}* per PI\n` +
-    `1 SOL \\= ~${esc(Math.floor(1/stats.priceSol).toLocaleString())} PI\n\n` +
+    `Price: *$${stats.priceUsd.toFixed(4)}* per PI\n` +
+    `1 SOL = ~${Math.floor(1/stats.priceSol).toLocaleString()} PI\n\n` +
     `Select SOL amount:`,
-    { parse_mode: 'MarkdownV2', reply_markup: kb }
-  ).catch(() => {});
+    { parse_mode: 'Markdown', reply_markup: kb }
+  ).catch((e) => console.error('buy_pi_menu edit error:', e.message));
   await ctx.answerCallbackQuery().catch(() => {});
 });
 
@@ -1794,12 +1796,12 @@ bot.callbackQuery(/^buypi_sol:(.+)$/, async (ctx) => {
   ctx.session.pendingBuy = { solInLamports, piOut: quote.piOut, solIn, piOutDisplay: piOut, priceUsd, piAddr, priceImpact: quote.priceImpact };
 
   await ctx.editMessageText(
-    `\u{1F7E3} *Buy ~${esc(piOut.toFixed(2))} PI*\n\n` +
-    `Pay: *${esc(solIn.toFixed(6))} SOL* \\(\\$${esc((solIn * solPrice).toFixed(2))}\\)\n` +
-    `Price: \\$${esc(priceUsd.toFixed(6))}/PI\n` +
-    `Impact: ${esc(quote.priceImpact.toFixed(2))}%\n\n` +
-    `PI sent to: \`${esc(piAddr)}\``,
-    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_buypi').text('\u{274C} Back', 'buy_pi_menu') }
+    `\u{1F7E3} *Buy ~${piOut.toFixed(2)} PI*\n\n` +
+    `Pay: *${solIn.toFixed(6)} SOL* ($${(solIn * solPrice).toFixed(2)})\n` +
+    `Price: $${priceUsd.toFixed(6)}/PI\n` +
+    `Impact: ${quote.priceImpact.toFixed(2)}%\n\n` +
+    `PI sent to: \`${piAddr}\``,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_buypi').text('\u{274C} Back', 'buy_pi_menu') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
@@ -1815,10 +1817,10 @@ bot.callbackQuery('sellpi_menu', async (ctx) => {
     .text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{2190} Home', 'home');
   await ctx.editMessageText(
     `\u{1F7E2} *Sell PI for SOL*\n\n` +
-    `Price: *\\$${esc(stats.priceUsd.toFixed(6))}* per PI\n` +
-    `1 PI \\= ${esc(stats.priceSol.toFixed(8))} SOL\n\n` +
+    `Price: *$${stats.priceUsd.toFixed(4)}* per PI\n` +
+    `1 PI = ${stats.priceSol.toFixed(8)} SOL\n\n` +
     `Select PI amount to sell:`,
-    { parse_mode: 'MarkdownV2', reply_markup: kb }
+    { parse_mode: 'Markdown', reply_markup: kb }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
@@ -1838,11 +1840,11 @@ bot.callbackQuery(/^sellpi_amt:(\d+)$/, async (ctx) => {
   ctx.session.pendingSell = { piInBase, solOut: quote.solOut, piIn, solOutDisplay: solOut, priceImpact: quote.priceImpact, piAddr };
 
   await ctx.editMessageText(
-    `\u{1F7E2} *Sell ${esc(piIn.toLocaleString())} PI*\n\n` +
-    `Receive: *${esc(solOut.toFixed(6))} SOL* \\(\\$${esc((solOut * solPrice).toFixed(2))}\\)\n` +
-    `Impact: ${esc(quote.priceImpact.toFixed(2))}%\n` +
-    `Fee: 0\\.3%`,
-    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_sellpi').text('\u{274C} Back', 'sellpi_menu') }
+    `\u{1F7E2} *Sell ${piIn.toLocaleString()} PI*\n\n` +
+    `Receive: *${solOut.toFixed(6)} SOL* ($${(solOut * solPrice).toFixed(2)})\n` +
+    `Impact: ${quote.priceImpact.toFixed(2)}%\n` +
+    `Fee: 0.3%`,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{2705} Confirm', 'confirm_sellpi').text('\u{274C} Back', 'sellpi_menu') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
@@ -1859,12 +1861,12 @@ bot.callbackQuery('piprice_btn', async (ctx) => {
   const stats = ammPool.stats(solPrice);
   await ctx.editMessageText(
     `\u{1F4CA} *PI Price*\n\n` +
-    `\\$${esc(stats.priceUsd.toFixed(4))} per PI\n` +
-    `1 SOL \\= ${esc(Math.floor(1/stats.priceSol).toLocaleString())} PI\n` +
-    `1 PI \\= ${esc(stats.priceSol.toFixed(8))} SOL\n\n` +
+    `$${stats.priceUsd.toFixed(4)} per PI\n` +
+    `1 SOL = ${Math.floor(1/stats.priceSol).toLocaleString()} PI\n` +
+    `1 PI = ${stats.priceSol.toFixed(8)} SOL\n\n` +
     `*Hard Cap:* 3,141,592,653 PI\n` +
-    `*100% to miners* — no pre\\-mine`,
-    { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').row().text('\u{2190} Home', 'home') }
+    `*100% to miners* — no pre-mine`,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').row().text('\u{2190} Home', 'home') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});
 });
