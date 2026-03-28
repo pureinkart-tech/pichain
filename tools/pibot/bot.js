@@ -2279,8 +2279,8 @@ async function solTokenView(ctx, u, mintAddr) {
       text += `*Price:* ${esc(priceStr)}\n`;
     }
 
-    // Price changes
-    if (pair) {
+    // Price changes — always show
+    {
       const fmt = (v) => { const n = parseFloat(v)||0; return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; };
       text += `5m: *${esc(fmt(m5))}*, 1h: *${esc(fmt(h1))}*, 6h: *${esc(fmt(h6))}*, 24h: *${esc(fmt(h24))}*\n`;
     }
