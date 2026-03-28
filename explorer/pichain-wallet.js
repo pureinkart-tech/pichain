@@ -315,15 +315,20 @@ async function connectWithPiBot() {
     } catch {}
   }
   if (result.connected) {
+    // Set all compat vars that pages check
+    let hex = result.address;
+    if (hex.startsWith('Pi314')) hex = hex.slice(5);
+    window.walletAddressHex = hex.toLowerCase();
+    window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+    window.walletKeypair = { publicKey: window.walletAddress };
+
     const modal = document.getElementById('walletModal');
     if (modal) modal.classList.remove('show');
-    if (typeof showToast === 'function') showToast('Connected via PiBot: ' + result.address.slice(0, 16) + '...', 'success');
+    if (typeof showToast === 'function') showToast('Connected via PiBot!', 'success');
     if (typeof updateWalletUI === 'function') updateWalletUI();
     if (typeof onWalletConnected === 'function') onWalletConnected();
-    // Set compat vars for pages that check walletKeypair
-    window.walletAddressHex = result.address.replace(/^Pi314/, '').toLowerCase();
-    window.walletAddress = window.walletAddressHex ? new Uint8Array(window.walletAddressHex.match(/.{2}/g).map(b => parseInt(b, 16))) : null;
-    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+    if (typeof updateBalance === 'function') updateBalance();
+    if (typeof updateWalletBalance === 'function') updateWalletBalance();
   } else {
     if (status) { status.textContent = 'Connection timed out. Try again.'; status.style.color = 'var(--rose)'; }
     if (spinner) spinner.style.display = 'none';
@@ -361,15 +366,31 @@ async function autoConnect() {
   const pibotTid = localStorage.getItem('pichain_pibot_tid');
   const savedAddr = getPersistedAddress();
   if (pibotTid && savedAddr) {
+    let hex = savedAddr;
+    if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyConnected = true;
     window.pqProxyAddress = savedAddr;
     window.pqWalletProvider = 'pibot';
+    window.walletAddressHex = hex.toLowerCase();
+    try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
+    window.walletKeypair = window.walletAddress ? { publicKey: window.walletAddress } : null;
+    // Trigger UI updates after DOM is ready
+    setTimeout(() => {
+      if (typeof updateWalletUI === 'function') updateWalletUI();
+      if (typeof onWalletConnected === 'function') onWalletConnected();
+      if (typeof updateBalance === 'function') updateBalance();
+      if (typeof updateWalletBalance === 'function') updateWalletBalance();
+    }, 500);
     return;
   }
 
-  // Fall back to persisted address (view-only, no signing)
+  // Fall back to persisted address (view-only)
   if (savedAddr) {
+    let hex = savedAddr;
+    if (hex.startsWith('Pi314')) hex = hex.slice(5);
     window.pqProxyAddress = savedAddr;
+    window.walletAddressHex = hex.toLowerCase();
+    try { window.walletAddress = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); } catch {}
   }
 }
 
