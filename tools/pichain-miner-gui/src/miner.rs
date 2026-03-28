@@ -428,7 +428,7 @@ pub async fn mining_loop(
         // Re-query balance periodically (every 10 rounds) even when nonce is cached
         let (nonce, balance) = if let Some(n) = local_nonce {
             // Periodic balance check (non-blocking, doesn't reset nonce)
-            let bal = if loop_count % 10 == 0 {
+            let bal = if loop_count.is_multiple_of(10) {
                 match client
                     .get(format!("{}/api/v1/account/{}", config.rpc_url, address_hex))
                     .send()
