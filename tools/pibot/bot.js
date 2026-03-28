@@ -321,12 +321,17 @@ async function getUser(tid, refId = 0) {
   u.wallet_address = addr;
 
   // Legacy migration: if user has an old Ed25519 seed, migrate to vault
+  // IMPORTANT: preserve old seed as sol_seed before overwriting
   if (u.wallet_seed && !u.wallet_seed.startsWith('vault:')) {
     try {
+      // Save old seed for Solana before migrating PIChain to vault
+      if (!u.sol_seed) {
+        db.prepare('UPDATE users SET sol_seed = ? WHERE telegram_id = ?')
+          .run(u.wallet_seed, tid); // Keep same encryption
+      }
       // Check if vault already has this user
       const existing = await C.getAddress(String(tid)).catch(() => null);
       if (!existing) {
-        // Create new PQ wallet in vault (old Ed25519 wallet is abandoned)
         const result = await C.createWallet(String(tid));
         const newAddr = result.address;
         db.prepare('UPDATE users SET wallet_seed = ?, address = ? WHERE telegram_id = ?')
@@ -334,7 +339,7 @@ async function getUser(tid, refId = 0) {
         try { db.prepare('UPDATE users SET pi_address = ?, wallet_address = ? WHERE telegram_id = ?').run(newAddr, newAddr, tid); } catch {}
         u.wallet = { address: newAddr };
         u.wallet_address = newAddr;
-        console.log(`Migrated user ${tid} from Ed25519 to PQ vault wallet: ${newAddr}`);
+        console.log(`Migrated user ${tid} to PQ vault (Solana seed preserved separately)`);
       } else {
         u.wallet = { address: existing.address };
         u.wallet_address = existing.address;
@@ -346,17 +351,34 @@ async function getUser(tid, refId = 0) {
     }
   }
 
-  // Solana wallet (separate — Solana uses Ed25519, not PQ)
-  if (u.wallet_seed && !u.wallet_seed.startsWith('vault:')) {
+  // Solana wallet — always Ed25519, stored separately from PIChain vault
+  // Generate a Solana seed if user doesn't have one yet
+  let solSeed = u.sol_seed || '';
+  if (!solSeed && u.wallet_seed && !u.wallet_seed.startsWith('vault:')) {
+    // Legacy: use old Ed25519 seed for Solana (before vault migration)
+    try { solSeed = decryptSeed(u.wallet_seed); } catch {}
+  }
+  if (!solSeed) {
+    // Generate new Solana seed for vault users
+    const newSeed = nodeCrypto.randomBytes(32).toString('hex');
+    const encSeed = encryptSeed(newSeed);
     try {
-      const rawSeed = decryptSeed(u.wallet_seed);
-      u.solWallet = sol.walletFromSeed(rawSeed);
-      if (!u.sol_address) Q.setSolAddr.run(u.solWallet.publicKey, tid);
+      db.prepare('UPDATE users SET sol_seed = ? WHERE telegram_id = ?').run(encSeed, tid);
+      solSeed = newSeed;
+    } catch {}
+  } else if (solSeed.includes(':')) {
+    // Encrypted seed — decrypt it
+    try { solSeed = decryptSeed(solSeed); } catch { solSeed = ''; }
+  }
+  if (solSeed && solSeed.length === 64) {
+    try {
+      u.solWallet = sol.walletFromSeed(solSeed);
+      if (!u.sol_address || u.sol_address !== u.solWallet.publicKey) {
+        Q.setSolAddr.run(u.solWallet.publicKey, tid);
+      }
     } catch { u.solWallet = null; }
   } else {
-    // For vault users, Solana wallet needs separate handling
-    // (Solana keypair can't come from PQ keys)
-    u.solWallet = u.sol_address ? { publicKey: u.sol_address } : null;
+    u.solWallet = null;
   }
 
   u.chain = u.active_chain || 'pi';
