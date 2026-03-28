@@ -1106,14 +1106,12 @@ bot.command('piprice', async (ctx) => {
   const stats = ammPool.stats(solPrice);
   await ctx.reply(
     `\u{1F7E3} *PI Price*\n\n` +
-    `$${stats.priceUsd.toFixed(6)} per PI\n` +
+    `$${stats.priceUsd.toFixed(4)} per PI\n` +
     `1 SOL = ${Math.floor(1/stats.priceSol).toLocaleString()} PI\n` +
     `1 PI = ${stats.priceSol.toFixed(8)} SOL\n\n` +
-    `*Pool:* ${stats.piReserve.toFixed(0)} PI / ${stats.solReserve.toFixed(4)} SOL\n` +
-    `*TVL:* $${stats.tvlUsd.toFixed(2)}\n` +
-    `*Trades:* ${stats.totalTrades}\n\n` +
-    `Buy: \`/buypi <SOL amount>\`\nSell: \`/sellpi <PI amount>\``,
-    { parse_mode: 'Markdown' }
+    `Hard Cap: 3,141,592,653 PI\n` +
+    `100% to miners — no pre-mine`,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').row().text('\u{2190} Home', 'home') }
   );
 });
 
@@ -1819,12 +1817,11 @@ bot.callbackQuery('piprice_btn', async (ctx) => {
   const stats = ammPool.stats(solPrice);
   await ctx.editMessageText(
     `\u{1F4CA} *PI Price*\n\n` +
-    `\\$${esc(stats.priceUsd.toFixed(6))} per PI\n` +
+    `\\$${esc(stats.priceUsd.toFixed(4))} per PI\n` +
     `1 SOL \\= ${esc(Math.floor(1/stats.priceSol).toLocaleString())} PI\n` +
     `1 PI \\= ${esc(stats.priceSol.toFixed(8))} SOL\n\n` +
-    `*Pool:* ${esc(stats.piReserve.toFixed(0))} PI / ${esc(stats.solReserve.toFixed(4))} SOL\n` +
-    `*TVL:* \\$${esc(stats.tvlUsd.toFixed(2))}\n` +
-    `*Trades:* ${stats.totalTrades}`,
+    `*Hard Cap:* 3,141,592,653 PI\n` +
+    `*100% to miners* — no pre\\-mine`,
     { parse_mode: 'MarkdownV2', reply_markup: new InlineKeyboard().text('\u{1F7E3} Buy PI', 'buy_pi_menu').text('\u{1F7E2} Sell PI', 'sellpi_menu').row().text('\u{2190} Home', 'home') }
   ).catch(() => {});
   await ctx.answerCallbackQuery().catch(() => {});

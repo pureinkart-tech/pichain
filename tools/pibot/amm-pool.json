@@ -1,9 +1,9 @@
 {
   "piReserve": 10000000000000,
-  "solReserve": 76923076,
-  "k": 769230760000000000000,
+  "solReserve": 769230769,
+  "k": 7.69230769e+21,
   "totalVolumePi": 0,
   "totalVolumeSol": 0,
   "totalTrades": 0,
-  "updatedAt": "2026-03-28T05:48:24.115Z"
+  "updatedAt": "2026-03-28T06:05:46.379Z"
 }
