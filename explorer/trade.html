@@ -260,74 +260,72 @@ a:hover { text-decoration: underline; }
     <button class="tab" onclick="switchTab('nfts')">NFTs</button>
   </div>
 
-  <!-- SWAP TAB -->
+  <!-- SWAP TAB — Cross-chain PI ↔ SOL -->
   <div class="tab-content active" id="tab-swap">
     <div class="swap-card">
-      <h3>Swap <span style="font-size:12px;color:var(--dim);font-weight:400;">Powered by PiChain DEX</span></h3>
+      <h3>Swap <span style="font-size:12px;color:var(--dim);font-weight:400;">Cross-chain Exchange</span></h3>
 
-      <!-- From token -->
-      <div class="token-box" id="fromBox">
-        <label>From</label>
+      <!-- Direction selector -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-sm" id="dirBuyPI" onclick="setSwapDir('buy')" style="flex:1;padding:10px;">Buy PI with SOL</button>
+        <button class="btn btn-sm btn-outline" id="dirSellPI" onclick="setSwapDir('sell')" style="flex:1;padding:10px;">Sell PI for SOL</button>
+      </div>
+
+      <!-- From -->
+      <div class="token-box">
+        <label id="swapFromLabel">You Pay (SOL)</label>
         <div class="token-row">
-          <div class="token-selector" onclick="openTokenModal('from')">
-            <div class="t-icon pi-icon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" id="fromIcon">&pi;</div>
-            <span class="symbol" id="fromSymbol">PI</span>
-            <span class="arrow">&#9662;</span>
+          <div class="token-selector" style="cursor:default;">
+            <div class="t-icon" id="swapFromIcon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:linear-gradient(135deg,#9945FF,#14F195);">S</div>
+            <span class="symbol" id="swapFromSymbol">SOL</span>
           </div>
-          <input type="number" class="amount-input" id="fromAmount" placeholder="0.0" step="any" min="0" oninput="onFromAmountChange()">
-        </div>
-        <div class="token-balance">
-          <span>Balance: <span id="fromBalance">0.0000</span></span>
-          <span class="max-btn" onclick="setMaxFrom()">MAX</span>
+          <input type="number" class="amount-input" id="swapFromAmount" placeholder="0.0" step="any" min="0" oninput="calcSwap()">
         </div>
       </div>
 
       <!-- Flip -->
       <div class="flip-row">
-        <button class="flip-btn" onclick="flipTokens()">&#8645;</button>
+        <button class="flip-btn" onclick="setSwapDir(swapDirection==='buy'?'sell':'buy')">&#8645;</button>
       </div>
 
-      <!-- To token -->
-      <div class="token-box" id="toBox">
-        <label>To</label>
+      <!-- To -->
+      <div class="token-box">
+        <label id="swapToLabel">You Receive (PI)</label>
         <div class="token-row">
-          <div class="token-selector" onclick="openTokenModal('to')">
-            <div class="t-icon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;" id="toIcon">?</div>
-            <span class="symbol" id="toSymbol">Select</span>
-            <span class="arrow">&#9662;</span>
+          <div class="token-selector" style="cursor:default;">
+            <div class="t-icon pi-icon" id="swapToIcon" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;">&pi;</div>
+            <span class="symbol" id="swapToSymbol">PI</span>
           </div>
-          <input type="number" class="amount-input" id="toAmount" placeholder="0.0" readonly tabindex="-1" style="color:var(--muted);">
-        </div>
-        <div class="token-balance">
-          <span>Balance: <span id="toBalance">0.0000</span></span>
-          <span></span>
+          <input type="number" class="amount-input" id="swapToAmount" placeholder="0.0" readonly tabindex="-1" style="color:var(--muted);">
         </div>
       </div>
 
       <!-- Swap details -->
-      <div class="swap-details" id="swapDetails" style="display:none;">
-        <div class="detail-row"><span>Rate</span><span class="val" id="swapRate">--</span></div>
-        <div class="detail-row"><span>Price Impact</span><span class="val" id="swapImpact">--</span></div>
-        <div class="detail-row"><span>Min. Received</span><span class="val" id="swapMinReceived">--</span></div>
-        <div class="detail-row"><span>Fee</span><span class="val" id="swapFee">--</span></div>
-      </div>
-
-      <!-- Slippage -->
-      <div class="slippage-row">
-        <span>Slippage:</span>
-        <div class="slippage-presets">
-          <button class="slippage-preset" onclick="setSlippage(0.5)">0.5%</button>
-          <button class="slippage-preset active" onclick="setSlippage(1)">1%</button>
-          <button class="slippage-preset" onclick="setSlippage(3)">3%</button>
-        </div>
-        <input type="number" id="slippageInput" value="1" step="0.1" min="0.1" max="50" onchange="updateSlippageUI()">
-        <span>%</span>
+      <div class="swap-details" style="margin-top:12px;">
+        <div class="detail-row"><span>Rate</span><span class="val" id="crossRate">--</span></div>
+        <div class="detail-row"><span>PI Price</span><span class="val" id="crossPiPrice">$0.001</span></div>
+        <div class="detail-row"><span>SOL Price</span><span class="val" id="crossSolPrice">--</span></div>
       </div>
 
       <!-- Swap button -->
-      <button class="btn" style="width:100%;padding:16px;margin-top:16px;font-size:16px;" id="swapBtn" onclick="doSwap()">
-        Select a token
+      <button class="btn" style="width:100%;padding:16px;margin-top:16px;font-size:16px;" id="crossSwapBtn" onclick="doCrossSwap()">
+        Connect Wallet to Swap
       </button>
+
+      <div style="margin-top:16px;text-align:center;">
+        <p style="color:var(--dim);font-size:11px;">Powered by PiBot Treasury. Swaps are processed via the PIChain signing proxy.</p>
+        <p style="color:var(--dim);font-size:11px;margin-top:4px;">Or swap instantly on Telegram: <a href="https://t.me/PiChainTradeBot" target="_blank" style="color:var(--accent);">@PiChainTradeBot</a></p>
+      </div>
+    </div>
+
+    <!-- More chains coming soon -->
+    <div style="margin-top:24px;text-align:center;">
+      <p style="color:var(--dim);font-size:13px;">More chains coming soon</p>
+      <div style="display:flex;justify-content:center;gap:16px;margin-top:12px;opacity:0.3;">
+        <div style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:13px;">BTC</div>
+        <div style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:13px;">ETH</div>
+        <div style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:13px;">USDT</div>
+      </div>
     </div>
   </div>
 
@@ -1595,6 +1593,103 @@ document.getElementById('tokenModal').addEventListener('click', function(e) {
 document.getElementById('walletModal').addEventListener('click', function(e) {
   if(e.target === this) this.classList.remove('show');
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Cross-chain Swap: PI ↔ SOL
+// ═══════════════════════════════════════════════════════════════════
+const PI_PRICE_USD = 0.001;
+let crossSolPrice = 90;
+let swapDirection = 'buy'; // 'buy' = SOL→PI, 'sell' = PI→SOL
+
+// Fetch SOL price
+async function updateCrossSolPrice() {
+  try {
+    const r = await fetch('https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) { const d = await r.json(); crossSolPrice = parseFloat(d.data?.['So11111111111111111111111111111111111111112']?.price || '90'); }
+  } catch {}
+  const el = document.getElementById('crossSolPrice');
+  if (el) el.textContent = '$' + crossSolPrice.toFixed(2);
+  const piPerSol = Math.floor(crossSolPrice / PI_PRICE_USD);
+  const rateEl = document.getElementById('crossRate');
+  if (rateEl) rateEl.textContent = '1 SOL = ' + piPerSol.toLocaleString() + ' PI';
+  calcSwap();
+}
+updateCrossSolPrice();
+setInterval(updateCrossSolPrice, 15000);
+
+function setSwapDir(dir) {
+  swapDirection = dir;
+  const buyBtn = document.getElementById('dirBuyPI');
+  const sellBtn = document.getElementById('dirSellPI');
+  if (dir === 'buy') {
+    buyBtn.className = 'btn btn-sm'; buyBtn.style.flex = '1'; buyBtn.style.padding = '10px';
+    sellBtn.className = 'btn btn-sm btn-outline'; sellBtn.style.flex = '1'; sellBtn.style.padding = '10px';
+    document.getElementById('swapFromLabel').textContent = 'You Pay (SOL)';
+    document.getElementById('swapFromSymbol').textContent = 'SOL';
+    document.getElementById('swapFromIcon').textContent = 'S';
+    document.getElementById('swapFromIcon').style.background = 'linear-gradient(135deg,#9945FF,#14F195)';
+    document.getElementById('swapFromIcon').className = 't-icon';
+    document.getElementById('swapToLabel').textContent = 'You Receive (PI)';
+    document.getElementById('swapToSymbol').textContent = 'PI';
+    document.getElementById('swapToIcon').textContent = '\u03C0';
+    document.getElementById('swapToIcon').className = 't-icon pi-icon';
+  } else {
+    sellBtn.className = 'btn btn-sm'; sellBtn.style.flex = '1'; sellBtn.style.padding = '10px';
+    buyBtn.className = 'btn btn-sm btn-outline'; buyBtn.style.flex = '1'; buyBtn.style.padding = '10px';
+    document.getElementById('swapFromLabel').textContent = 'You Pay (PI)';
+    document.getElementById('swapFromSymbol').textContent = 'PI';
+    document.getElementById('swapFromIcon').textContent = '\u03C0';
+    document.getElementById('swapFromIcon').style.background = '';
+    document.getElementById('swapFromIcon').className = 't-icon pi-icon';
+    document.getElementById('swapToLabel').textContent = 'You Receive (SOL)';
+    document.getElementById('swapToSymbol').textContent = 'SOL';
+    document.getElementById('swapToIcon').textContent = 'S';
+    document.getElementById('swapToIcon').className = 't-icon';
+    document.getElementById('swapToIcon').style.background = 'linear-gradient(135deg,#9945FF,#14F195)';
+  }
+  document.getElementById('swapFromAmount').value = '';
+  document.getElementById('swapToAmount').value = '';
+  calcSwap();
+}
+
+function calcSwap() {
+  const input = parseFloat(document.getElementById('swapFromAmount').value) || 0;
+  const btn = document.getElementById('crossSwapBtn');
+  if (input <= 0) {
+    document.getElementById('swapToAmount').value = '';
+    if (btn) btn.textContent = 'Enter an amount';
+    return;
+  }
+  const piPerSol = crossSolPrice / PI_PRICE_USD;
+  let output;
+  if (swapDirection === 'buy') {
+    output = input * piPerSol; // SOL → PI
+    if (btn) btn.textContent = 'Buy ' + Math.floor(output).toLocaleString() + ' PI';
+  } else {
+    output = input / piPerSol; // PI → SOL
+    if (btn) btn.textContent = 'Sell for ' + output.toFixed(6) + ' SOL';
+  }
+  document.getElementById('swapToAmount').value = swapDirection === 'buy' ? Math.floor(output) : output.toFixed(6);
+}
+
+async function doCrossSwap() {
+  const input = parseFloat(document.getElementById('swapFromAmount').value) || 0;
+  if (input <= 0) { showToast('Enter an amount', 'error'); return; }
+
+  // For now, direct to PiBot for the actual swap
+  const piPerSol = crossSolPrice / PI_PRICE_USD;
+  let piAmount;
+  if (swapDirection === 'buy') {
+    piAmount = Math.floor(input * piPerSol);
+  } else {
+    piAmount = Math.floor(input);
+  }
+
+  showToast('Opening PiBot to complete your swap...', 'info');
+  setTimeout(() => {
+    window.open('https://t.me/PiChainTradeBot?start=buypi_' + piAmount, '_blank');
+  }, 1000);
+}
 </script>
 </body>
 </html>
