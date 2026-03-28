@@ -2720,14 +2720,10 @@ function buildRemoveParticipantCanonical(sender,nonce,matchId,participant,gasLim
 async function removeParticipantOnChain(matchIdHex, participantHex){
   if(!walletKeypair){showWalletModal();return;}
   try{
-    await updateBalance();
-    const nonce=accountNonce;
     const matchId=hexDecode(matchIdHex);
     const participant=hexDecode(participantHex);
-    const hex=buildSignedTxJson('RemoveParticipant',{match_id:Array.from(matchId),participant:Array.from(participant)},nonce,sig,35000);
-    const result=await submitPQTx(hex);
+    const result=await buildAndSubmitTx('RemoveParticipant',{match_id:Array.from(matchId),participant:Array.from(participant)},35000);
     if(result.status==='pending'){
-      accountNonce++;
       showToast('Player removed & refunded on-chain','success');
     }else{
       showToast('Remove failed: '+(result.error||'unknown'),'error');
@@ -2737,12 +2733,15 @@ async function removeParticipantOnChain(matchIdHex, participantHex){
   }
 }
 
-function buildSignedTxJson(kindName,kindData,nonce,signature,gasLimit){
-  const signedTx={data:{sender:Array.from(walletAddress),nonce:nonce,kind:{[kindName]:kindData},gas_limit:gasLimit,max_base_fee:currentBaseFee,max_priority_fee:100,chain_id:CHAIN_ID},signature:hexEncode(signature),public_key:Array.from(walletKeypair.publicKey)};
-  return hexEncode(new TextEncoder().encode(JSON.stringify(signedTx)));
+// Use PQ signer proxy for all on-chain transactions
+async function buildAndSubmitTx(kindName, kindData, gasLimit) {
+  if (!window.pqProxyConnected) throw new Error('Wallet not connected. Please connect PIChain Signer.');
+  await updateBalance();
+  const hex = await signAndBuildPQ(kindName, kindData, accountNonce, gasLimit || 35000);
+  const result = await submitPQTx(hex);
+  if (result.status === 'pending') accountNonce++;
+  return result;
 }
-
-async function submitTx(hexStr){const res=await fetch(API+'/api/v1/tx/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({signed_tx_hex:hexStr})});return await res.json();}
 async function getMatchNonce(addressHex){
   const res=await fetch(API+'/api/v1/betting/match-nonce/'+addressHex);
   const data=await res.json();
@@ -11112,19 +11111,16 @@ async function createPokerTableOnChain(buyIn,maxSeats){
   try{
     await updateBalance();
     if(piBalance<wager){showToast('Insufficient balance for buy-in','error');return;}
-    const nonce=accountNonce;
     const serverSeed=crypto.getRandomValues(new Uint8Array(32));
     const serverSeedHash=BLAKE3.hash(serverSeed);
-    const hex=buildSignedTxJson('CreateMatch',{
+    const result=await buildAndSubmitTx('CreateMatch',{
       game_category:1,
       game_id:'poker',
       wager:wager,
       max_players:maxSeats,
       server_seed_hash:Array.from(serverSeedHash)
-    },nonce,sig,50000);
-    const result=await submitPQTx(hex);
+    },50000);
     if(result.status==='pending'){
-      accountNonce++;
       localStorage.setItem('poker_server_seed_'+hexEncode(serverSeedHash),hexEncode(serverSeed));
       hideModal('createTableModal');
       showToast('Poker table create sent: '+(result.tx_hash||'').slice(0,16)+'...','success');
@@ -11203,16 +11199,13 @@ async function joinPokerTableOnChain(table){
   try{
     await updateBalance();
     if(piBalance<table.buy_in){showToast('Insufficient balance for buy-in','error');return;}
-    const nonce=accountNonce;
     const matchId=hexDecode(table.id);
     const clientSeed=crypto.getRandomValues(new Uint8Array(32));
-    const hex=buildSignedTxJson('JoinMatch',{
+    const result=await buildAndSubmitTx('JoinMatch',{
       match_id:Array.from(matchId),
       client_seed:Array.from(clientSeed)
-    },nonce,sig,30000);
-    const result=await submitPQTx(hex);
+    },30000);
     if(result.status==='pending'){
-      accountNonce++;
       showToast('Join sent: '+(result.tx_hash||'').slice(0,16)+'...','success');
       setTimeout(async ()=>{
         await loadPokerTables();
@@ -11286,14 +11279,12 @@ async function resolvePokerMatchOnChain(){
     const winnerAddrBytes=winnerAddrs.map(a=>hexDecode(a));
     const serverSeed=hexDecode(seedHex);
     const gasLimit=50000+(winnerAddrBytes.length*10000);
-    const hex=buildSignedTxJson('ResolveMatch',{
+    const result=await buildAndSubmitTx('ResolveMatch',{
       match_id:Array.from(matchId),
       winners:winnerAddrBytes.map(w=>Array.from(w)),
       server_seed:Array.from(serverSeed)
-    },nonce,sig,gasLimit);
-    const result=await submitPQTx(hex);
+    },gasLimit);
     if(result.status==='pending'){
-      accountNonce++;
       showToast('Resolve sent: '+(result.tx_hash||'').slice(0,16)+'...','success');
       setTimeout(async ()=>{
         await loadPokerTables();
