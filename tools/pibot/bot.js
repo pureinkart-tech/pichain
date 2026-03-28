@@ -991,6 +991,131 @@ bot.command('export', async (ctx) => {
   ctx.deleteMessage().catch(() => {});
 });
 bot.command('import', (ctx) => { ctx.session.awaitingInput = 'import_key'; ctx.reply('Paste the contents of your PQ wallet JSON file (from the desktop app or CLI miner).\n\nYou can find it by opening the wallet .json file in a text editor and copying everything.'); });
+
+// ── Buy/Sell PI with SOL ───────────────────────────────────────────────────
+const PI_PRICE_USD = parseFloat(process.env.PI_PRICE_USD || '0.001'); // $0.001 per PI
+const PI_TREASURY_USER = process.env.PI_TREASURY_USER || ''; // Telegram ID of treasury wallet owner
+const PI_TREASURY_ADDR = process.env.PI_TREASURY_ADDRESS || ''; // PIChain address with PI to sell
+
+bot.command('buypi', async (ctx) => {
+  const u = await getUser(ctx.from.id);
+  const args = (ctx.match || '').trim().split(/\s+/);
+  const amountPi = parseFloat(args[0]);
+
+  if (!amountPi || amountPi <= 0) {
+    await ctx.reply(
+      '🟣 *Buy PI with SOL*\n\n' +
+      `Current price: *$${PI_PRICE_USD}/PI*\n\n` +
+      'Usage: `/buypi <amount>`\n' +
+      'Example: `/buypi 1000` — buy 1,000 PI\n\n' +
+      `$1 = ${(1/PI_PRICE_USD).toLocaleString()} PI`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  if (!PI_TREASURY_ADDR) {
+    await ctx.reply('PI sales are not configured yet. Check back soon!');
+    return;
+  }
+
+  const costUsd = amountPi * PI_PRICE_USD;
+  const solPrice = cachedSolPrice || 90;
+  const costSol = costUsd / solPrice;
+  const piAddr = u.wallet_address || u.pi_address || u.address || '';
+
+  if (!piAddr || piAddr === '0'.repeat(40)) {
+    await ctx.reply('You need a PIChain wallet first. Type /wallet to set one up.');
+    return;
+  }
+
+  if (!u.solWallet) {
+    await ctx.reply('You need a Solana wallet to pay with SOL. Switch to Solana chain first with /wallet.');
+    return;
+  }
+
+  // Check SOL balance
+  const solBal = await sol.getBalance(u.solWallet.publicKey).catch(() => 0);
+  const LAMPORTS_PER_SOL_N = 1_000_000_000;
+  const costLamports = Math.ceil(costSol * LAMPORTS_PER_SOL_N);
+
+  if (solBal < costLamports) {
+    await ctx.reply(
+      `❌ Insufficient SOL balance.\n\n` +
+      `Cost: ${costSol.toFixed(6)} SOL ($${costUsd.toFixed(2)})\n` +
+      `Your balance: ${(solBal / LAMPORTS_PER_SOL_N).toFixed(4)} SOL\n\n` +
+      `Deposit SOL to:\n\`${u.solWallet.publicKey}\``
+    );
+    return;
+  }
+
+  // Confirm
+  ctx.session.pendingBuy = { amountPi, costLamports, costSol, costUsd, piAddr };
+  await ctx.reply(
+    `🟣 *Buy ${amountPi.toLocaleString()} PI*\n\n` +
+    `Price: $${PI_PRICE_USD}/PI\n` +
+    `Cost: ${costSol.toFixed(6)} SOL ($${costUsd.toFixed(2)})\n` +
+    `SOL price: $${solPrice.toFixed(2)}\n\n` +
+    `PI will be sent to:\n\`${piAddr}\`\n\n` +
+    `Confirm?`,
+    { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('✅ Confirm Buy', 'confirm_buypi').text('❌ Cancel', 'cancel_buypi') }
+  );
+});
+
+bot.callbackQuery('confirm_buypi', async (ctx) => {
+  const pending = ctx.session.pendingBuy;
+  if (!pending) { await ctx.answerCallbackQuery('No pending order').catch(() => {}); return; }
+  ctx.session.pendingBuy = null;
+
+  const u = await getUser(ctx.from.id);
+  await ctx.editMessageText('⏳ Processing your PI purchase...').catch(() => {});
+
+  try {
+    // 1. Transfer SOL from buyer to treasury SOL address
+    const solFeeAddr = SOL_FEE_ADDR || PI_FEE_ADDR;
+    if (solFeeAddr && u.solWallet) {
+      await sol.transfer(u.solWallet, solFeeAddr, pending.costLamports);
+    }
+
+    // 2. Transfer PI from treasury to buyer
+    if (PI_TREASURY_USER && PI_TREASURY_ADDR) {
+      const piAmount = Math.floor(pending.amountPi * 1e9); // base units
+      await pi.transfer(PI_TREASURY_USER, PI_TREASURY_ADDR, pending.piAddr, piAmount);
+    }
+
+    await ctx.editMessageText(
+      `✅ *Purchase Complete!*\n\n` +
+      `You bought: ${pending.amountPi.toLocaleString()} PI\n` +
+      `Paid: ${pending.costSol.toFixed(6)} SOL ($${pending.costUsd.toFixed(2)})\n\n` +
+      `PI sent to: \`${pending.piAddr}\`\n\n` +
+      `Type /wallet to see your updated balance.`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+  } catch (e) {
+    await ctx.editMessageText('❌ Purchase failed: ' + (e.message || e)).catch(() => {});
+  }
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.callbackQuery('cancel_buypi', async (ctx) => {
+  ctx.session.pendingBuy = null;
+  await ctx.editMessageText('Purchase cancelled.').catch(() => {});
+  await ctx.answerCallbackQuery().catch(() => {});
+});
+
+bot.command('piprice', async (ctx) => {
+  const solPrice = cachedSolPrice || 90;
+  const piPerSol = solPrice / PI_PRICE_USD;
+  await ctx.reply(
+    `🟣 *PI Price*\n\n` +
+    `$${PI_PRICE_USD} per PI\n` +
+    `1 SOL = ${piPerSol.toLocaleString()} PI\n` +
+    `1 PI = ${(PI_PRICE_USD / solPrice).toFixed(8)} SOL\n\n` +
+    `Buy: /buypi <amount>`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
 bot.command('portfolio', async (ctx) => { await showPortfolio(ctx, await getUser(ctx.from.id)); });
 bot.command('settings', async (ctx) => { await showSettings(ctx, await getUser(ctx.from.id)); });
 bot.command('tokens', async (ctx) => { const u = await getUser(ctx.from.id); await showTokens(ctx, u.chain); });
