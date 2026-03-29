@@ -137,18 +137,19 @@ impl MiningConfig {
         let total_cores = num_cpus::get();
 
         // Start with profile defaults
+        // Initial batch sizes are conservative — adaptive tuning adjusts during mining
         let (prof_threads, prof_digits, prof_batches) = match args.profile.as_deref() {
-            Some("low") => (2.min(total_cores), 200u32, 1u32),
-            Some("normal") => ((total_cores / 2).max(2), 500, 1),
-            Some("max") => (total_cores, 5000, 8),
+            Some("low") => (2.min(total_cores), 100u32, 1u32),
+            Some("normal") => ((total_cores / 2).max(2), 200, 1),
+            Some("max") => (total_cores, 500, 4),
             _ => {
-                // Auto-detect optimal settings based on core count
+                // Auto-detect: start small, adaptive tuning will scale up
                 if total_cores <= 4 {
-                    (total_cores, 500, 1)
+                    (total_cores, 100, 1) // Laptop: start at 100
                 } else if total_cores <= 16 {
-                    (total_cores, 1000, 2)
+                    (total_cores, 200, 2) // Desktop: start at 200
                 } else {
-                    (total_cores, 2000, 4) // Server-class
+                    (total_cores, 500, 4) // Server: start at 500
                 }
             }
         };
@@ -874,6 +875,23 @@ async fn main() -> anyhow::Result<()> {
     let mut proofs_accepted: u64 = 0;
     let mut loop_count: u64 = 0;
 
+    // Adaptive batch sizing: target 3-8 seconds per compute round.
+    // Too fast = small rewards per proof. Too slow = frontier moves past you.
+    // Disabled when user explicitly sets --digits-per-batch (manual mode).
+    let use_adaptive = args.digits_per_batch.is_none();
+    let mut adaptive_batch_size: u32 = base_batch_size;
+    const TARGET_SECS_LOW: f64 = 3.0;
+    const TARGET_SECS_HIGH: f64 = 8.0;
+    const MAX_ADAPTIVE_BATCH: u32 = 5_000; // cap: prevents batches so large they can't compete
+    if use_adaptive {
+        info!("Adaptive batch sizing enabled (target {}-{}s per round). Use --digits-per-batch to set manually.", TARGET_SECS_LOW as u32, TARGET_SECS_HIGH as u32);
+    } else {
+        info!(
+            digits_per_batch = base_batch_size,
+            "Manual batch size set — adaptive tuning disabled"
+        );
+    }
+
     // Mining loop
     loop {
         // Check for shutdown
@@ -921,11 +939,11 @@ async fn main() -> anyhow::Result<()> {
         };
         // Scale: 1 miner=full, 2-5=half, 6-20=quarter, 21+=minimum
         let effective_min_batch = if active_miners <= 1 {
-            base_batch_size.max(server_min)
+            adaptive_batch_size.max(server_min)
         } else if active_miners <= 5 {
-            (base_batch_size / 2).max(server_min)
+            (adaptive_batch_size / 2).max(server_min)
         } else if active_miners <= 20 {
-            (base_batch_size / 4).max(server_min)
+            (adaptive_batch_size / 4).max(server_min)
         } else {
             server_min
         };
@@ -1173,9 +1191,37 @@ async fn main() -> anyhow::Result<()> {
             position,
             elapsed_ms = compute_time.as_millis(),
             digits_per_sec = format!("{:.0}", digits_per_sec),
+            batch_size = adaptive_batch_size,
             "PI digits computed ({} threads)",
             num_threads,
         );
+
+        // Adaptive batch sizing: adjust based on actual compute time
+        // Target: 3-8 seconds per round for optimal throughput
+        // Skipped when user explicitly set --digits-per-batch
+        let elapsed_secs = compute_time.as_secs_f64();
+        if use_adaptive && elapsed_secs > 0.1 {
+            // Only adapt after meaningful computation (skip near-instant rounds)
+            let old_batch = adaptive_batch_size;
+            if elapsed_secs < TARGET_SECS_LOW && adaptive_batch_size < MAX_ADAPTIVE_BATCH {
+                // Too fast — increase batch size (scale proportionally, cap growth at 2x)
+                let scale = (TARGET_SECS_LOW / elapsed_secs).min(2.0);
+                adaptive_batch_size =
+                    ((adaptive_batch_size as f64 * scale) as u32).min(MAX_ADAPTIVE_BATCH);
+            } else if elapsed_secs > TARGET_SECS_HIGH {
+                // Too slow — decrease batch size (scale proportionally, floor at server minimum)
+                let scale = TARGET_SECS_HIGH / elapsed_secs;
+                adaptive_batch_size = ((adaptive_batch_size as f64 * scale) as u32).max(server_min);
+            }
+            if adaptive_batch_size != old_batch {
+                info!(
+                    old = old_batch,
+                    new = adaptive_batch_size,
+                    elapsed_secs = format!("{:.1}", elapsed_secs),
+                    "Adaptive batch size adjusted"
+                );
+            }
+        }
 
         // 4. Find PoW nonce and submit all batches
         let mut current_nonce = nonce;
