@@ -875,13 +875,14 @@ async fn main() -> anyhow::Result<()> {
     let mut proofs_accepted: u64 = 0;
     let mut loop_count: u64 = 0;
 
-    // Adaptive batch sizing: target 3-8 seconds per compute round.
-    // Too fast = small rewards per proof. Too slow = frontier moves past you.
+    // Adaptive batch sizing: target 10-30 seconds per compute round.
+    // Balances throughput (bigger batches = less overhead) with responsiveness
+    // (smaller batches = less wasted work if frontier moves).
     // Disabled when user explicitly sets --digits-per-batch (manual mode).
     let use_adaptive = args.digits_per_batch.is_none();
     let mut adaptive_batch_size: u32 = base_batch_size;
-    const TARGET_SECS_LOW: f64 = 3.0;
-    const TARGET_SECS_HIGH: f64 = 8.0;
+    const TARGET_SECS_LOW: f64 = 10.0;
+    const TARGET_SECS_HIGH: f64 = 30.0;
     const MAX_ADAPTIVE_BATCH: u32 = 5_000; // cap: prevents batches so large they can't compete
     if use_adaptive {
         info!("Adaptive batch sizing enabled (target {}-{}s per round). Use --digits-per-batch to set manually.", TARGET_SECS_LOW as u32, TARGET_SECS_HIGH as u32);
@@ -937,7 +938,7 @@ async fn main() -> anyhow::Result<()> {
             }
             _ => 1,
         };
-        // Scale: 1 miner=full, 2-5=half, 6-20=quarter, 21+=minimum
+        // Scale by active miners to avoid overlap, then adaptive tunes the base
         let effective_min_batch = if active_miners <= 1 {
             adaptive_batch_size.max(server_min)
         } else if active_miners <= 5 {
@@ -1196,23 +1197,18 @@ async fn main() -> anyhow::Result<()> {
             num_threads,
         );
 
-        // Adaptive batch sizing: adjust based on actual compute time
-        // Target: 3-8 seconds per round for optimal throughput
-        // Skipped when user explicitly set --digits-per-batch
+        // Adaptive batch sizing: adjust based on actual compute time.
+        // Only adapts when the batch wasn't limited by external factors (gap size, server min).
+        // Measures digits_per_second from actual computation and targets the right batch size.
         let elapsed_secs = compute_time.as_secs_f64();
-        if use_adaptive && elapsed_secs > 0.1 {
-            // Only adapt after meaningful computation (skip near-instant rounds)
+        if use_adaptive && elapsed_secs > 0.5 && total_batch_digits > 0 {
             let old_batch = adaptive_batch_size;
-            if elapsed_secs < TARGET_SECS_LOW && adaptive_batch_size < MAX_ADAPTIVE_BATCH {
-                // Too fast — increase batch size (scale proportionally, cap growth at 2x)
-                let scale = (TARGET_SECS_LOW / elapsed_secs).min(2.0);
-                adaptive_batch_size =
-                    ((adaptive_batch_size as f64 * scale) as u32).min(MAX_ADAPTIVE_BATCH);
-            } else if elapsed_secs > TARGET_SECS_HIGH {
-                // Too slow — decrease batch size (scale proportionally, floor at server minimum)
-                let scale = TARGET_SECS_HIGH / elapsed_secs;
-                adaptive_batch_size = ((adaptive_batch_size as f64 * scale) as u32).max(server_min);
-            }
+            let digits_per_sec_actual = total_batch_digits as f64 / elapsed_secs;
+            // Target: batch that takes TARGET_SECS_LOW to TARGET_SECS_HIGH
+            let target_digits = (digits_per_sec_actual * (TARGET_SECS_LOW + TARGET_SECS_HIGH) / 2.0) as u32;
+            // Smooth adjustment: move 30% toward target (prevents oscillation)
+            let smoothed = ((adaptive_batch_size as f64 * 0.7) + (target_digits as f64 * 0.3)) as u32;
+            adaptive_batch_size = smoothed.clamp(server_min, MAX_ADAPTIVE_BATCH);
             if adaptive_batch_size != old_batch {
                 info!(
                     old = old_batch,
