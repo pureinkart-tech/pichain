@@ -930,6 +930,12 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
         <span>Real</span>
         <span id="modeLabel" style="font-size:11px;color:var(--muted);margin-left:4px;">Demo Mode</span>
       </div>
+      <div class="mode-toggle" id="currencyToggle" style="display:none;">
+        <span style="color:var(--cyan);">PI</span>
+        <div class="mode-switch" id="currencySwitch" onclick="toggleCurrency()"></div>
+        <span style="color:#ab9ff2;">SOL</span>
+        <span id="currencyLabel" style="font-size:11px;color:var(--muted);margin-left:4px;">Betting with PI</span>
+      </div>
       <div class="wallet-bar" id="walletBar">
         <span id="walletStatus">No wallet connected</span>
         <button class="btn btn-sm btn-primary" onclick="showWalletModal()">Connect Wallet</button>
@@ -1373,16 +1379,13 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
             <div style="display:flex;gap:6px;justify-content:center;margin-bottom:6px;">
               <button class="btn btn-outline active" id="btnArcadeAI_m" onclick="setArcadeMode('ai')" style="flex:1;max-width:100px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:10px;">
                 <svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#22d3ee" stroke-width="2.5" fill="rgba(34,211,238,0.1)"/><text x="20" y="26" text-anchor="middle" fill="#22d3ee" font-size="18" font-weight="bold" font-family="serif">&#960;</text></svg>
-                <span style="font-size:10px;font-weight:700;color:#22d3ee;">PI Demo</span>
+                <span style="font-size:10px;font-weight:700;color:#22d3ee;">vs AI</span>
               </button>
-              <button class="btn btn-outline" id="btnArcadePi1v1_m" onclick="setArcadeMode('pi_1v1')" style="flex:1;max-width:100px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:10px;">
-                <svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#22d3ee" stroke-width="2.5" fill="rgba(34,211,238,0.1)"/><text x="20" y="26" text-anchor="middle" fill="#22d3ee" font-size="18" font-weight="bold" font-family="serif">&#960;</text></svg>
-                <span style="font-size:10px;font-weight:700;color:#22d3ee;">PI 1v1</span>
+              <button class="btn btn-outline" id="btnArcadePi1v1_m" onclick="setArcadeMode('1v1')" style="flex:1;max-width:100px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:10px;">
+                <svg width="22" height="22" viewBox="0 0 40 40" fill="none"><circle cx="14" cy="16" r="6" stroke="#fbbf24" stroke-width="2"/><circle cx="26" cy="16" r="6" stroke="#fb7185" stroke-width="2"/></svg>
+                <span style="font-size:10px;font-weight:700;color:var(--gold);">1v1 Bet</span>
               </button>
-              <button class="btn btn-outline" id="btnArcadeSol1v1_m" onclick="setArcadeMode('sol_1v1')" style="flex:1;max-width:100px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:10px;">
-                <svg width="22" height="22" viewBox="0 0 40 40" fill="none"><defs><linearGradient id="solGradArcM" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#00FFA3"/><stop offset="50%" stop-color="#03E1FF"/><stop offset="100%" stop-color="#DC1FFF"/></linearGradient></defs><circle cx="20" cy="20" r="18" stroke="url(#solGradArcM)" stroke-width="2.5" fill="rgba(171,159,242,0.08)"/><path d="M11 25.5h14.5l3.5-3.5H14.5L11 25.5z M11 14.5l3.5 3.5H29l-3.5-3.5H11z M11 18.5h18l-3.5 3.5H14.5L11 18.5z" fill="url(#solGradArcM)" opacity="0.9"/></svg>
-                <span style="font-size:10px;font-weight:700;background:linear-gradient(135deg,#00FFA3,#03E1FF,#DC1FFF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">SOL 1v1</span>
-              </button>
+              <button class="btn btn-outline" id="btnArcadeSol1v1_m" style="display:none;"></button>
             </div>
             <!-- Wager -->
             <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:6px;">
@@ -1415,19 +1418,13 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
             <div style="display:flex;gap:8px;">
               <button class="btn btn-outline active" id="btnArcadeAI" onclick="setArcadeMode('ai')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-radius:12px;">
                 <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#22d3ee" stroke-width="2.5" fill="rgba(34,211,238,0.1)"/><text x="20" y="26" text-anchor="middle" fill="#22d3ee" font-size="18" font-weight="bold" font-family="serif">&#960;</text></svg>
-                <span style="font-size:11px;font-weight:700;color:#22d3ee;">PI</span>
-                <span style="font-size:10px;color:var(--muted);">Demo</span>
+                <span style="font-size:11px;font-weight:700;color:#22d3ee;">vs AI</span>
               </button>
-              <button class="btn btn-outline" id="btnArcadePi1v1" onclick="setArcadeMode('pi_1v1')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-radius:12px;">
-                <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#22d3ee" stroke-width="2.5" fill="rgba(34,211,238,0.1)"/><text x="20" y="26" text-anchor="middle" fill="#22d3ee" font-size="18" font-weight="bold" font-family="serif">&#960;</text></svg>
-                <span style="font-size:11px;font-weight:700;color:#22d3ee;">PI</span>
-                <span style="font-size:10px;color:var(--muted);">1v1</span>
+              <button class="btn btn-outline" id="btnArcadePi1v1" onclick="setArcadeMode('1v1')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-radius:12px;">
+                <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><circle cx="14" cy="16" r="6" stroke="#fbbf24" stroke-width="2"/><circle cx="26" cy="16" r="6" stroke="#fb7185" stroke-width="2"/><path d="M8 32c0-6 4-10 12-10s12 4 12 10" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/></svg>
+                <span style="font-size:11px;font-weight:700;color:var(--gold);">1v1 Bet</span>
               </button>
-              <button class="btn btn-outline" id="btnArcadeSol1v1" onclick="setArcadeMode('sol_1v1')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-radius:12px;">
-                <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><defs><linearGradient id="solGradArc" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#00FFA3"/><stop offset="50%" stop-color="#03E1FF"/><stop offset="100%" stop-color="#DC1FFF"/></linearGradient></defs><circle cx="20" cy="20" r="18" stroke="url(#solGradArc)" stroke-width="2.5" fill="rgba(171,159,242,0.08)"/><path d="M11 25.5h14.5l3.5-3.5H14.5L11 25.5z M11 14.5l3.5 3.5H29l-3.5-3.5H11z M11 18.5h18l-3.5 3.5H14.5L11 18.5z" fill="url(#solGradArc)" opacity="0.9"/></svg>
-                <span style="font-size:11px;font-weight:700;background:linear-gradient(135deg,#00FFA3,#03E1FF,#DC1FFF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">SOL</span>
-                <span style="font-size:10px;color:var(--muted);">1v1</span>
-              </button>
+              <button class="btn btn-outline" id="btnArcadeSol1v1" style="display:none;"></button>
             </div>
           </div>
 
@@ -1643,28 +1640,8 @@ td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(30,41,59,0.3);}
       </div>
       <input type="hidden" id="matchGameType" value="FPS">
     </div>
-    <div class="form-row">
-      <label>Currency</label>
-      <div style="display:flex;gap:10px;">
-        <div id="currencyPI" onclick="selectMatchCurrency('PI')" style="flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 16px;border:2px solid var(--cyan);border-radius:12px;background:rgba(34,211,238,0.08);transition:all 0.2s;">
-          <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#22d3ee" stroke-width="2.5" fill="rgba(34,211,238,0.1)"/><text x="20" y="26" text-anchor="middle" fill="#22d3ee" font-size="18" font-weight="bold" font-family="serif">&#960;</text></svg>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:var(--text);">PI</div>
-            <div style="font-size:11px;color:var(--dim);">PIChain</div>
-          </div>
-          <input type="radio" name="matchCurrency" value="PI" checked style="accent-color:var(--cyan);margin-left:auto;width:16px;height:16px;">
-        </div>
-        <div id="currencySOL" onclick="selectMatchCurrency('SOL')" style="flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 16px;border:2px solid var(--border);border-radius:12px;background:transparent;transition:all 0.2s;">
-          <svg width="28" height="28" viewBox="0 0 40 40" fill="none"><defs><linearGradient id="solGrad" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#00FFA3"/><stop offset="50%" stop-color="#03E1FF"/><stop offset="100%" stop-color="#DC1FFF"/></linearGradient></defs><circle cx="20" cy="20" r="18" stroke="url(#solGrad)" stroke-width="2.5" fill="rgba(171,159,242,0.08)"/><path d="M11 25.5h14.5l3.5-3.5H14.5L11 25.5z M11 14.5l3.5 3.5H29l-3.5-3.5H11z M11 18.5h18l-3.5 3.5H14.5L11 18.5z" fill="url(#solGrad)" opacity="0.9"/></svg>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:var(--text);">SOL</div>
-            <div style="font-size:11px;color:var(--dim);">Solana</div>
-          </div>
-          <input type="radio" name="matchCurrency" value="SOL" style="accent-color:#ab9ff2;margin-left:auto;width:16px;height:16px;">
-        </div>
-      </div>
-      <input type="hidden" id="matchCurrency" value="PI">
-    </div>
+    <!-- Currency is now set globally via the PI/SOL toggle at the top -->
+    <input type="hidden" id="matchCurrency" value="PI">
     <div class="form-row" style="display:flex;gap:10px;" id="matchPlayersWagerRow">
       <div style="flex:1;" id="matchPlayersRow">
         <label>Max Players</label>
@@ -2008,6 +1985,7 @@ let walletKeypair=null,walletAddress=null,walletAddressHex='',walletSeedHex='';
 const DEMO_SESSION_ID='demo_'+Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b=>b.toString(16).padStart(2,'0')).join('');
 let accountNonce=0,piBalance=0,currentBaseFee=1000;
 let DEMO_MODE=true;
+let BETTING_CURRENCY='PI'; // 'PI' or 'SOL'
 let playerDisplayName='';
 let localPlayerId='';
 
@@ -2785,27 +2763,27 @@ async function getMatchNonce(addressHex){
 // =====================================================================
 function toggleMode(){
   if(DEMO_MODE&&!walletKeypair&&!phantomConnected){
-    // Trying to switch to real mode but no wallet — show chain choice
     showRealModeChoice();
     return;
   }
-  if(DEMO_MODE&&!walletKeypair&&phantomConnected){
-    // Phantom connected, good enough for SOL betting
-    DEMO_MODE=false;
-    const sw=document.getElementById('modeSwitch');
-    sw.classList.toggle('real',true);
-    document.getElementById('modeLabel').textContent='Real Mode (SOL)';
-    showToast('Real mode — wagers use SOL from Phantom','success');
-    loadPokerTables();
-    return;
-  }
-  if(DEMO_MODE&&walletKeypair){
-    // PI wallet connected
+  if(DEMO_MODE){
     DEMO_MODE=false;
     const sw=document.getElementById('modeSwitch');
     sw.classList.toggle('real',true);
     document.getElementById('modeLabel').textContent='Real Mode';
-    showToast('Real mode — wagers use PI from your wallet','success');
+    // Show currency toggle
+    document.getElementById('currencyToggle').style.display='flex';
+    // Auto-select currency based on what's connected
+    if(!walletKeypair&&phantomConnected){
+      BETTING_CURRENCY='SOL';
+      document.getElementById('currencySwitch').classList.add('real');
+      document.getElementById('currencyLabel').textContent='Betting with SOL';
+    } else if(walletKeypair&&!phantomConnected){
+      BETTING_CURRENCY='PI';
+      document.getElementById('currencySwitch').classList.remove('real');
+      document.getElementById('currencyLabel').textContent='Betting with PI';
+    }
+    showToast('Real mode — betting with '+BETTING_CURRENCY,'success');
     loadPokerTables();
     return;
   }
@@ -2814,8 +2792,25 @@ function toggleMode(){
   const sw2=document.getElementById('modeSwitch');
   sw2.classList.toggle('real',false);
   document.getElementById('modeLabel').textContent='Demo Mode';
+  document.getElementById('currencyToggle').style.display='none';
   showToast('Demo mode — play without wagering','info');
   loadPokerTables();
+}
+
+function toggleCurrency(){
+  if(BETTING_CURRENCY==='PI'){
+    if(!phantomConnected){showToast('Connect Phantom wallet for SOL betting','error');return;}
+    BETTING_CURRENCY='SOL';
+    document.getElementById('currencySwitch').classList.add('real');
+    document.getElementById('currencyLabel').textContent='Betting with SOL';
+    showToast('Switched to SOL betting','info');
+  }else{
+    if(!walletKeypair){showToast('Connect PI wallet first','error');return;}
+    BETTING_CURRENCY='PI';
+    document.getElementById('currencySwitch').classList.remove('real');
+    document.getElementById('currencyLabel').textContent='Betting with PI';
+    showToast('Switched to PI betting','info');
+  }
 }
 
 function showRealModeChoice(){
@@ -3480,6 +3475,46 @@ function handleRelayMessage(msg){
       }
       break;
 
+    // --- Rematch Handlers ---
+    case 'rematch_update': {
+      const area=document.getElementById('rematchArea');
+      if(area&&currentPvpMatch&&msg.mid===currentPvpMatch.id){
+        const count=msg.votes||0;
+        const needed=msg.needed||2;
+        area.innerHTML=`<div style="color:var(--gold);font-size:12px;margin-top:4px;">${count}/${needed} players want to play again</div>`;
+      }
+      break;
+    }
+    case 'rematch_start': {
+      if(!currentPvpMatch||msg.mid!==currentPvpMatch.id)break;
+      showToast('Rematch starting!','success');
+      // Create a new match with same settings and auto-join
+      const oldM=currentPvpMatch;
+      const newMatch={
+        id:msg.new_mid,
+        game_type:oldM.game_type,
+        wager:oldM.wager,
+        max_players:oldM.max_players,
+        players:msg.players||[],
+        creator:msg.creator,
+        state:'open',
+        created:Date.now(),
+        private:oldM.private||false,
+        currency:oldM.currency||'PI',
+        unlimited:oldM.unlimited||false,
+        bot_count:oldM.bot_count||0,
+        bot_skill:oldM.bot_skill||3
+      };
+      // Clean up old match
+      leavePvpMatch();
+      // Enter the new match
+      pvpMatches.unshift(newMatch);
+      renderPvpMatches();
+      currentPvpMatch=newMatch;
+      showPvpReadyLobby(newMatch);
+      break;
+    }
+
     // --- SOL Poker Chip Handlers ---
     case 'sol_poker_balance':
       solPokerChips = msg.chips || 0;
@@ -3617,6 +3652,21 @@ function showCreateMatchModal(){
   showModal('createMatchModal');
   // Reset to default selection
   selectGameType(document.querySelector('#gameSelector .game-icon-btn[data-game="FPS"]'),'FPS');
+  // Sync wager label and defaults with global currency
+  const wagerLabel=document.getElementById('wagerLabel');
+  const wagerInput=document.getElementById('matchWager');
+  if(DEMO_MODE){
+    wagerLabel.textContent='Wager per Player (Demo)';
+    wagerInput.value='10';
+  }else if(BETTING_CURRENCY==='SOL'){
+    wagerLabel.textContent='Wager per Player (SOL)';
+    wagerInput.value='0.05';
+    wagerInput.min='0.001';wagerInput.max='100';wagerInput.step='0.001';
+  }else{
+    wagerLabel.textContent='Wager per Player (PI)';
+    wagerInput.value='1';
+    wagerInput.min='0.01';wagerInput.max='1000';wagerInput.step='0.01';
+  }
 }
 
 const gameIcons={
@@ -3716,13 +3766,19 @@ function createMatch(){
   const playersVal=document.getElementById('matchPlayers').value;
   const isUnlimited=playersVal==='unlimited';
   let maxPlayers=isUnlimited?100:parseInt(playersVal);
-  const currency=document.getElementById('matchCurrency').value||'PI';
+  // Use global currency toggle (not per-match dropdown)
+  const currency=DEMO_MODE?'PI':BETTING_CURRENCY;
 
   if(currency==='SOL'){
     if(wager<0.001||wager>100){showToast('Wager must be 0.001-100 SOL','error');return;}
     if(!phantomConnected||!phantomPubkey){showToast('Connect Phantom wallet first','error');return;}
-  }else{
+    // Check SOL balance
+    if(solBalance<wager*1e9){showToast('Insufficient SOL balance ('+formatSOL(solBalance)+' SOL)','error');return;}
+  }else if(!DEMO_MODE){
     if(wager<0.01||wager>1000){showToast('Wager must be 0.01-1000 PI','error');return;}
+    if(!walletKeypair){showToast('Connect PI wallet first','error');return;}
+    // Check PI balance
+    if(piBalance<wager*1e9){showToast('Insufficient PI balance ('+formatPI(piBalance)+' PI)','error');return;}
   }
 
   const creator=currency==='SOL'?phantomPubkey:(walletAddressHex||DEMO_SESSION_ID);
@@ -4308,6 +4364,16 @@ function showGameControls(gameType){
   }
 }
 
+function requestRematch(){
+  if(!currentPvpMatch)return;
+  const m=currentPvpMatch;
+  const myAddr=m.currency==='SOL'?phantomPubkey:(walletAddressHex||DEMO_SESSION_ID);
+  sendRelay({t:'rematch_request',mid:m.id,addr:myAddr});
+  showToast('Rematch requested — waiting for others...','info');
+  const area=document.getElementById('rematchArea');
+  if(area) area.innerHTML='<div style="color:var(--neon-green);font-size:12px;margin-top:4px;">You voted to play again. Waiting for others...</div>';
+}
+
 function leavePvpMatch(){
   // NEVER send game_disconnected relay for ANY game. Leaving mid-game = eliminated.
   // The quitter loses their bet. The game continues for remaining players.
@@ -4682,24 +4748,26 @@ function pvpGameOver(m,canvas,winnerAddr){
   ctx.fillStyle='white';ctx.font='18px sans-serif';
   ctx.fillText(isWin?'You are the last one standing':'Winner: '+shortW,canvas.width/2,canvas.height/2+30);
 
+  const rematchBtn=`<button class="btn-glow" onclick="requestRematch()" style="margin-top:8px;background:linear-gradient(135deg,rgba(34,197,94,0.2),rgba(34,197,94,0.05));border-color:#22c55e;">Play Again (Same Bet)</button>`;
+  const leaveBtn=`<button class="btn btn-outline" onclick="leavePvpMatch()" style="margin-top:8px;">Leave</button>`;
+  const rematchArea=`<div id="rematchArea" style="margin-top:8px;"></div>`;
+
   if(isSol){
-    // Send game result to relay for SOL payout with dispute window
     sendRelay({t:'sol_game_result',mid:m.id,winner:winnerAddr});
     document.getElementById('pvpGameControls').innerHTML=`<div style="text-align:center;padding:8px;">
       <div style="color:var(--gold);font-size:13px;">Verifying result — 5 minute dispute window...</div>
       <div id="solDisputeArea"></div>
-      <button class="btn-glow" onclick="leavePvpMatch()" style="margin-top:12px;">Back to Lobby</button>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">${rematchBtn}${leaveBtn}</div>${rematchArea}
     </div>`;
-  }else if(!DEMO_MODE && walletKeypair && m.currency==='PI' && piMatches){
-    // Send game result to relay for PI payout with dispute window
+  }else if(!DEMO_MODE && walletKeypair && m.currency==='PI'){
     sendRelay({t:'pi_game_result',mid:m.id,winner:winnerAddr});
     document.getElementById('pvpGameControls').innerHTML=`<div style="text-align:center;padding:8px;">
       <div style="color:var(--gold);font-size:13px;">Verifying result — 5 minute dispute window...</div>
       <div id="solDisputeArea"></div>
-      <button class="btn-glow" onclick="leavePvpMatch()" style="margin-top:12px;">Back to Lobby</button>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">${rematchBtn}${leaveBtn}</div>${rematchArea}
     </div>`;
   }else{
-    document.getElementById('pvpGameControls').innerHTML=`<button class="btn-glow" onclick="leavePvpMatch()" style="margin-top:12px;">Back to Lobby</button>`;
+    document.getElementById('pvpGameControls').innerHTML=`<div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">${rematchBtn}${leaveBtn}</div>${rematchArea}`;
   }
 }
 
@@ -14122,25 +14190,33 @@ function revealArcadeSeed(game,result){
 function aRng(){return arcadeRNG?arcadeRNG():Math.random();}
 
 function setArcadeMode(mode){
-  arcadeMode=mode;
+  // Normalize: 'pi_1v1' and 'sol_1v1' both become '1v1' — currency comes from global toggle
+  if(mode==='pi_1v1'||mode==='sol_1v1') mode='1v1';
+  // Map '1v1' to the correct internal mode based on global currency
+  if(mode==='1v1'){
+    arcadeMode=DEMO_MODE?'ai':(BETTING_CURRENCY==='SOL'?'sol_1v1':'pi_1v1');
+  }else{
+    arcadeMode='ai';
+  }
   // Desktop buttons
-  document.getElementById('btnArcadeAI').classList.toggle('active',mode==='ai');
-  document.getElementById('btnArcadePi1v1').classList.toggle('active',mode==='pi_1v1');
-  document.getElementById('btnArcadeSol1v1').classList.toggle('active',mode==='sol_1v1');
+  const aiBtn=document.getElementById('btnArcadeAI');
+  const piBtn=document.getElementById('btnArcadePi1v1');
+  const solBtn=document.getElementById('btnArcadeSol1v1');
+  aiBtn.classList.toggle('active',mode==='ai');
+  // Hide the separate PI/SOL buttons, show a single "1v1 Bet" button
+  if(piBtn){piBtn.classList.toggle('active',mode==='1v1');piBtn.style.display='';}
+  if(solBtn)solBtn.style.display='none'; // Hide SOL button — use global toggle instead
   // Mobile buttons
   const aiM=document.getElementById('btnArcadeAI_m');
   const piM=document.getElementById('btnArcadePi1v1_m');
   const solM=document.getElementById('btnArcadeSol1v1_m');
   if(aiM)aiM.classList.toggle('active',mode==='ai');
-  if(piM)piM.classList.toggle('active',mode==='pi_1v1');
-  if(solM)solM.classList.toggle('active',mode==='sol_1v1');
-  // SOL mode: grey out AI button
-  const aiBtn=document.getElementById('btnArcadeAI');
-  if(mode==='sol_1v1'){aiBtn.style.opacity='0.4';aiBtn.style.pointerEvents='none';}
-  else{aiBtn.style.opacity='';aiBtn.style.pointerEvents='';}
-  if(aiM){if(mode==='sol_1v1'){aiM.style.opacity='0.4';aiM.style.pointerEvents='none';}else{aiM.style.opacity='';aiM.style.pointerEvents='';}}
+  if(piM){piM.classList.toggle('active',mode==='1v1');}
+  if(solM)solM.style.display='none';
+  aiBtn.style.opacity='';aiBtn.style.pointerEvents='';
+  if(aiM){aiM.style.opacity='';aiM.style.pointerEvents='';}
   // Update currency label
-  const currLabel=mode==='sol_1v1'?'SOL':'PI';
+  const currLabel=DEMO_MODE?'Demo':(BETTING_CURRENCY==='SOL'?'SOL':'PI');
   document.getElementById('arcadeWagerLabel').textContent='Wager ('+currLabel+')';
   const wlm=document.getElementById('arcadeWagerLabelMobile');
   if(wlm)wlm.textContent='Wager ('+currLabel+')';
@@ -14193,12 +14269,12 @@ function openArcadeGame(game){
   arcadeMode='ai';
   document.getElementById('btnArcadeAI').classList.add('active');
   document.getElementById('btnArcadePi1v1').classList.remove('active');
-  document.getElementById('btnArcadeSol1v1').classList.remove('active');
   document.getElementById('btnArcadeAI').style.opacity='';
   document.getElementById('btnArcadeAI').style.pointerEvents='';
   document.getElementById('arcade1v1Panel').style.display='none';
   document.getElementById('arcadeSeedPanel').style.display='block';
-  document.getElementById('arcadeWagerLabel').textContent='Wager (PI)';
+  const currLabel=DEMO_MODE?'Demo':(BETTING_CURRENCY==='SOL'?'SOL':'PI');
+  document.getElementById('arcadeWagerLabel').textContent='Wager ('+currLabel+')';
   document.getElementById('arcadeMatchStatus').style.display='none';
   // Mobile resets
   const aiM=document.getElementById('btnArcadeAI_m');
@@ -14206,24 +14282,15 @@ function openArcadeGame(game){
   const solM=document.getElementById('btnArcadeSol1v1_m');
   if(aiM){aiM.classList.add('active');aiM.style.opacity='';aiM.style.pointerEvents='';}
   if(piM)piM.classList.remove('active');
-  if(solM)solM.classList.remove('active');
+  if(solM)solM.style.display='none';
   const m1v1=document.getElementById('arcade1v1Panel_m');
   if(m1v1)m1v1.style.display='none';
   const wlm=document.getElementById('arcadeWagerLabelMobile');
-  if(wlm)wlm.textContent='Wager (PI)';
+  if(wlm)wlm.textContent='Wager ('+currLabel+')';
   const msm=document.getElementById('arcadeMatchStatus_m');
   if(msm)msm.style.display='none';
 
-  // SOL 1v1: only if Phantom connected
-  if(!phantomConnected){
-    document.getElementById('btnArcadeSol1v1').style.opacity='0.4';
-    document.getElementById('btnArcadeSol1v1').title='Connect Phantom wallet first';
-    if(solM){solM.style.opacity='0.4';solM.title='Connect Phantom wallet first';}
-  }else{
-    document.getElementById('btnArcadeSol1v1').style.opacity='';
-    document.getElementById('btnArcadeSol1v1').title='';
-    if(solM){solM.style.opacity='';solM.title='';}
-  }
+  // SOL buttons are hidden — currency is set globally
 
   // Init provably fair seed for display
   initArcadeSeed();

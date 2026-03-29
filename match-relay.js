@@ -912,6 +912,52 @@ wss.on('connection', (ws) => {
         broadcast({ t: 'match_updated', match: m });
         break;
       }
+      // --- Rematch System ---
+      case 'rematch_request': {
+        if (!msg.mid || !msg.addr) break;
+        const m = matches.get(msg.mid);
+        if (!m || m.state !== 'completed') break;
+        if (!m._rematchVotes) m._rematchVotes = new Set();
+        m._rematchVotes.add(msg.addr);
+        matches.set(msg.mid, m);
+
+        // Count non-bot players
+        const humanPlayers = (m.players || []).filter(p => !p.simulated);
+        const needed = Math.max(2, humanPlayers.length);
+        broadcast({ t: 'rematch_update', mid: msg.mid, votes: m._rematchVotes.size, needed });
+
+        // If enough votes, create a new match
+        if (m._rematchVotes.size >= needed) {
+          const crypto = await import('crypto');
+          const newId = crypto.randomBytes(16).toString('hex');
+          const newMatch = {
+            id: newId,
+            game_type: m.game_type,
+            wager: m.wager,
+            max_players: m.max_players,
+            players: humanPlayers.map(p => ({ addr: p.addr, simulated: false, ready: false })),
+            creator: m.creator,
+            state: 'open',
+            created: Date.now(),
+            private: m.private || false,
+            currency: m.currency || 'PI',
+            unlimited: m.unlimited || false,
+            bot_count: m.bot_count || 0,
+            bot_skill: m.bot_skill || 3,
+          };
+          // Add bots back
+          if (newMatch.bot_count > 0) {
+            for (let bi = 0; bi < newMatch.bot_count; bi++) {
+              const botName = 'Bot_' + ['Sarge','Visor','Grunt','Stripe','Major','Daemia','Alpha','Bravo','Charlie','Delta'][bi % 10];
+              newMatch.players.push({ addr: 'bot_' + botName.toLowerCase() + '_' + bi, simulated: true, ready: true });
+            }
+          }
+          matches.set(newId, newMatch);
+          broadcast({ t: 'rematch_start', mid: msg.mid, new_mid: newId, creator: newMatch.creator, players: newMatch.players });
+        }
+        break;
+      }
+
       case 'race_pos': {
         // Racing: relay player position to all other clients (filtered by match_id client-side)
         if (!msg.mid) break;
