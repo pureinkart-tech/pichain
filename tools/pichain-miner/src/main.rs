@@ -84,6 +84,20 @@ struct Args {
     #[arg(long)]
     info: bool,
 
+    /// Send PI to another address, then exit.
+    /// Example: --send Pi314abc123... --amount 10.5
+    #[arg(long)]
+    send: Option<String>,
+
+    /// Amount of PI to send (used with --send).
+    #[arg(long)]
+    amount: Option<f64>,
+
+    /// Check balance of any address, then exit.
+    /// Example: --balance Pi314abc123...
+    #[arg(long)]
+    balance: Option<String>,
+
     /// Position offset for multi-miner operation.
     /// Each miner should use a different offset (e.g., 0, 1, 2...)
     /// to avoid computing the same range as other miners.
@@ -585,6 +599,149 @@ async fn main() -> anyhow::Result<()> {
     if args.info {
         show_wallet_info(&args.rpc_url, &address_hex, &address, use_pool_submit).await;
         wait_for_key_on_windows();
+        return Ok(());
+    }
+
+    // Handle --balance: check any address balance and exit
+    if let Some(ref bal_addr) = args.balance {
+        let mut hex = bal_addr.clone();
+        if hex.starts_with("Pi314") {
+            hex = hex[5..].to_string();
+        }
+        if hex.starts_with("pi314") {
+            hex = hex[5..].to_string();
+        }
+        hex = hex.to_lowercase();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_default();
+        match client
+            .get(format!("{}/api/v1/account/{}", args.rpc_url, hex))
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.json::<AccountResponse>().await {
+                Ok(acct) => {
+                    let bal = acct.balance as f64 / 1_000_000_000.0;
+                    let locked = acct.locked_balance.unwrap_or(0) as f64 / 1_000_000_000.0;
+                    eprintln!();
+                    eprintln!("  Address:  Pi314{}", hex);
+                    eprintln!("  Balance:  {:.4} PI", bal);
+                    if locked > 0.0 {
+                        eprintln!("  Locked:   {:.4} PI (gas fees)", locked);
+                    }
+                    eprintln!("  Nonce:    {}", acct.nonce);
+                    if !acct.found {
+                        eprintln!("  Status:   Account not found (no transactions yet)");
+                    }
+                    eprintln!();
+                }
+                Err(e) => eprintln!("Error parsing response: {e}"),
+            },
+            Err(e) => eprintln!("Error reaching node: {e}"),
+        }
+        return Ok(());
+    }
+
+    // Handle --send: transfer PI to another address and exit
+    if let Some(ref send_to) = args.send {
+        let send_amount = match args.amount {
+            Some(a) if a > 0.0 => a,
+            _ => {
+                eprintln!(
+                    "Error: --send requires --amount (e.g., --send Pi314abc... --amount 10.5)"
+                );
+                std::process::exit(1);
+            }
+        };
+        if use_pool_submit {
+            eprintln!("Error: --send requires --keypair (cannot send from pool-submit mode)");
+            std::process::exit(1);
+        }
+        let wallet = loaded.as_ref().expect("--keypair required for --send");
+
+        let mut to_hex = send_to.clone();
+        if to_hex.starts_with("Pi314") {
+            to_hex = to_hex[5..].to_string();
+        }
+        if to_hex.starts_with("pi314") {
+            to_hex = to_hex[5..].to_string();
+        }
+        to_hex = to_hex.to_lowercase();
+        let to_bytes =
+            hex::decode(&to_hex).map_err(|e| anyhow::anyhow!("invalid recipient address: {e}"))?;
+        if to_bytes.len() != 20 {
+            anyhow::bail!(
+                "recipient address must be 20 bytes (40 hex chars), got {}",
+                to_bytes.len()
+            );
+        }
+        let mut to_arr = [0u8; 20];
+        to_arr.copy_from_slice(&to_bytes);
+        let recipient = pichain_crypto::keys::Address(to_arr);
+        let amount_base = (send_amount * 1_000_000_000.0) as u64;
+
+        eprintln!();
+        eprintln!("  Sending {:.4} PI", send_amount);
+        eprintln!("  From:   {}", address);
+        eprintln!("  To:     {}", recipient);
+        eprintln!();
+
+        // Get nonce
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_default();
+        let acct: AccountResponse = client
+            .get(format!("{}/api/v1/account/{}", args.rpc_url, address_hex))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if acct.balance < amount_base {
+            eprintln!(
+                "  Error: Insufficient balance ({:.4} PI available)",
+                acct.balance as f64 / 1e9
+            );
+            std::process::exit(1);
+        }
+
+        // Build and sign Transfer transaction
+        let tx_data = pichain_types::transaction::TransactionData {
+            sender: address,
+            nonce: acct.nonce,
+            kind: pichain_types::transaction::TransactionKind::Transfer {
+                recipient,
+                amount: amount_base,
+            },
+            gas_limit: 21_000,
+            max_base_fee: 1_000,
+            max_priority_fee: 100,
+            chain_id: args.chain_id,
+        };
+        let signed = Transaction::sign_pq(tx_data, &wallet.pq_keypair);
+        let json_bytes = serde_json::to_vec(&signed)?;
+        let tx_hex = hex::encode(&json_bytes);
+
+        let submit: serde_json::Value = client
+            .post(format!("{}/api/v1/tx/submit", args.rpc_url))
+            .json(&serde_json::json!({ "signed_tx_hex": tx_hex }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if submit["status"] == "pending" {
+            eprintln!("  Sent! TX: {}", submit["tx_hash"].as_str().unwrap_or("?"));
+        } else {
+            eprintln!(
+                "  Failed: {}",
+                submit["error"].as_str().unwrap_or("unknown error")
+            );
+        }
+        eprintln!();
         return Ok(());
     }
 
