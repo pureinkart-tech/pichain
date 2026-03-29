@@ -1205,9 +1205,11 @@ async fn main() -> anyhow::Result<()> {
             let old_batch = adaptive_batch_size;
             let digits_per_sec_actual = total_batch_digits as f64 / elapsed_secs;
             // Target: batch that takes TARGET_SECS_LOW to TARGET_SECS_HIGH
-            let target_digits = (digits_per_sec_actual * (TARGET_SECS_LOW + TARGET_SECS_HIGH) / 2.0) as u32;
+            let target_digits =
+                (digits_per_sec_actual * (TARGET_SECS_LOW + TARGET_SECS_HIGH) / 2.0) as u32;
             // Smooth adjustment: move 30% toward target (prevents oscillation)
-            let smoothed = ((adaptive_batch_size as f64 * 0.7) + (target_digits as f64 * 0.3)) as u32;
+            let smoothed =
+                ((adaptive_batch_size as f64 * 0.7) + (target_digits as f64 * 0.3)) as u32;
             adaptive_batch_size = smoothed.clamp(server_min, MAX_ADAPTIVE_BATCH);
             if adaptive_batch_size != old_batch {
                 info!(
