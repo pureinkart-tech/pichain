@@ -1015,9 +1015,7 @@ async fn main() -> anyhow::Result<()> {
                 gap_fill_pos.unwrap()
             } else if let Some(local_pos) = local_position {
                 // Normal: use local tracking, but never go behind the frontier
-                // and cap to frontier + max_ahead to avoid racing too far
-                let effective_local = local_pos.max(mining_status.frontier_position);
-                effective_local
+                local_pos.max(mining_status.frontier_position)
             } else {
                 // No local tracking — start at the frontier
                 mining_status.frontier_position
