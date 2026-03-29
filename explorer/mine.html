@@ -496,7 +496,7 @@ chmod +x pichain-miner-linux-x86_64</pre>
           <strong style="color:var(--green);">Where do I get an address?</strong><br>
           &bull; <strong>PiBot:</strong> Open <a href="https://t.me/PiChainTradeBot" target="_blank">@PiChainTradeBot</a> on Telegram, type <code>/wallet</code> to see your address<br>
           &bull; <strong>Desktop App:</strong> Your address is shown on the main screen after creating a wallet<br>
-          &bull; <strong>Send PI between wallets:</strong> Use <code>pichain-cli send --keypair wallet.json --to Pi314... --amount 100</code>
+          &bull; <strong>Send PI:</strong> <code>./pichain-miner --keypair wallet.json --send Pi314... --amount 100</code>
         </div>
       </div>
     </div>
@@ -559,7 +559,7 @@ chmod +x pichain-miner-macos-x86_64 && xattr -cr pichain-miner-macos-x86_64</pre
           <strong style="color:var(--green);">Where do I get an address?</strong><br>
           &bull; <strong>PiBot:</strong> Open <a href="https://t.me/PiChainTradeBot" target="_blank">@PiChainTradeBot</a> on Telegram, type <code>/wallet</code> to see your address<br>
           &bull; <strong>Desktop App:</strong> Your address is shown on the main screen after creating a wallet<br>
-          &bull; <strong>Send PI between wallets:</strong> Use <code>pichain-cli send --keypair wallet.json --to Pi314... --amount 100</code>
+          &bull; <strong>Send PI:</strong> <code>./pichain-miner --keypair wallet.json --send Pi314... --amount 100</code>
         </div>
       </div>
     </div>
@@ -608,8 +608,62 @@ chmod +x pichain-miner-macos-x86_64 && xattr -cr pichain-miner-macos-x86_64</pre
           <strong style="color:var(--green);">Where do I get an address?</strong><br>
           &bull; <strong>PiBot:</strong> Open <a href="https://t.me/PiChainTradeBot" target="_blank">@PiChainTradeBot</a> on Telegram, type <code>/wallet</code> to see your address<br>
           &bull; <strong>Desktop App:</strong> Your address is shown on the main screen after creating a wallet<br>
-          &bull; <strong>Send PI between wallets:</strong> Use <code>pichain-cli send --keypair wallet.json --to Pi314... --amount 100</code>
+          &bull; <strong>Send PI:</strong> <code>./pichain-miner --keypair wallet.json --send Pi314... --amount 100</code>
         </div>
+      </div>
+    </div>
+
+    <!-- Wallet Management -->
+    <div style="margin-top:32px;">
+      <h3 style="font-size:20px;font-weight:800;margin-bottom:16px;">Wallet Management</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">The CLI miner is an all-in-one tool. No separate wallet app needed.</p>
+
+      <div class="step-card">
+        <div class="step-header"><h4>Check your balance</h4></div>
+        <pre><span class="c"># Check your own wallet</span>
+./pichain-miner --keypair wallet.json --info
+
+<span class="c"># Check any address</span>
+./pichain-miner --keypair wallet.json --balance Pi314abc123...</pre>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><h4>Send PI to another address</h4></div>
+        <pre>./pichain-miner --keypair wallet.json --send Pi314abc123... --amount 10.5</pre>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><h4>View your wallet on the web</h4></div>
+        <p>Go to any tab on <a href="https://pichain.net" style="color:var(--cyan);">pichain.net</a> &rarr; Connect Wallet &rarr; enter your address in "View Only" mode to see your balance and transaction history.</p>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><h4>Use PiBot for easy wallet access</h4></div>
+        <p>For buying/selling PI, managing your wallet from your phone, and Telegram notifications:</p>
+        <pre><span class="c"># Mine to your PiBot address (no wallet file needed)</span>
+./pichain-miner --address Pi314YOUR_PIBOT_ADDRESS
+
+<span class="c"># Get your PiBot address: open @PiChainTradeBot on Telegram, type /wallet</span></pre>
+      </div>
+    </div>
+
+    <!-- Adaptive Mining -->
+    <div style="margin-top:32px;">
+      <h3 style="font-size:20px;font-weight:800;margin-bottom:16px;">Smart Mining</h3>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">The miner automatically optimizes for your hardware. No manual tuning needed.</p>
+
+      <div style="padding:16px 20px;border-radius:10px;background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.15);font-size:13px;line-height:2;">
+        <strong style="color:var(--cyan);">Adaptive Batch Sizing (default)</strong><br>
+        The miner measures your hardware speed and automatically adjusts batch sizes for optimal performance. A MacBook Air, MacBook Pro, and server each find their own sweet spot.<br><br>
+        <strong style="color:var(--accent);">Profiles:</strong><br>
+        <code>--profile auto</code> &mdash; auto-detects best settings (default)<br>
+        <code>--profile low</code> &mdash; 2 threads, great for laptops on battery<br>
+        <code>--profile normal</code> &mdash; half your cores, balanced for daily use<br>
+        <code>--profile max</code> &mdash; all cores, maximum earnings<br><br>
+        <strong style="color:var(--gold);">Manual Control:</strong><br>
+        <code>--digits-per-batch 500</code> &mdash; set exact batch size (disables adaptive)<br>
+        <code>--max-cpu 50</code> &mdash; limit CPU usage to 50%<br>
+        <code>--threads 4</code> &mdash; use exactly 4 CPU threads
       </div>
     </div>
 

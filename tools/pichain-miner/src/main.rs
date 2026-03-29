@@ -84,6 +84,10 @@ struct Args {
     #[arg(long)]
     info: bool,
 
+    /// Open interactive wallet menu (balance, send, mine).
+    #[arg(long)]
+    menu: bool,
+
     /// Send PI to another address, then exit.
     /// Example: --send Pi314abc123... --amount 10.5
     #[arg(long)]
@@ -412,6 +416,203 @@ async fn show_wallet_info(
 
 /// On Windows, pause so the user can read the output before the terminal closes.
 /// Does nothing on Unix (terminal stays open).
+/// Interactive wallet menu — shows balance and lets user choose what to do.
+async fn interactive_menu(
+    rpc_url: &str,
+    address_hex: &str,
+    address: &pichain_crypto::keys::Address,
+    wallet: Option<&LoadedWallet>,
+    chain_id: u64,
+) -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    loop {
+        // Fetch balance
+        let (bal, nonce) = match client
+            .get(format!("{}/api/v1/account/{}", rpc_url, address_hex))
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.json::<AccountResponse>().await {
+                Ok(acct) => (acct.balance as f64 / 1e9, acct.nonce),
+                _ => (0.0, 0),
+            },
+            _ => (0.0, 0),
+        };
+
+        eprintln!();
+        eprintln!("  ╔══════════════════════════════════════════════════════╗");
+        eprintln!("  ║          PIChain Miner — Wallet Menu                ║");
+        eprintln!("  ╠══════════════════════════════════════════════════════╣");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ║  Wallet:  {:<44}║", format!("{}", address));
+        eprintln!("  ║  Balance: {:<44}║", format!("{:.4} PI", bal));
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ╠══════════════════════════════════════════════════════╣");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ║  [1] Start Mining                                    ║");
+        eprintln!("  ║  [2] Send PI                                         ║");
+        eprintln!("  ║  [3] Check Balance                                   ║");
+        eprintln!("  ║  [4] Wallet Info                                     ║");
+        eprintln!("  ║  [5] Exit                                            ║");
+        eprintln!("  ║                                                      ║");
+        eprintln!("  ╚══════════════════════════════════════════════════════╝");
+        eprintln!();
+        eprint!("  Choose [1-5]: ");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let choice = input.trim();
+
+        match choice {
+            "1" | "" => return Ok("mine".to_string()),
+            "2" => {
+                if wallet.is_none() {
+                    eprintln!("  Error: --keypair required to send PI");
+                    continue;
+                }
+                eprint!("  Recipient address (Pi314...): ");
+                let mut to_input = String::new();
+                std::io::stdin().read_line(&mut to_input)?;
+                let to_str = to_input.trim();
+                if to_str.is_empty() {
+                    continue;
+                }
+
+                eprint!("  Amount (PI): ");
+                let mut amt_input = String::new();
+                std::io::stdin().read_line(&mut amt_input)?;
+                let amount: f64 = match amt_input.trim().parse() {
+                    Ok(a) if a > 0.0 => a,
+                    _ => {
+                        eprintln!("  Invalid amount");
+                        continue;
+                    }
+                };
+
+                let mut to_hex = to_str.to_string();
+                if to_hex.starts_with("Pi314") {
+                    to_hex = to_hex[5..].to_string();
+                }
+                if to_hex.starts_with("pi314") {
+                    to_hex = to_hex[5..].to_string();
+                }
+                to_hex = to_hex.to_lowercase();
+                let to_bytes = match hex::decode(&to_hex) {
+                    Ok(b) if b.len() == 20 => b,
+                    _ => {
+                        eprintln!("  Invalid address");
+                        continue;
+                    }
+                };
+                let mut to_arr = [0u8; 20];
+                to_arr.copy_from_slice(&to_bytes);
+                let recipient = pichain_crypto::keys::Address(to_arr);
+                let amount_base = (amount * 1e9) as u64;
+
+                if bal * 1e9 < amount_base as f64 {
+                    eprintln!("  Insufficient balance ({:.4} PI)", bal);
+                    continue;
+                }
+
+                let w = wallet.unwrap();
+                let tx_data = pichain_types::transaction::TransactionData {
+                    sender: *address,
+                    nonce,
+                    kind: pichain_types::transaction::TransactionKind::Transfer {
+                        recipient,
+                        amount: amount_base,
+                    },
+                    gas_limit: 21_000,
+                    max_base_fee: 1_000,
+                    max_priority_fee: 100,
+                    chain_id,
+                };
+                let signed =
+                    pichain_types::transaction::Transaction::sign_pq(tx_data, &w.pq_keypair);
+                let json_bytes = serde_json::to_vec(&signed)?;
+                let tx_hex = hex::encode(&json_bytes);
+
+                match client
+                    .post(format!("{}/api/v1/tx/submit", rpc_url))
+                    .json(&serde_json::json!({ "signed_tx_hex": tx_hex }))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        let result: serde_json::Value = resp.json().await.unwrap_or_default();
+                        if result["status"] == "pending" {
+                            eprintln!(
+                                "\n  Sent {:.4} PI to {}\n  TX: {}",
+                                amount,
+                                recipient,
+                                result["tx_hash"].as_str().unwrap_or("?")
+                            );
+                        } else {
+                            eprintln!(
+                                "  Failed: {}",
+                                result["error"].as_str().unwrap_or("unknown")
+                            );
+                        }
+                    }
+                    Err(e) => eprintln!("  Error: {}", e),
+                }
+            }
+            "3" => {
+                eprint!("  Address to check (or Enter for yours): ");
+                let mut addr_input = String::new();
+                std::io::stdin().read_line(&mut addr_input)?;
+                let addr_str = addr_input.trim();
+                let check_hex = if addr_str.is_empty() {
+                    address_hex.to_string()
+                } else {
+                    let mut h = addr_str.to_string();
+                    if h.starts_with("Pi314") {
+                        h = h[5..].to_string();
+                    }
+                    if h.starts_with("pi314") {
+                        h = h[5..].to_string();
+                    }
+                    h.to_lowercase()
+                };
+                match client
+                    .get(format!("{}/api/v1/account/{}", rpc_url, check_hex))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => match resp.json::<AccountResponse>().await {
+                        Ok(acct) => {
+                            eprintln!("\n  Address: Pi314{}", check_hex);
+                            eprintln!("  Balance: {:.4} PI", acct.balance as f64 / 1e9);
+                            if acct.locked_balance.unwrap_or(0) > 0 {
+                                eprintln!(
+                                    "  Locked:  {:.4} PI",
+                                    acct.locked_balance.unwrap_or(0) as f64 / 1e9
+                                );
+                            }
+                            eprintln!("  Nonce:   {}", acct.nonce);
+                        }
+                        Err(e) => eprintln!("  Error: {}", e),
+                    },
+                    Err(e) => eprintln!("  Error: {}", e),
+                }
+            }
+            "4" => {
+                show_wallet_info(rpc_url, address_hex, address, wallet.is_none()).await;
+            }
+            "5" | "q" | "Q" => {
+                return Ok("exit".to_string());
+            }
+            _ => {
+                eprintln!("  Invalid choice");
+            }
+        }
+    }
+}
+
 fn wait_for_key_on_windows() {
     #[cfg(target_os = "windows")]
     {
@@ -601,6 +802,22 @@ async fn main() -> anyhow::Result<()> {
         show_wallet_info(&args.rpc_url, &address_hex, &address, use_pool_submit).await;
         wait_for_key_on_windows();
         return Ok(());
+    }
+
+    // Handle --menu: interactive wallet menu
+    if args.menu {
+        let action = interactive_menu(
+            &args.rpc_url,
+            &address_hex,
+            &address,
+            loaded.as_ref(),
+            args.chain_id,
+        )
+        .await?;
+        if action != "mine" {
+            return Ok(());
+        }
+        // Fall through to mining
     }
 
     // Handle --balance: check any address balance and exit
