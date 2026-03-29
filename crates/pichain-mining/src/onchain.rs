@@ -467,21 +467,31 @@ impl MiningProcessor {
 
         let current_min_batch = min_batch_size(self.registry.frontier());
         if proof.digit_count < current_min_batch {
-            return VerificationResult {
-                valid: false,
-                spot_checks: 0,
-                all_checks_passed: false,
-                reward_amount: 0,
-                start_position: proof.start_position,
-                digit_count: proof.digit_count,
-                error: Some(format!(
-                    "too few digits: {} (minimum {} at frontier {})",
-                    proof.digit_count,
-                    current_min_batch,
-                    self.registry.frontier()
-                )),
-                epoch_remaining_budget: None,
-            };
+            // Exception: allow small proofs that fill a gap at the frontier.
+            // Without this, tiny gaps (< min_batch_size) cause a permanent deadlock
+            // where the frontier can never advance.
+            let (frontier_gap_start, frontier_gap_size) = self.registry.find_next_gap();
+            let is_frontier_gap_fill = frontier_gap_start == self.registry.frontier()
+                && frontier_gap_size < current_min_batch as u64
+                && proof.start_position == frontier_gap_start
+                && proof.digit_count as u64 >= frontier_gap_size;
+            if !is_frontier_gap_fill {
+                return VerificationResult {
+                    valid: false,
+                    spot_checks: 0,
+                    all_checks_passed: false,
+                    reward_amount: 0,
+                    start_position: proof.start_position,
+                    digit_count: proof.digit_count,
+                    error: Some(format!(
+                        "too few digits: {} (minimum {} at frontier {})",
+                        proof.digit_count,
+                        current_min_batch,
+                        self.registry.frontier()
+                    )),
+                    epoch_remaining_budget: None,
+                };
+            }
         }
 
         if proof.digit_count > self.max_digits_per_proof {
@@ -1107,7 +1117,19 @@ impl MiningProcessor {
             .year_from_timestamp(self.block_timestamp_ms);
         let frontier = reg_stats.frontier_position;
         let min_batch = min_batch_size(frontier);
-        let (next_pos, gap_size) = self.registry.find_mineable_gap(min_batch);
+        // First check for ANY gap at the frontier (even tiny ones).
+        // If the frontier is stuck on a gap smaller than min_batch_size,
+        // we must report it so miners can fill it — otherwise the frontier deadlocks.
+        let (frontier_gap_pos, frontier_gap_size) = self.registry.find_next_gap();
+        let (next_pos, gap_size) = if frontier_gap_size > 0
+            && frontier_gap_size < min_batch as u64
+            && frontier_gap_pos == frontier
+        {
+            // Frontier is stuck on a tiny gap — report it directly
+            (frontier_gap_pos, frontier_gap_size)
+        } else {
+            self.registry.find_mineable_gap(min_batch)
+        };
         let pow_bits = difficulty::frontier_pow_bits(frontier, year);
         let frontier_target = difficulty::frontier_difficulty_target(frontier, year);
         // Effective target is the harder (smaller) of frontier-scaled and rate-based targets

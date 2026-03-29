@@ -1030,10 +1030,16 @@ async fn main() -> anyhow::Result<()> {
                 pos
             };
 
-            // If we've hit the cap (too far ahead of frontier), wait for
-            // frontier to catch up instead of wasting compute on positions
-            // that may never advance the frontier.
-            if local_position.is_some() && pos >= slot_pos.saturating_add(max_local_ahead) {
+            // If we've hit the cap (too far ahead of FRONTIER), wait.
+            // Compare against frontier_position, not slot_pos — because slot_pos
+            // advances with total_verified even when the frontier is stuck on a gap.
+            // This prevents the miner from racing 200K+ digits past a stuck frontier.
+            if local_position.is_some()
+                && pos
+                    >= mining_status
+                        .frontier_position
+                        .saturating_add(max_local_ahead)
+            {
                 info!(
                     local_pos = ?local_position,
                     frontier = mining_status.frontier_position,
@@ -1041,8 +1047,10 @@ async fn main() -> anyhow::Result<()> {
                     max_ahead = max_local_ahead,
                     "Waiting for frontier to catch up (proofs pending in blocks)..."
                 );
-                // DON'T reset local_position — keep it so we don't re-mine same range
-                // Just wait for blocks to catch up
+                // Clear last_gap_filled so we retry gap-fill on next iteration.
+                // Without this, the miner deadlocks: it won't retry the gap
+                // (thinks it already filled it) AND can't advance (frontier hasn't moved).
+                last_gap_filled = None;
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 continue;
             }
@@ -1050,7 +1058,8 @@ async fn main() -> anyhow::Result<()> {
             // Cap batch size to available gap at this position
             let max_gap = mining_status.max_batch_at_position;
             let min_required = mining_status.min_batch_size.max(10) as u64;
-            let effective = if max_gap < min_required {
+            let is_frontier_gap = pos == mining_status.frontier_position;
+            let effective = if max_gap < min_required && !is_frontier_gap {
                 warn!(
                     gap = max_gap,
                     min_required = min_required,
@@ -1060,6 +1069,14 @@ async fn main() -> anyhow::Result<()> {
                 local_position = None;
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 continue;
+            } else if max_gap < min_required && is_frontier_gap {
+                // Frontier gap smaller than min_batch — fill it anyway to unblock frontier
+                info!(
+                    gap = max_gap,
+                    position = pos,
+                    "Filling small frontier gap to unblock frontier"
+                );
+                max_gap as u32
             } else if max_gap < effective_min_batch as u64 {
                 // Gap is smaller than configured batch but >= min_required — use gap size
                 info!(
