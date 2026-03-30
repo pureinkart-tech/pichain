@@ -1710,33 +1710,28 @@ async function miningLoop(){
       return;
     }
 
-    // FRONTIER-FIRST MINING: Always mine at or near the server's next_position
-    // (first unmined gap from frontier). This ensures all miners advance the
-    // global frontier together instead of racing ahead independently.
-    // Use local tracking only to avoid re-mining the same gap within a round
-    // (server won't update until proof is in a block), but cap how far ahead.
-    var maxLocalAhead=batchSize*threadCount*5; // max 5 rounds ahead
+    // Use slot system to get this miner's own reserved range.
+    // Each miner gets a non-overlapping slot so browser miners don't compete
+    // with faster CLI miners for the same positions.
+    var maxLocalAhead=batchSize*threadCount*5;
     var serverNextPos=currentStatus.next_position??frontier;
+    try{
+      const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
+      const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
+      if(slotResp.ok){
+        const slot=await slotResp.json();
+        serverNextPos=slot.recommended_position||serverNextPos;
+        if(miningRound===1){
+          addLog('Mining slot #'+slot.slot_index+': frontier '+frontier.toLocaleString()+', '+batchSize+' digits/batch, '+slot.active_miners+' active miners','info');
+        }
+      }
+    }catch(e){}
 
-    // Always prefer server position; only use local if it's slightly ahead
-    // (within cap) to avoid re-mining the same gap
     if(browserMiningPosition<serverNextPos){
       browserMiningPosition=serverNextPos;
     } else if(browserMiningPosition>serverNextPos+maxLocalAhead){
-      addLog('Position '+browserMiningPosition.toLocaleString()+' too far ahead of frontier '+frontier.toLocaleString()+', resetting to server position','info');
+      addLog('Position '+browserMiningPosition.toLocaleString()+' too far ahead, resetting to slot position','info');
       browserMiningPosition=serverNextPos;
-    }
-
-    // On first round, log slot info
-    if(miningRound===1){
-      try{
-        const addrHex=Array.from(walletAddress).map(b=>b.toString(16).padStart(2,'0')).join('');
-        const slotResp=await fetch(API+'/api/v1/mining/slot/'+addrHex);
-        if(slotResp.ok){
-          const slot=await slotResp.json();
-          addLog('Mining slot #'+slot.slot_index+': frontier '+frontier.toLocaleString()+', '+batchSize+' digits/batch, '+slot.active_miners+' active miners','info');
-        }
-      }catch(e){}
     }
 
     // Capture round-local snapshot of status to avoid race conditions

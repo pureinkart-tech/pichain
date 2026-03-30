@@ -1511,7 +1511,7 @@ async fn main() -> anyhow::Result<()> {
                         "miner_address": address_hex,
                         "start_position": batch_pos,
                         "digit_count": batch_digit_count,
-                        "digits": hex::encode(&digits),
+                        "digits": digits,
                         "pow_nonce": pn,
                         "anchor_block_hash": hex::encode(anchor_block_hash),
                     }),
